@@ -25,48 +25,22 @@ namespace ImageRotater.Services
                 // the last kind.
                 ArtworkKind current = kind;
                 string section = current == ArtworkKind.Cover
-                    ? "ImageRotater|Covers"
-                    : "ImageRotater|Backgrounds";
+                    ? "ImageRotater|" + Loc.Get("LOCImageRotaterMenuCovers")
+                    : "ImageRotater|" + Loc.Get("LOCImageRotaterMenuBackgrounds");
 
                 yield return new GameMenuItem
                 {
                     MenuSection = section,
-                    // "Artwork", not "images": the picker takes video too, and
-                    // a separate "Add video" item would be the same command
-                    // behind a narrower filter - with the wrong choice hiding
-                    // the files the user came for.
-                    Description = "Add artwork files...",
-                    Action = a => handler.AddImages(selected, current)
+                    Description = current == ArtworkKind.Cover
+                        ? Loc.Get("LOCImageRotaterMenuBrowseCovers")
+                        : Loc.Get("LOCImageRotaterMenuBrowseBackgrounds"),
+                    Action = a => handler.ManageImages(selected.FirstOrDefault(), current)
                 };
 
                 yield return new GameMenuItem
                 {
                     MenuSection = section,
-                    // Source-agnostic: the dialog offers SteamGridDB and web
-                    // search as tabs, so naming one of them here would be
-                    // wrong the moment the user switches.
-                    Description = "Search images online...",
-                    Action = a => handler.BrowseSteamGridDb(selected.FirstOrDefault(), current)
-                };
-
-                yield return new GameMenuItem
-                {
-                    MenuSection = section,
-                    Description = "Download from SteamGridDB (automatic)",
-                    Action = a => handler.DownloadFromSteamGridDb(selected, current)
-                };
-
-                yield return new GameMenuItem
-                {
-                    MenuSection = section,
-                    Description = "Open folder",
-                    Action = a => handler.OpenImageFolder(selected.FirstOrDefault(), current)
-                };
-
-                yield return new GameMenuItem
-                {
-                    MenuSection = section,
-                    Description = "Remove all",
+                    Description = Loc.Get("LOCImageRotaterMenuRemoveAll"),
                     Action = a => handler.ClearImages(selected, current)
                 };
             }
@@ -77,7 +51,7 @@ namespace ImageRotater.Services
             yield return new GameMenuItem
             {
                 MenuSection = "ImageRotater",
-                Description = "Repair videos (fix black tiles)",
+                Description = Loc.Get("LOCImageRotaterMenuRepairVideos"),
                 Action = a => handler.RepairVideos(selected)
             };
         }

@@ -41,23 +41,23 @@ namespace ImageRotater.Services
                     if (Converted == 0)
                     {
                         return Failed > 0
-                            ? $"Nothing was converted, and {Failed} file(s) failed."
-                            : "Nothing needed converting.";
+                            ? Loc.Format("LOCImageRotaterNothingConvertedFailed", Failed)
+                            : Loc.Get("LOCImageRotaterNothingConverting");
                     }
 
-                    string text = $"Converted {Converted} file(s).";
+                    string text = Loc.Format("LOCImageRotaterConvertedFiles", Converted);
 
                     if (BytesBefore > 0)
                     {
                         double before = BytesBefore / 1048576.0;
                         double after = BytesAfter / 1048576.0;
 
-                        text += $" {before:0.#} MB became {after:0.#} MB.";
+                        text += Loc.Format("LOCImageRotaterMegabytesBecame", before, after);
                     }
 
                     if (Failed > 0)
                     {
-                        text += $" {Failed} file(s) could not be converted and were left alone.";
+                        text += Loc.Format("LOCImageRotaterFilesFailedUntouched", Failed);
                     }
 
                     return text;

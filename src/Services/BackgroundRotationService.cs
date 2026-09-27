@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using Playnite.SDK;
 using Playnite.SDK.Models;
 using ImageRotater.Models;
@@ -44,6 +46,26 @@ namespace ImageRotater.Services
         // never matches any candidate and would quietly disable
         // repeat-avoidance for exactly the games that letterbox.
         private readonly Dictionary<string, string> _lastPicked = new Dictionary<string, string>();
+
+        // Last media published for theme-side background rendering, separate from the database fallback.
+        private readonly Dictionary<string, PublishedFingerprint> _lastPublished =
+            new Dictionary<string, PublishedFingerprint>();
+
+        // Theme-side background publication is queued off the UI thread; stale per-game requests are discarded.
+        private readonly object _backgroundPublishStateLock = new object();
+        private readonly object _backgroundPublishIoLock = new object();
+        private readonly Dictionary<Guid, long> _backgroundPublishGeneration =
+            new Dictionary<Guid, long>();
+
+        // Global sequence keeps invalidated publish requests from becoming current again.
+        private long _backgroundPublishSequence;
+
+        private sealed class PublishedFingerprint
+        {
+            public string Path { get; set; }
+            public long Length { get; set; }
+            public DateTime LastWriteTimeUtc { get; set; }
+        }
 
         // The game each kind last rotated. Fullscreen re-raises the selection
         // event for the game already selected - on view changes and focus
@@ -165,6 +187,11 @@ namespace ImageRotater.Services
                 return;
             }
 
+            if (kind == ArtworkKind.Background && !settings.RotateBackgrounds)
+            {
+                return;
+            }
+
             if (kind == ArtworkKind.Cover && !settings.RotateCovers)
             {
                 return;
@@ -178,6 +205,11 @@ namespace ImageRotater.Services
 
         private void ApplyTo(Game game, ArtworkKind kind, ImageRotaterSettings settings)
         {
+            if (kind == ArtworkKind.Background && !settings.RotateBackgrounds)
+            {
+                return;
+            }
+
             if (kind == ArtworkKind.Cover && !settings.RotateCovers)
             {
                 return;
@@ -232,48 +264,82 @@ namespace ImageRotater.Services
                 return;
             }
 
-            // Do nothing at all unless the user has given this game artwork of
-            // this kind. Merely browsing past a game must not cause the plugin
-            // to touch it.
-            //
-            // This check cannot use the merged candidate list: that includes
-            // Playnite's own existing image, so every game with any artwork
-            // looks like it has candidates. Only the plugin's own folder
-            // distinguishes a game the user set up from one they scrolled past.
-            if (!HasPluginArtwork(game, kind))
+            // Any actual background rotation supersedes an older deferred
+            // publish for this game, even if this new rotation later discovers
+            // that nothing needs copying. Without this invalidation an older
+            // queued copy could wake up after a newer no-op and publish stale
+            // media back into backgrounds.published.
+            if (kind == ArtworkKind.Background)
             {
+                InvalidateBackgroundPublish(game.Id);
+            }
+
+            bool trace = kind == ArtworkKind.Background && _fileLogger != null && _fileLogger.IsEnabled;
+            Stopwatch total = trace ? Stopwatch.StartNew() : null;
+            Stopwatch step = trace ? Stopwatch.StartNew() : null;
+            long artworkMs = 0;
+            long preserveMs = 0;
+            long candidatesMs = 0;
+            long selectMs = 0;
+            long motionMs = 0;
+            long letterboxMs = 0;
+            long publishMs = 0;
+            long writeMs = 0;
+
+            bool hasArtwork = HasPluginArtwork(game, kind);
+            if (trace)
+            {
+                artworkMs = step.ElapsedMilliseconds;
+                step.Restart();
+            }
+
+            if (!hasArtwork)
+            {
+                if (trace)
+                {
+                    _fileLogger.Log($"BG PERF apply \"{game.Name}\" skip=no-art total={total.ElapsedMilliseconds}ms has={artworkMs}ms");
+                }
                 return;
             }
 
-            // Copy the game's pre-existing artwork into our folder before it is
-            // replaced. It then rotates like any other candidate, and survives
-            // even if Playnite later reclaims the now-unreferenced original.
-            // Only reached for games the user opted in above.
             _preserver?.Preserve(game, kind);
+            if (trace)
+            {
+                preserveMs = step.ElapsedMilliseconds;
+                step.Restart();
+            }
 
             IReadOnlyList<string> candidates = source.GetImagePaths(game);
+            if (trace)
+            {
+                candidatesMs = step.ElapsedMilliseconds;
+                step.Restart();
+            }
+
             if (candidates == null || candidates.Count == 0)
             {
-                // No plugin-owned art of this kind. Leave Playnite's own value
-                // alone rather than blanking it.
+                if (trace)
+                {
+                    _fileLogger.Log(
+                        $"BG PERF apply \"{game.Name}\" skip=no-candidates total={total.ElapsedMilliseconds}ms " +
+                        $"has={artworkMs}ms preserve={preserveMs}ms list={candidatesMs}ms");
+                }
                 return;
             }
 
-            // Session-mode memory is per kind, so a game's cover and background
-            // are chosen and remembered independently.
             Guid selectionKey = SelectionKey(game.Id, kind);
+            SelectionMode mode = modeOverride
+                ?? (kind == ArtworkKind.Cover ? settings.CoverSelectionMode : settings.SelectionMode);
 
             string path = _selector.Select(
-                selectionKey, candidates, PreviousFor(game.Id, kind),
-                modeOverride
-                    ?? (kind == ArtworkKind.Cover ? settings.CoverSelectionMode : settings.SelectionMode));
+                selectionKey, candidates, PreviousFor(game.Id, kind), mode);
 
-            // Fall back rather than showing nothing. A pick can go stale between
-            // being chosen and being written - most often because the previous
-            // rotation's own image lives in Playnite's library store and gets
-            // deleted when it is replaced. Trying the remaining candidates means
-            // a single unusable file costs one retry instead of an empty
-            // background.
+            if (trace)
+            {
+                selectMs = step.ElapsedMilliseconds;
+                step.Restart();
+            }
+
             if (!IsUsable(path))
             {
                 path = FirstUsable(candidates, path);
@@ -281,28 +347,20 @@ namespace ImageRotater.Services
 
             if (string.IsNullOrEmpty(path))
             {
+                if (trace)
+                {
+                    _fileLogger.Log(
+                        $"BG PERF apply \"{game.Name}\" skip=no-usable total={total.ElapsedMilliseconds}ms " +
+                        $"list={candidatesMs}ms select={selectMs}ms");
+                }
                 return;
             }
 
-            // Recorded before letterboxing swaps the path, so avoid-previous
-            // keeps comparing source images against source images.
             _lastPicked[WrittenKey(game.Id, kind)] = path;
-
-            // The pick exactly as chosen, before the still substitution below.
-            //
-            // Two consumers want different things from one pick. Playnite's
-            // database needs a STILL: it decodes the stored value to a single
-            // bitmap, so a moving file would show one frame while importing
-            // megabytes per rotation. A THEME renders the published file
-            // itself, and the plugin's controls animate it, so it needs the
-            // real thing. Substituting for both meant motion could never reach
-            // a theme at all.
             string picked = path;
 
             if (PosterFrame.IsMotion(path))
             {
-                // Null for video - GDI+ cannot decode a container - and null
-                // for a GIF whose first frame would not extract.
                 string still = PosterFrame.For(path);
 
                 if (still == null)
@@ -311,28 +369,37 @@ namespace ImageRotater.Services
 
                     if (string.IsNullOrEmpty(still))
                     {
-                        // Nothing static to write. The publish below is what a
-                        // theme needs and it has not happened yet, so publish
-                        // the motion pick before leaving rather than dropping
-                        // the rotation entirely - a game whose only artwork is
-                        // a video would otherwise never reach a theme.
-                        _publisher?.Publish(game, picked, kind, settings);
+                        if (trace)
+                        {
+                            motionMs = step.ElapsedMilliseconds;
+                            step.Restart();
+                        }
+
+                        bool motionOnlySamePublished = kind == ArtworkKind.Background &&
+                            IsSamePublishedBackground(game, picked);
+
+                        if (!motionOnlySamePublished)
+                        {
+                            _publisher?.Publish(game, picked, kind, settings);
+
+                            if (kind == ArtworkKind.Background)
+                            {
+                                RememberPublishedBackground(game, picked);
+                            }
+                        }
+
+                        if (trace)
+                        {
+                            publishMs = step.ElapsedMilliseconds;
+                            _fileLogger.Log(
+                                $"BG PERF apply \"{game.Name}\" motion-only total={total.ElapsedMilliseconds}ms " +
+                                $"has={artworkMs}ms preserve={preserveMs}ms list={candidatesMs}ms select={selectMs}ms " +
+                                $"poster={motionMs}ms publish={publishMs}ms samePublished={motionOnlySamePublished} " +
+                                $"candidates={candidates.Count} source={picked}");
+                        }
                         return;
                     }
 
-                    // Why the two motion kinds part company here.
-                    //
-                    // A VIDEO has no poster by nature, not by failure - GDI+
-                    // cannot decode a container. The file is fine and the
-                    // controls play it, so the still is a stand-in for the
-                    // DATABASE only and "picked" keeps the video. Publishing
-                    // the stand-in instead is precisely the bug that kept
-                    // animated artwork off themes.
-                    //
-                    // A GIF that would not extract is genuinely broken: GDI+
-                    // does read GIFs, so a failure means the file is corrupt.
-                    // Handing that to a theme just moves the failure, so the
-                    // replacement becomes the real pick.
                     if (!PosterFrame.IsVideo(path))
                     {
                         picked = still;
@@ -342,56 +409,117 @@ namespace ImageRotater.Services
                 path = still;
             }
 
-            // The rescue for picks the shape bias could not steer: a game with
-            // only odd-shaped images gets its pick letterboxed into a
-            // screen-shaped composite, so the stored value never triggers
-            // Playnite's visible re-fit on the next switch. Returns the
-            // original path untouched when it is already screen-shaped or the
-            // compose fails.
+            if (trace)
+            {
+                motionMs = step.ElapsedMilliseconds;
+                step.Restart();
+            }
+
             if (kind == ArtworkKind.Background && settings.LetterboxBackgrounds)
             {
                 path = Letterboxer.For(path, ShapeBias.ScreenAspect);
             }
 
-            // Publish the chosen cover for themes to bind directly.
-            //
-            // Set before the write-skip below, not after: when the pick is
-            // unchanged we skip the database write, but the theme still needs
-            // the current value - and on the first selection after startup the
-            // skip would otherwise leave this empty.
-            // Hand the pick to whatever makes it reachable from a theme.
-            // Rotation decides WHICH image; the publisher decides how a theme
-            // gets at it.
-            //
-            // Motion publishes the REAL file - a theme renders the published
-            // copy itself, so an animated pick must arrive animated, not as
-            // the poster substituted for Playnite's database.
-            //
-            // A STILL publishes the transformed path instead. It used to
-            // publish the raw pick here too, which quietly meant letterboxing
-            // never reached a theme at all: Fullscreen themes bind the
-            // published tile, so the option visibly did nothing in Fullscreen
-            // while Desktop (which renders the database value) obeyed it.
-            _publisher?.Publish(
-                game,
-                PosterFrame.IsMotion(picked) ? picked : path,
-                kind,
-                settings);
+            if (trace)
+            {
+                letterboxMs = step.ElapsedMilliseconds;
+                step.Restart();
+            }
+
+            string key = WrittenKey(game.Id, kind);
+            string publishPath = PosterFrame.IsMotion(picked) ? picked : path;
 
             string previous;
-            if (_lastWritten.TryGetValue(WrittenKey(game.Id, kind), out previous) &&
-                string.Equals(previous, path, StringComparison.OrdinalIgnoreCase))
+            bool sameWritten = _lastWritten.TryGetValue(key, out previous) &&
+                string.Equals(previous, path, StringComparison.OrdinalIgnoreCase);
+
+            // A database fallback being unchanged does NOT mean the theme-side
+            // media is unchanged. A video can use the same still fallback as a
+            // previous pick, so only skip before publishing when BOTH channels
+            // are already current. This preserves still<->video rotation while
+            // avoiding truly redundant publication work.
+            bool samePublished = kind == ArtworkKind.Background &&
+                IsSamePublishedBackground(game, publishPath);
+
+            if (sameWritten && samePublished)
             {
-                // Same image as last time - nothing to write. This is the common
-                // case in Session mode and avoids a database update per
-                // selection.
+                if (trace)
+                {
+                    _fileLogger.Log(
+                        $"BG PERF apply \"{game.Name}\" skip=same-all total={total.ElapsedMilliseconds}ms " +
+                        $"has={artworkMs}ms preserve={preserveMs}ms list={candidatesMs}ms select={selectMs}ms " +
+                        $"poster={motionMs}ms letterbox={letterboxMs}ms publish=0ms " +
+                        $"candidates={candidates.Count} mode={mode} source={picked} write={path}");
+                }
                 return;
             }
 
-            if (_writer.SetArtwork(game, path, kind))
+            if (sameWritten && kind == ArtworkKind.Background)
+            {
+                if (!samePublished)
+                {
+                    QueueBackgroundPublish(game, publishPath);
+                }
+
+                if (trace)
+                {
+                    _fileLogger.Log(
+                        $"BG PERF apply \"{game.Name}\" skip=db-same total={total.ElapsedMilliseconds}ms " +
+                        $"has={artworkMs}ms preserve={preserveMs}ms list={candidatesMs}ms select={selectMs}ms " +
+                        $"poster={motionMs}ms letterbox={letterboxMs}ms publish=queued samePublished={samePublished} " +
+                        $"candidates={candidates.Count} mode={mode} source={picked} write={path}");
+                }
+                return;
+            }
+
+            if (!samePublished)
+            {
+                _publisher?.Publish(game, publishPath, kind, settings);
+
+                if (kind == ArtworkKind.Background)
+                {
+                    RememberPublishedBackground(game, publishPath);
+                }
+            }
+
+            if (trace)
+            {
+                publishMs = step.ElapsedMilliseconds;
+                step.Restart();
+            }
+
+            if (sameWritten)
+            {
+                if (trace)
+                {
+                    _fileLogger.Log(
+                        $"BG PERF apply \"{game.Name}\" skip=db-same total={total.ElapsedMilliseconds}ms " +
+                        $"has={artworkMs}ms preserve={preserveMs}ms list={candidatesMs}ms select={selectMs}ms " +
+                        $"poster={motionMs}ms letterbox={letterboxMs}ms publish={publishMs}ms samePublished={samePublished} " +
+                        $"candidates={candidates.Count} mode={mode} source={picked} write={path}");
+                }
+                return;
+            }
+
+            bool written = _writer.SetArtwork(game, path, kind);
+            if (trace)
+            {
+                writeMs = step.ElapsedMilliseconds;
+            }
+
+            if (written)
             {
                 _lastWritten[WrittenKey(game.Id, kind)] = path;
                 ImageDiagnostics.LogApplied(game.Name, path, _settings, 0, 0, kind);
+            }
+
+            if (trace)
+            {
+                _fileLogger.Log(
+                    $"BG PERF apply \"{game.Name}\" total={total.ElapsedMilliseconds}ms written={written} " +
+                    $"has={artworkMs}ms preserve={preserveMs}ms list={candidatesMs}ms select={selectMs}ms " +
+                    $"poster={motionMs}ms letterbox={letterboxMs}ms publish={publishMs}ms writer={writeMs}ms " +
+                    $"candidates={candidates.Count} mode={mode} source={picked} write={path}");
             }
         }
 
@@ -434,7 +562,7 @@ namespace ImageRotater.Services
 
             try
             {
-                return _store.GetImagePaths(game.Id, kind).Count > 0;
+                return _store.HasAnyImage(game.Id, kind);
             }
             catch (Exception)
             {
@@ -499,6 +627,190 @@ namespace ImageRotater.Services
             return null;
         }
 
+        private void QueueBackgroundPublish(Game game, string sourcePath)
+        {
+            if (game == null || string.IsNullOrEmpty(sourcePath) || _publisher == null)
+            {
+                return;
+            }
+
+            long generation;
+            lock (_backgroundPublishStateLock)
+            {
+                generation = ++_backgroundPublishSequence;
+                _backgroundPublishGeneration[game.Id] = generation;
+            }
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    // Serialise file swaps to avoid competing large media copies.
+                    lock (_backgroundPublishIoLock)
+                    {
+                        if (!IsBackgroundPublishCurrent(game.Id, generation))
+                        {
+                            LogPublishCancelled(game, sourcePath, "before-copy");
+                            return;
+                        }
+
+                        Stopwatch watch = _fileLogger != null && _fileLogger.IsEnabled
+                            ? Stopwatch.StartNew()
+                            : null;
+
+                        _publisher.Publish(game, sourcePath, ArtworkKind.Background, null);
+
+                        // Re-check after the non-cancellable copy before recording the publish as current.
+                        if (!IsBackgroundPublishCurrent(game.Id, generation))
+                        {
+                            LogPublishCancelled(game, sourcePath, "after-copy");
+                            return;
+                        }
+
+                        RememberPublishedBackground(game, sourcePath);
+
+                        if (watch != null)
+                        {
+                            _fileLogger.Log(
+                                $"BG PERF publish-async \"{game.Name}\" {watch.ElapsedMilliseconds}ms source={sourcePath}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn(ex, "ImageRotater: deferred background publish failed");
+                }
+                finally
+                {
+                    CompleteBackgroundPublish(game.Id, generation);
+                }
+            });
+        }
+
+        private void InvalidateBackgroundPublish(Guid gameId)
+        {
+            lock (_backgroundPublishStateLock)
+            {
+                _backgroundPublishGeneration.Remove(gameId);
+            }
+        }
+
+        private bool IsBackgroundPublishCurrent(Guid gameId, long generation)
+        {
+            lock (_backgroundPublishStateLock)
+            {
+                long current;
+                return _backgroundPublishGeneration.TryGetValue(gameId, out current)
+                    && current == generation;
+            }
+        }
+
+        private void CompleteBackgroundPublish(Guid gameId, long generation)
+        {
+            lock (_backgroundPublishStateLock)
+            {
+                long current;
+                if (_backgroundPublishGeneration.TryGetValue(gameId, out current)
+                    && current == generation)
+                {
+                    _backgroundPublishGeneration.Remove(gameId);
+                }
+            }
+        }
+
+        private void LogPublishCancelled(Game game, string sourcePath, string stage)
+        {
+            if (_fileLogger != null && _fileLogger.IsEnabled)
+            {
+                _fileLogger.Log(
+                    $"BG PERF publish-cancelled \"{game?.Name}\" stage={stage} source={sourcePath}");
+            }
+        }
+
+        private bool IsSamePublishedBackground(Game game, string sourcePath)
+        {
+            if (game == null || string.IsNullOrEmpty(sourcePath) || !File.Exists(sourcePath))
+            {
+                return false;
+            }
+
+            PublishedFingerprint previous;
+            lock (_backgroundPublishStateLock)
+            {
+                if (!_lastPublished.TryGetValue(WrittenKey(game.Id, ArtworkKind.Background), out previous) ||
+                    previous == null ||
+                    !string.Equals(previous.Path, sourcePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            try
+            {
+                var sourceInfo = new FileInfo(sourcePath);
+                if (sourceInfo.Length != previous.Length ||
+                    sourceInfo.LastWriteTimeUtc != previous.LastWriteTimeUtc)
+                {
+                    return false;
+                }
+
+                string published = _publisher?.PublishedPathFor(
+                    game.Id, ArtworkKind.Background, sourcePath);
+
+                if (string.IsNullOrEmpty(published) || !File.Exists(published))
+                {
+                    return false;
+                }
+
+                return new FileInfo(published).Length == sourceInfo.Length;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private void RememberPublishedBackground(Game game, string sourcePath)
+        {
+            if (game == null || string.IsNullOrEmpty(sourcePath))
+            {
+                return;
+            }
+
+            try
+            {
+                string published = _publisher?.PublishedPathFor(
+                    game.Id, ArtworkKind.Background, sourcePath);
+
+                if (string.IsNullOrEmpty(published) || !File.Exists(published) || !File.Exists(sourcePath))
+                {
+                    return;
+                }
+
+                var sourceInfo = new FileInfo(sourcePath);
+                var publishedInfo = new FileInfo(published);
+
+                if (publishedInfo.Length != sourceInfo.Length)
+                {
+                    return;
+                }
+
+                lock (_backgroundPublishStateLock)
+                {
+                    _lastPublished[WrittenKey(game.Id, ArtworkKind.Background)] = new PublishedFingerprint
+                    {
+                        Path = sourcePath,
+                        Length = sourceInfo.Length,
+                        LastWriteTimeUtc = sourceInfo.LastWriteTimeUtc
+                    };
+                }
+            }
+            catch (Exception)
+            {
+                // A failed fingerprint must not block a later publish.
+            }
+        }
+
         // Reads the SOURCE pick, not the written path: letterboxing writes a
         // composite whose path matches no candidate, and avoid-previous only
         // works when it compares like with like.
@@ -517,6 +829,9 @@ namespace ImageRotater.Services
         // selected another game and came back.
         public void Forget(Guid gameId)
         {
+            // Editing artwork invalidates any queued publish based on the old candidate set.
+            InvalidateBackgroundPublish(gameId);
+
             foreach (ArtworkKind kind in new[] { ArtworkKind.Background, ArtworkKind.Cover })
             {
                 Guid last;
@@ -532,6 +847,11 @@ namespace ImageRotater.Services
         {
             _lastWritten.Clear();
             _lastPicked.Clear();
+            lock (_backgroundPublishStateLock)
+            {
+                _lastPublished.Clear();
+                _backgroundPublishGeneration.Clear();
+            }
 
             // Also clear the guards, or re-selecting the game that was showing
             // when the restore ran would be treated as a repeat and skipped -

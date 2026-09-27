@@ -231,6 +231,79 @@ namespace ImageRotater.Services
             }
         }
 
+        public bool HasAnyImage(Guid gameId, ArtworkKind kind)
+        {
+            try
+            {
+                string folder = CandidateFolderFor(gameId, kind);
+                if (folder == null)
+                {
+                    return false;
+                }
+
+                foreach (string file in Directory.EnumerateFiles(folder))
+                {
+                    if (SupportedExtensions.Contains(Path.GetExtension(file)) &&
+                        !IsPublishedCopy(file))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, $"ImageRotater: could not check images for game {gameId}");
+                return false;
+            }
+        }
+
+        public void GetSeedCandidates(
+            Guid gameId,
+            ArtworkKind kind,
+            out string firstCandidate,
+            out string firstVideo)
+        {
+            firstCandidate = null;
+            firstVideo = null;
+
+            try
+            {
+                string folder = CandidateFolderFor(gameId, kind);
+                if (folder == null)
+                {
+                    return;
+                }
+
+                foreach (string file in Directory.EnumerateFiles(folder))
+                {
+                    if (!SupportedExtensions.Contains(Path.GetExtension(file)) ||
+                        IsPublishedCopy(file))
+                    {
+                        continue;
+                    }
+
+                    if (firstCandidate == null ||
+                        string.Compare(file, firstCandidate, StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        firstCandidate = file;
+                    }
+
+                    if (PosterFrame.IsVideo(file) &&
+                        (firstVideo == null ||
+                         string.Compare(file, firstVideo, StringComparison.OrdinalIgnoreCase) < 0))
+                    {
+                        firstVideo = file;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, $"ImageRotater: could not seed-check images for game {gameId}");
+            }
+        }
+
         // The game's candidate folder, after the one-time legacy move, or null
         // when it does not exist. Deliberately uncached: creating the folder
         // later must be seen immediately, and a missing-folder check is cheap.
@@ -708,6 +781,11 @@ namespace ImageRotater.Services
 
                 foreach (string path in paths)
                 {
+                    if (PosterFrame.IsVideo(path))
+                    {
+                        continue;
+                    }
+
                     long length = new FileInfo(path).Length;
 
                     List<string> bucket;

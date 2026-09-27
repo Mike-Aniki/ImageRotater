@@ -27,23 +27,23 @@
         <!-- ================================ SETUP ================================ -->
         <!-- First deliberately: everything here is a prerequisite for a feature that is
              otherwise silently unavailable. -->
-        <TabItem Header="Setup">
+        <TabItem Header="{DynamicResource LOCImageRotaterSetup}">
             <TabControl Style="{StaticResource IrStrip}">
-                <TabItem Header="Tools">
+                <TabItem Header="{DynamicResource LOCImageRotaterTools}">
                 <ScrollViewer Style="{StaticResource IrPage}">
                     <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
 
-                        <TextBlock Text="Setup" Style="{StaticResource IrPageTitle}"/>
+                        <TextBlock Text="{DynamicResource LOCImageRotaterSetup}" Style="{StaticResource IrPageTitle}"/>
                         <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="Point ImageRotater at what it needs from elsewhere. Each item unlocks a feature; the plugin works without any of them, it just does less."/>
+                                   Text="{DynamicResource LOCImageRotaterSetupIntro}"/>
 
                         <Border Style="{StaticResource IrCard}">
                             <StackPanel>
-                                <TextBlock Text="SteamGridDB" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterSteamGridDB}" Style="{StaticResource IrCardTitle}"/>
                                 <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="Curated game artwork. Get a free key from steamgriddb.com under Preferences → API and paste it here. Without it, the search dialog still has Steam and web image search."/>
+                                           Text="{DynamicResource LOCImageRotaterSteamGridDBHelp}"/>
                                 <DockPanel Margin="0,2,0,6">
-                                    <TextBlock Text="API key" Style="{StaticResource IrLabel}" Width="72"/>
+                                    <TextBlock Text="{DynamicResource LOCImageRotaterApiKey}" Style="{StaticResource IrLabel}" Width="72"/>
                                     <TextBox Style="{StaticResource IrTextBox}"
                                              Text="{Binding Settings.SteamGridDbApiKey, UpdateSourceTrigger=PropertyChanged}"/>
                                 </DockPanel>
@@ -52,15 +52,15 @@
                                     <Run Text="{Binding ApiKeyStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding ApiKeyStatus.Message, Mode=OneWay}"/>
                                 </TextBlock>
                                 <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,0,0,0"
-                                           Text="Stored in Playnite's settings file as plain text. The key only grants read access to public artwork and can be regenerated on SteamGridDB at any time."/>
+                                           Text="{DynamicResource LOCImageRotaterApiKeyStorage}"/>
                             </StackPanel>
                         </Border>
 
                         <Border Style="{StaticResource IrCard}">
                             <StackPanel>
-                                <TextBlock Text="ffmpeg" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterFfmpeg}" Style="{StaticResource IrCardTitle}"/>
                                 <DockPanel Margin="0,0,0,6">
-                                    <Button Content="Browse…" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
+                                    <Button Content="{DynamicResource LOCImageRotaterBrowse}" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
                                             Margin="8,0,0,0" Command="{Binding BrowseFfmpeg}"/>
                                     <TextBox Style="{StaticResource IrTextBox}"
                                              Text="{Binding Settings.FfmpegPath, UpdateSourceTrigger=PropertyChanged}"/>
@@ -69,15 +69,15 @@
                                     <Run Text="{Binding FfmpegStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding FfmpegStatus.Message, Mode=OneWay}"/>
                                 </TextBlock>
                                 <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,0,0,0"
-                                           Text="Converts animated GIFs to MP4 - markedly smaller, and played by hardware rather than decoded frame by frame on the UI thread. Not bundled: ffmpeg is GPL-licensed and this plugin is MIT, so shipping the binary would change the licence of the whole project."/>
+                                           Text="{DynamicResource LOCImageRotaterFfmpegHelp}"/>
                             </StackPanel>
                         </Border>
 
                         <Border Style="{StaticResource IrCard}">
                             <StackPanel>
-                                <TextBlock Text="yt-dlp" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterYtDlp}" Style="{StaticResource IrCardTitle}"/>
                                 <DockPanel Margin="0,0,0,6">
-                                    <Button Content="Browse…" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
+                                    <Button Content="{DynamicResource LOCImageRotaterBrowse}" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
                                             Margin="8,0,0,0" Command="{Binding BrowseYtDlp}"/>
                                     <TextBox Style="{StaticResource IrTextBox}"
                                              Text="{Binding Settings.YtDlpPath, UpdateSourceTrigger=PropertyChanged}"/>
@@ -86,15 +86,15 @@
                                     <Run Text="{Binding YtDlpStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding YtDlpStatus.Message, Mode=OneWay}"/>
                                 </TextBlock>
                                 <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,0,0,0"
-                                           Text="Imports video from YouTube and similar sites as animated backgrounds and covers. Needs ffmpeg as well, which converts the download into the MP4 the plugin plays, and deno below to read YouTube at all. Also not bundled, for the same reason."/>
+                                           Text="{DynamicResource LOCImageRotaterYtDlpHelp}"/>
                             </StackPanel>
                         </Border>
 
                         <Border Style="{StaticResource IrCard}">
                             <StackPanel>
-                                <TextBlock Text="deno" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterDeno}" Style="{StaticResource IrCardTitle}"/>
                                 <DockPanel Margin="0,0,0,6">
-                                    <Button Content="Browse…" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
+                                    <Button Content="{DynamicResource LOCImageRotaterBrowse}" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
                                             Margin="8,0,0,0" Command="{Binding BrowseDeno}"/>
                                     <TextBox Style="{StaticResource IrTextBox}"
                                              Text="{Binding Settings.DenoPath, UpdateSourceTrigger=PropertyChanged}"/>
@@ -103,12 +103,12 @@
                                     <Run Text="{Binding DenoStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding DenoStatus.Message, Mode=OneWay}"/>
                                 </TextBlock>
                                 <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,0,0,0"
-                                           Text="yt-dlp's JavaScript runtime. YouTube hides its streams behind challenges that have to be solved by running JavaScript, and yt-dlp hands that to deno. Without it a YouTube search returns nothing, with no error to say why. Get it from deno.com, or put deno.exe next to yt-dlp.exe and both are found together."/>
+                                           Text="{DynamicResource LOCImageRotaterDenoHelp}"/>
                             </StackPanel>
                         </Border>
 
                         <TextBlock Style="{StaticResource IrHintFlush}"
-                                   Text="Leave a path blank and the plugin looks on your PATH. Set one explicitly if you keep the tool somewhere else."/>
+                                   Text="{DynamicResource LOCImageRotaterToolPathHint}"/>
 
                     </StackPanel>
                 </ScrollViewer>
@@ -117,33 +117,33 @@
         </TabItem>
 
         <!-- ================================ GENERAL ================================ -->
-        <TabItem Header="General">
+        <TabItem Header="{DynamicResource LOCImageRotaterGeneral}">
             <TabControl Style="{StaticResource IrStrip}">
-                <TabItem Header="General">
+                <TabItem Header="{DynamicResource LOCImageRotaterGeneral}">
                 <ScrollViewer Style="{StaticResource IrPage}">
                     <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
 
-                        <TextBlock Text="General" Style="{StaticResource IrPageTitle}"/>
+                        <TextBlock Text="{DynamicResource LOCImageRotaterGeneral}" Style="{StaticResource IrPageTitle}"/>
                         <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="Rotates game background and cover artwork - stills, GIFs and video - in Desktop and Fullscreen mode."/>
+                                   Text="{DynamicResource LOCImageRotaterGeneralIntro}"/>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="ROTATION" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterRotation}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
 
-                        <CheckBox Style="{StaticResource IrToggle}" Content="Enable rotation"
+                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterEnableRotation}"
                                   IsChecked="{Binding Settings.EnableRotation}"/>
                         <TextBlock Style="{StaticResource IrHint}"
-                                   Text="Master switch. When off, ImageRotater does nothing and leaves your theme's own artwork handling untouched."/>
+                                   Text="{DynamicResource LOCImageRotaterEnableRotationHint}"/>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="TROUBLESHOOTING" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterTroubleshooting}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
 
-                        <CheckBox Style="{StaticResource IrToggle}" Content="Enable debug logging"
+                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterEnableDebug}"
                                   IsChecked="{Binding Settings.EnableDebugLogging}"/>
                         <TextBlock Style="{StaticResource IrHint}"
-                                   Text="Writes ImageRotater.log next to the plugin's data. Leave off for normal use."/>
+                                   Text="{DynamicResource LOCImageRotaterEnableDebugHint}"/>
 
                     </StackPanel>
                 </ScrollViewer>
@@ -152,57 +152,66 @@
         </TabItem>
 
         <!-- ================================ BACKGROUNDS ================================ -->
-        <TabItem Header="Backgrounds">
+        <TabItem Header="{DynamicResource LOCImageRotaterBackgrounds}">
             <TabControl Style="{StaticResource IrStrip}">
-                <TabItem Header="General">
+                <TabItem Header="{DynamicResource LOCImageRotaterGeneral}">
                 <ScrollViewer Style="{StaticResource IrPage}">
                     <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
 
-                        <TextBlock Text="Backgrounds" Style="{StaticResource IrPageTitle}"/>
+                        <TextBlock Text="{DynamicResource LOCImageRotaterBackgrounds}" Style="{StaticResource IrPageTitle}"/>
                         <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="Playnite's own background is always updated, which is what makes rotation work in every theme. A theme hosting the ImageRotater element gets GIF and video on top."/>
+                                   Text="{DynamicResource LOCImageRotaterBackgroundIntro}"/>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="SHAPE" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterRotation}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
 
-                        <CheckBox Style="{StaticResource IrToggle}" Content="Letterbox odd-shaped backgrounds"
+                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterEnableBackgrounds}"
+                                  IsChecked="{Binding Settings.RotateBackgrounds}"/>
+                        <TextBlock Style="{StaticResource IrHint}"
+                                   Text="{DynamicResource LOCImageRotaterEnableBackgroundsHint}"/>
+
+                        <Border Style="{StaticResource IrSectionBar}">
+                            <TextBlock Text="{DynamicResource LOCImageRotaterShape}" Style="{StaticResource IrSectionTitle}"/>
+                        </Border>
+
+                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterLetterbox}"
                                   IsChecked="{Binding Settings.LetterboxBackgrounds}"/>
                         <TextBlock Style="{StaticResource IrHint}"
-                                   Text="When a game only has odd-shaped backgrounds (ultrawide banners, squares), they are pinned to the top of a screen-shaped canvas and fade into a blurred fill of themselves. The original files are never modified."/>
+                                   Text="{DynamicResource LOCImageRotaterLetterboxHint}"/>
 
-                        <CheckBox Style="{StaticResource IrToggle}" Content="Level background sizes"
+                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterLevelBackgrounds}"
                                   IsChecked="{Binding Settings.NormaliseBackgroundSize}"/>
                         <TextBlock Style="{StaticResource IrHint}"
-                                   Text="Publishes every background for a game at one width. Playnite blurs the window background by a fixed amount after scaling, so backgrounds of different resolutions get visibly different blur - and switching between them makes the blur jump. Levelling the width removes that. The original files are never modified."/>
+                                   Text="{DynamicResource LOCImageRotaterLevelBackgroundsHint}"/>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="WHEN A GAME HAS SEVERAL" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterWhenSeveral}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
                         <TextBlock Style="{StaticResource IrHintFlush}"
-                                   Text="Games with only one image are unaffected."/>
+                                   Text="{DynamicResource LOCImageRotaterBackgroundSeveralHint}"/>
 
-                        <RadioButton Style="{StaticResource IrRadio}" Content="Pick once per session" GroupName="SelectionMode"
+                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickSession}" GroupName="SelectionMode"
                                      IsChecked="{Binding Settings.SelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Session}"/>
                         <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="Chooses an image the first time you see a game and keeps it until Playnite restarts. Artwork stays put while you browse."/>
+                                   Text="{DynamicResource LOCImageRotaterBackgroundPickSessionHint}"/>
 
-                        <RadioButton Style="{StaticResource IrRadio}" Content="Pick again every time the game is selected" GroupName="SelectionMode"
+                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickEverySelection}" GroupName="SelectionMode"
                                      IsChecked="{Binding Settings.SelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=EverySelection}"/>
                         <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="A different image each time you land on a game. Backgrounds rotate as you leave a game, so the change is never visible mid-switch."/>
+                                   Text="{DynamicResource LOCImageRotaterBackgroundPickEveryHint}"/>
 
-                        <RadioButton Style="{StaticResource IrRadio}" Content="Always use the same image" GroupName="SelectionMode"
+                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickFixed}" GroupName="SelectionMode"
                                      IsChecked="{Binding Settings.SelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Fixed}"/>
                         <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="Always shows the first image alphabetically. No rotation at all."/>
+                                   Text="{DynamicResource LOCImageRotaterPickFixedHint}"/>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="SLIDESHOW" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterSlideshow}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
 
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,2">
-                            <TextBlock Text="Change every" Style="{StaticResource IrLabel}" Width="112"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterChangeEvery}" Style="{StaticResource IrLabel}" Width="112"/>
                             <Slider Style="{StaticResource IrSlider}" Width="240"
                                     Minimum="0" Maximum="300" TickFrequency="5" IsSnapToTickEnabled="True"
                                     Value="{Binding Settings.BackgroundSlideshowSeconds}"/>
@@ -210,31 +219,31 @@
                                        Text="{Binding Settings.BackgroundSlideshowSeconds, StringFormat='{}{0:0} s'}"/>
                         </StackPanel>
                         <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,4,0,12"
-                                   Text="While a game stays selected. 0 turns the slideshow off; anything below 5 is treated as off. Each change uses the transition chosen under Animation."/>
+                                   Text="{DynamicResource LOCImageRotaterBackgroundSlideshowHint}"/>
 
                     </StackPanel>
                 </ScrollViewer>
                 </TabItem>
-                <TabItem Header="Animation">
+                <TabItem Header="{DynamicResource LOCImageRotaterAnimationFilter}">
                     <ScrollViewer Style="{StaticResource IrPage}">
                         <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
 
-                            <TextBlock Text="Background animation" Style="{StaticResource IrPageTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterBackgroundAnimation}" Style="{StaticResource IrPageTitle}"/>
                             <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                       Text="How one still background gives way to the next. Videos and GIFs play through and keep their own fades."/>
+                                       Text="{DynamicResource LOCImageRotaterBackgroundAnimationIntro}"/>
                             <Border Style="{StaticResource IrSectionBar}">
-                                <TextBlock Text="TRANSITION" Style="{StaticResource IrSectionTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterTransition}" Style="{StaticResource IrSectionTitle}"/>
                             </Border>
                             <TextBlock Style="{StaticResource IrHintFlush}"
-                                       Text="How the background changes to the next still, in both Desktop and Fullscreen mode. A flash fills the whole screen here, so crossfade is the safe choice. A game needs two or more backgrounds for any of this to happen - with one there is nothing to change to."/>
+                                       Text="{DynamicResource LOCImageRotaterBackgroundTransitionHint}"/>
 
-                            <RadioButton Style="{StaticResource IrRadio}" Content="Crossfade" GroupName="BackgroundTransition"
+                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCrossfade}" GroupName="BackgroundTransition"
                                          IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Crossfade}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="Fade through black" GroupName="BackgroundTransition"
+                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeBlack}" GroupName="BackgroundTransition"
                                          IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughBlack}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="Fade through white" GroupName="BackgroundTransition"
+                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeWhite}" GroupName="BackgroundTransition"
                                          IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughWhite}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="Cut (no animation)" GroupName="BackgroundTransition"
+                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCut}" GroupName="BackgroundTransition"
                                          IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Cut}"/>
                         </StackPanel>
                     </ScrollViewer>
@@ -243,58 +252,74 @@
         </TabItem>
 
         <!-- ================================ COVERS ================================ -->
-        <TabItem Header="Covers">
+        <TabItem Header="{DynamicResource LOCImageRotaterCovers}">
             <TabControl Style="{StaticResource IrStrip}">
-                <TabItem Header="General">
+                <TabItem Header="{DynamicResource LOCImageRotaterGeneral}">
                 <ScrollViewer Style="{StaticResource IrPage}">
                     <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
 
-                        <TextBlock Text="Covers" Style="{StaticResource IrPageTitle}"/>
+                        <TextBlock Text="{DynamicResource LOCImageRotaterCovers}" Style="{StaticResource IrPageTitle}"/>
                         <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="Covers are managed separately from backgrounds: each game has its own covers folder, and cover art is chosen to match the shape of your grid cells rather than simply the largest image."/>
+                                   Text="{DynamicResource LOCImageRotaterCoverIntro}"/>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="ROTATION" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterRotation}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
 
-                        <CheckBox Style="{StaticResource IrToggle}" Content="Rotate cover art (box art)"
+                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterEnableCovers}"
                                   IsChecked="{Binding Settings.RotateCovers}"/>
                         <TextBlock Style="{StaticResource IrHint}"
-                                   Text="Off by default, since covers are usually curated deliberately."/>
+                                   Text="{DynamicResource LOCImageRotaterEnableCoversHint}"/>
 
-                        <CheckBox Style="{StaticResource IrToggleChild}" Content="Play animated covers on every tile, not just the selected one"
+                        <CheckBox Style="{StaticResource IrToggleChild}" Content="{DynamicResource LOCImageRotaterAnimateUnfocused}"
                                   IsChecked="{Binding Settings.AnimateUnfocusedCovers}"
                                   IsEnabled="{Binding Settings.RotateCovers}"/>
                         <TextBlock Style="{StaticResource IrHintIndented}"
-                                   Text="Off by default for a reason: every animated tile decodes frames continuously, and Playnite is a 32-bit process. A library where many games have GIF or video covers can run it out of memory while scrolling. The selected tile always animates either way."/>
+                                   Text="{DynamicResource LOCImageRotaterAnimateUnfocusedHint}"/>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="WHEN A GAME HAS SEVERAL" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterVideoStart}" Style="{StaticResource IrSectionTitle}"/>
+                        </Border>
+
+                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterVideoStartBeginning}" GroupName="CoverVideoStartMode"
+                                     IsEnabled="{Binding Settings.RotateCovers}"
+                                     IsChecked="{Binding Settings.CoverVideoStartMode, Converter={StaticResource EnumRadio}, ConverterParameter=Beginning}"/>
+                        <TextBlock Style="{StaticResource IrRadioHint}"
+                                   Text="{DynamicResource LOCImageRotaterVideoStartBeginningHint}"/>
+
+                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterVideoStartRandom}" GroupName="CoverVideoStartMode"
+                                     IsEnabled="{Binding Settings.RotateCovers}"
+                                     IsChecked="{Binding Settings.CoverVideoStartMode, Converter={StaticResource EnumRadio}, ConverterParameter=Random}"/>
+                        <TextBlock Style="{StaticResource IrRadioHint}"
+                                   Text="{DynamicResource LOCImageRotaterVideoStartRandomHint}"/>
+
+                        <Border Style="{StaticResource IrSectionBar}">
+                            <TextBlock Text="{DynamicResource LOCImageRotaterWhenSeveral}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
                         <TextBlock Style="{StaticResource IrHintFlush}"
-                                   Text="Covers rotate when you land on a game, and the grid tile updates in place."/>
+                                   Text="{DynamicResource LOCImageRotaterCoverSeveralHint}"/>
 
-                        <RadioButton Style="{StaticResource IrRadio}" Content="Pick once per session" GroupName="CoverSelectionMode"
+                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickSession}" GroupName="CoverSelectionMode"
                                      IsChecked="{Binding Settings.CoverSelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Session}"/>
                         <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="A fresh cover per Playnite launch. The grid stays calm while you browse."/>
+                                   Text="{DynamicResource LOCImageRotaterCoverPickSessionHint}"/>
 
-                        <RadioButton Style="{StaticResource IrRadio}" Content="Pick again every time the game is selected" GroupName="CoverSelectionMode"
+                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickEverySelection}" GroupName="CoverSelectionMode"
                                      IsChecked="{Binding Settings.CoverSelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=EverySelection}"/>
                         <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="The tile changes each time you land on the game. Lively, but the grid reshuffles as you navigate."/>
+                                   Text="{DynamicResource LOCImageRotaterCoverPickEveryHint}"/>
 
-                        <RadioButton Style="{StaticResource IrRadio}" Content="Always use the same image" GroupName="CoverSelectionMode"
+                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickFixed}" GroupName="CoverSelectionMode"
                                      IsChecked="{Binding Settings.CoverSelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Fixed}"/>
                         <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="Always shows the first image alphabetically. No rotation at all."/>
+                                   Text="{DynamicResource LOCImageRotaterPickFixedHint}"/>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="SLIDESHOW" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterSlideshow}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
 
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,2">
-                            <TextBlock Text="Change every" Style="{StaticResource IrLabel}" Width="112"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterChangeEvery}" Style="{StaticResource IrLabel}" Width="112"/>
                             <Slider Style="{StaticResource IrSlider}" Width="240"
                                     Minimum="0" Maximum="300" TickFrequency="5" IsSnapToTickEnabled="True"
                                     Value="{Binding Settings.CoverSlideshowSeconds}"/>
@@ -302,31 +327,31 @@
                                        Text="{Binding Settings.CoverSlideshowSeconds, StringFormat='{}{0:0} s'}"/>
                         </StackPanel>
                         <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,4,0,12"
-                                   Text="While a game stays selected. 0 turns the slideshow off; anything below 5 is treated as off. The selected game's tile changes in place, using the transition chosen under Animation."/>
+                                   Text="{DynamicResource LOCImageRotaterCoverSlideshowHint}"/>
 
                     </StackPanel>
                 </ScrollViewer>
                 </TabItem>
-                <TabItem Header="Animation">
+                <TabItem Header="{DynamicResource LOCImageRotaterAnimationFilter}">
                     <ScrollViewer Style="{StaticResource IrPage}">
                         <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
 
-                            <TextBlock Text="Cover animation" Style="{StaticResource IrPageTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterCoverAnimation}" Style="{StaticResource IrPageTitle}"/>
                             <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                       Text="How one still cover gives way to the next - the selected tile in a grid, or the cover in a details view. Videos and GIFs keep their own fades."/>
+                                       Text="{DynamicResource LOCImageRotaterCoverAnimationIntro}"/>
                             <Border Style="{StaticResource IrSectionBar}">
-                                <TextBlock Text="TRANSITION" Style="{StaticResource IrSectionTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterTransition}" Style="{StaticResource IrSectionTitle}"/>
                             </Border>
                             <TextBlock Style="{StaticResource IrHintFlush}"
-                                       Text="How a cover changes to the next still, in both Desktop and Fullscreen mode. Animated covers and videos keep their own fades. A game needs two or more covers for any of this to happen - with one there is nothing to change to."/>
+                                       Text="{DynamicResource LOCImageRotaterCoverTransitionHint}"/>
 
-                            <RadioButton Style="{StaticResource IrRadio}" Content="Crossfade" GroupName="CoverTransition"
+                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCrossfade}" GroupName="CoverTransition"
                                          IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Crossfade}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="Fade through black" GroupName="CoverTransition"
+                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeBlack}" GroupName="CoverTransition"
                                          IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughBlack}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="Fade through white" GroupName="CoverTransition"
+                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeWhite}" GroupName="CoverTransition"
                                          IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughWhite}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="Cut (no animation)" GroupName="CoverTransition"
+                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCut}" GroupName="CoverTransition"
                                          IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Cut}"/>
                         </StackPanel>
                     </ScrollViewer>
@@ -335,67 +360,67 @@
         </TabItem>
 
         <!-- ================================ LIBRARY ================================ -->
-        <TabItem Header="Library">
+        <TabItem Header="{DynamicResource LOCImageRotaterLibrary}">
             <TabControl Style="{StaticResource IrStrip}">
-                <TabItem Header="Maintenance">
+                <TabItem Header="{DynamicResource LOCImageRotaterMaintenance}">
                 <ScrollViewer Style="{StaticResource IrPage}">
                     <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
 
-                        <TextBlock Text="Library" Style="{StaticResource IrPageTitle}"/>
+                        <TextBlock Text="{DynamicResource LOCImageRotaterLibrary}" Style="{StaticResource IrPageTitle}"/>
                         <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="Maintenance for the artwork ImageRotater already holds. Conversions replace each original only once its replacement exists, so an interrupted run leaves your library exactly as it was."/>
+                                   Text="{DynamicResource LOCImageRotaterLibraryIntro}"/>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="CONVERT" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterConvert}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
 
-                        <Button Style="{StaticResource IrButton}" Content="Convert all GIFs to MP4"
+                        <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterConvertGifs}"
                                 Margin="0,4,0,0" Command="{Binding ConvertGifs}"/>
                         <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,4,0,12"
-                                   Text="Much smaller, and played by hardware rather than decoded frame by frame on the UI thread. Needs ffmpeg."/>
+                                   Text="{DynamicResource LOCImageRotaterConvertGifsHint}"/>
 
-                        <Button Style="{StaticResource IrButton}" Content="Convert all JPEGs to PNG"
+                        <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterConvertJpegs}"
                                 Command="{Binding ConvertJpegs}"/>
                         <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,4,0,12"
-                                   Text="Lossless, so no further quality is lost each time an image is processed - but the files get considerably larger. Quality already lost to JPEG does not come back."/>
+                                   Text="{DynamicResource LOCImageRotaterConvertJpegsHint}"/>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="REPAIR" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterRepair}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
 
                         <Border Style="{StaticResource IrCard}">
                             <StackPanel>
-                                <TextBlock Text="Repair videos" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterRepairVideos}" Style="{StaticResource IrCardTitle}"/>
                                 <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="Videos downloaded in a fragmented format show as solid black tiles even though nothing reports an error. This rewrites just the container - no quality loss, healthy videos untouched. Also available per game from the right-click menu. Needs ffmpeg."/>
-                                <Button Style="{StaticResource IrButton}" Content="Repair videos (fix black tiles)"
+                                           Text="{DynamicResource LOCImageRotaterRepairVideosHint}"/>
+                                <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterRepairVideosButton}"
                                         Command="{Binding RepairVideos}"/>
                             </StackPanel>
                         </Border>
 
                         <Border Style="{StaticResource IrCard}">
                             <StackPanel>
-                                <TextBlock Text="Repair artwork references" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterRepairArtwork}" Style="{StaticResource IrCardTitle}"/>
                                 <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="If some games show solid black covers or backgrounds, they are pointing at plugin artwork that no longer exists - Playnite draws a missing image as black rather than as an empty tile. This clears those references so Playnite shows its own placeholder instead, and your library plugin can fetch the artwork again. Deletes nothing."/>
-                                <Button Style="{StaticResource IrButton}" Content="Repair artwork references"
+                                           Text="{DynamicResource LOCImageRotaterRepairArtworkHint}"/>
+                                <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterRepairArtwork}"
                                         Command="{Binding RepairArtwork}"
                                         CommandParameter="{Binding RelativeSource={RelativeSource Self}}"/>
                             </StackPanel>
                         </Border>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="DANGER ZONE" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterDangerZone}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
 
                         <!-- Last, and boxed in red, so it is not something you reach by accident on
                              the way to a path box. -->
                         <Border Style="{StaticResource IrCardDanger}">
                             <StackPanel>
-                                <TextBlock Text="Reset library" Style="{StaticResource IrCardTitleDanger}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterResetLibrary}" Style="{StaticResource IrCardTitleDanger}"/>
                                 <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="Deletes every image and video ImageRotater holds for your whole library, and puts each game back to its own artwork. Your games keep the covers and backgrounds they had before the plugin touched them; anything downloaded through it is gone for good. You will be asked to confirm, and Playnite will offer to restart afterwards."/>
-                                <Button Style="{StaticResource IrButtonDanger}" Content="Delete all plugin artwork and restore originals"
+                                           Text="{DynamicResource LOCImageRotaterResetLibraryHint}"/>
+                                <Button Style="{StaticResource IrButtonDanger}" Content="{DynamicResource LOCImageRotaterResetLibraryButton}"
                                         Command="{Binding ResetLibrary}"
                                         CommandParameter="{Binding RelativeSource={RelativeSource Self}}"/>
                             </StackPanel>
@@ -408,26 +433,26 @@
                 <!-- Its own page, apart from maintenance: this is the first
                      thing a user arriving from another plugin looks for, and
                      it should not sit between "convert" and "delete". -->
-                <TabItem Header="Migration">
+                <TabItem Header="{DynamicResource LOCImageRotaterMigration}">
                 <ScrollViewer Style="{StaticResource IrPage}">
                     <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
 
-                        <TextBlock Text="Migration" Style="{StaticResource IrPageTitle}"/>
+                        <TextBlock Text="{DynamicResource LOCImageRotaterMigration}" Style="{StaticResource IrPageTitle}"/>
                         <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="Bring artwork over from another plugin. Everything here copies; nothing is moved or deleted from the other plugin, and running an import again only adds what is new."/>
+                                   Text="{DynamicResource LOCImageRotaterMigrationIntro}"/>
 
                         <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="BACKGROUNDCHANGER" Style="{StaticResource IrSectionTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterBackgroundChanger}" Style="{StaticResource IrSectionTitle}"/>
                         </Border>
 
                         <Border Style="{StaticResource IrCard}">
                             <StackPanel>
-                                <TextBlock Text="Import artwork from BackgroundChanger" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterImportBackgroundChanger}" Style="{StaticResource IrCardTitle}"/>
                                 <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="Copies every cover and background you gave BackgroundChanger into ImageRotater, game by game, so switching plugins keeps years of curation. Each game's images land in its own rotation straight away. Disable BackgroundChanger afterwards - the two cannot run together."/>
+                                           Text="{DynamicResource LOCImageRotaterImportBackgroundChangerHint}"/>
                                 <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="WebP files come across as they are. Playnite cannot show WebP, so run Library > Maintenance > Convert all GIFs to MP4 after importing to make them play (needs ffmpeg)."/>
-                                <Button Style="{StaticResource IrButton}" Content="Import artwork from BackgroundChanger"
+                                           Text="{DynamicResource LOCImageRotaterImportWebPHint}"/>
+                                <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterImportBackgroundChanger}"
                                         Command="{Binding ImportBackgroundChanger}"/>
                             </StackPanel>
                         </Border>

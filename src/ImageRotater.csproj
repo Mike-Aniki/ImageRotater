@@ -46,6 +46,13 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Page Remove="Localization\**\*.xaml" />
+        <Content Include="Localization\**\*.xaml">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+    </ItemGroup>
+
+    <ItemGroup>
         <None Include="..\extension.yaml">
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </None>

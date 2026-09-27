@@ -2,70 +2,56 @@
                      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                      xmlns:c="clr-namespace:Playnite.SDK.Controls;assembly=Playnite.SDK">
-    <Grid x:Name="RootGrid" ClipToBounds="True">
+    <Grid x:Name="RootGrid" ClipToBounds="True" IsHitTestVisible="False">
 
-        <!-- Anchored to the TOP, not centred.
-             UniformToFill crops whatever does not fit, and WPF's default
-             alignment centres that crop - so on a background taller than the
-             screen it cut equally from top and bottom. Game key art puts its
-             subject in the upper half almost without exception, and Playnite's
-             own background element anchors to the top for the same reason
-             (Aniki sets VerticalAlignment=Top on PART_ImageBackground). Centred
-             cropping is what reads as the image being positioned oddly. -->
-        <Image x:Name="DisplayImage"
-               Stretch="UniformToFill"
-               HorizontalAlignment="Center"
-               VerticalAlignment="Top"
-               RenderOptions.BitmapScalingMode="HighQuality"/>
+        <!-- Double-buffered slots keep the outgoing media visible until the incoming media is ready. -->
+        <Grid x:Name="SlotA" Visibility="Collapsed" Opacity="0">
+            <Image x:Name="SlotAImage"
+                   Visibility="Collapsed"
+                   Stretch="UniformToFill"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Top"
+                   RenderOptions.BitmapScalingMode="HighQuality"/>
+            <MediaElement x:Name="SlotAVideo"
+                          Visibility="Collapsed"
+                          Stretch="UniformToFill"
+                          LoadedBehavior="Manual"
+                          UnloadedBehavior="Manual"
+                          IsMuted="True"
+                          ScrubbingEnabled="False"
+                          Loaded="SlotVideo_Loaded"
+                          MediaOpened="SlotVideo_MediaOpened"
+                          MediaEnded="SlotVideo_MediaEnded"
+                          MediaFailed="SlotVideo_MediaFailed"/>
+        </Grid>
 
-        <!-- Video artwork. A separate element rather than a mode of the Image:
-             MediaElement is its own renderer, and only one of the two is ever
-             visible at a time (the one-channel rule the GIF path follows).
+        <Grid x:Name="SlotB" Visibility="Collapsed" Opacity="0">
+            <Image x:Name="SlotBImage"
+                   Visibility="Collapsed"
+                   Stretch="UniformToFill"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Top"
+                   RenderOptions.BitmapScalingMode="HighQuality"/>
+            <MediaElement x:Name="SlotBVideo"
+                          Visibility="Collapsed"
+                          Stretch="UniformToFill"
+                          LoadedBehavior="Manual"
+                          UnloadedBehavior="Manual"
+                          IsMuted="True"
+                          ScrubbingEnabled="False"
+                          Loaded="SlotVideo_Loaded"
+                          MediaOpened="SlotVideo_MediaOpened"
+                          MediaEnded="SlotVideo_MediaEnded"
+                          MediaFailed="SlotVideo_MediaFailed"/>
+        </Grid>
 
-             LoadedBehavior=Manual is required to drive Play/Stop from
-             code-behind; the default Play behaviour starts on load and ignores
-             the calls. Muted always - artwork that made noise while browsing a
-             library would be a bug, not a feature. -->
-        <MediaElement x:Name="DisplayVideo"
-                      Visibility="Collapsed"
-                      Stretch="UniformToFill"
-                      LoadedBehavior="Manual"
-                      UnloadedBehavior="Manual"
-                      Loaded="DisplayVideo_Loaded"
-                      IsMuted="True"
-                      ScrubbingEnabled="False"
-                      MediaOpened="DisplayVideo_MediaOpened"
-                      MediaEnded="DisplayVideo_MediaEnded"
-                      MediaFailed="DisplayVideo_MediaFailed"/>
+        <!-- Used only for the FadeThroughBlack / FadeThroughWhite settings. -->
+        <Border x:Name="FlashOverlay"
+                Visibility="Collapsed"
+                Opacity="0"/>
 
-        <!-- The last frame of a video, on its way out.
-
-             Switching games releases the video at once - a new video cannot
-             open while the old media is still held - and that one-frame cut
-             exposed whatever sat underneath: Playnite's own background for
-             the game being LEFT, which then crossfaded to the new game. Video,
-             flash of the old still, fade. This layer holds a snapshot of the
-             final frame over that gap and dissolves at the same rate as the
-             crossfade below it, so the video appears to fade into the next
-             game. Above the MediaElement so a new video fading up shows
-             through it. Never touched by Refresh - it outlives the switch. -->
-        <Image x:Name="HandoffImage"
-               Visibility="Collapsed"
-               IsHitTestVisible="False"
-               Stretch="UniformToFill"
-               HorizontalAlignment="Center"
-               VerticalAlignment="Top"/>
-
-        <!-- Shown only when a path exists but the file is missing or corrupt.
-             Never shown for "this game has no image" - that renders nothing so
-             the theme's own background shows through. Vector-drawn so it stays
-             crisp from 480px to 3840px without shipping bitmap assets. -->
-        <!-- Tag carries the theme brush; the shapes bind to it with a grey
-             fallback. DynamicResource has no FallbackValue of its own and
-             resolves to null in a theme that omits TextBrush, which would
-             render the placeholder invisible - the one visual whose entire job
-             is signalling a problem. A local fallback resource would not work:
-             it shadows the theme's brush instead of deferring to it. -->
+        <!-- A corrupt/missing chosen file is a real error, unlike a game that
+             simply has no ImageRotater artwork. -->
         <Viewbox x:Name="MissingImagePlaceholder"
                  Visibility="Collapsed"
                  Tag="{DynamicResource TextBrush}"

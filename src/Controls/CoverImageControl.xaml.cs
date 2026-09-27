@@ -89,49 +89,21 @@ namespace ImageRotater.Controls
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
-            // Subscribed here and dropped in Unloaded, never in the
-            // constructor: this is a STATIC event, so a control that never
-            // unsubscribed would be pinned for the session - and a virtualised
-            // grid builds these by the dozen.
             ArtworkRotated += OnArtworkRotated;
+
+            // Viewport tracking is attached lazily only for video covers.
             Refresh();
         }
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
             ArtworkRotated -= OnArtworkRotated;
+            DetachViewportTracking();
 
-            // The path is NOT cleared here, and that is the Fullscreen fix.
-            //
-            // Selecting a tile unloads and reloads it (see below). Clearing
-            // the path handed the async binding a null, which it delivered
-            // AFTER the reload's refresh had re-set the same path and started
-            // a transition: TargetUpdated fired for an empty image, the
-            // transition took that as the new picture arriving and finished -
-            // veil down, old layer gone - over nothing, so Playnite's tile
-            // underneath showed the whole new cover with no transition at all,
-            // and then ours landed and popped. Desktop never unloads on
-            // selection, which is why only Fullscreen ever showed it.
-            //
-            // A recycle gets GameContextChanged, which re-picks; a genuine
-            // teardown drops the control and its bitmap with it. The GIF
-            // behaviour is released - an unloaded tile must not keep an
-            // animation decoding frames forever.
+            // Keep the bound path across Fullscreen unload/reload cycles; release only GIF playback here.
             XamlAnimatedGif.AnimationBehavior.SetSourceUri(DisplayImage, null);
 
-            // Video is released LATER, and only if this really was a teardown.
-            //
-            // Selecting a tile unloads and immediately reloads it - the panel
-            // re-measures and re-inserts its containers - so releasing here
-            // killed the video of the tile the user had just selected. That is
-            // the whole bug. Scrolling a tile out of view unloads it and it
-            // does NOT come back, and that case still has to release the
-            // decoder: a grid of retained decoders is what exhausts a 32-bit
-            // process.
-            //
-            // Checked at Background priority, after layout has settled: by
-            // then a recycle has reloaded the control and IsLoaded is true
-            // again, while a genuine teardown is still unloaded.
+            // Defer video release until layout confirms that the tile was actually removed.
             Dispatcher.BeginInvoke(
                 new Action(() =>
                 {
@@ -147,16 +119,7 @@ namespace ImageRotater.Controls
         // which for a virtualised grid is every time it scrolls into reuse.
         public override void GameContextChanged(Game oldContext, Game newContext)
         {
-            // Tear the previous game's video down BEFORE picking for the new
-            // one.
-            //
-            // A virtualised grid recycles these controls, so this is the moment
-            // one tile stops being Game A and becomes Game B. Refresh below
-            // handles it for a still pick - ShowStill stops the video first -
-            // but a video-to-video recycle went straight to ShowVideo, which
-            // assigns a new Source while the previous media is still open.
-            // Doing it here covers every case rather than the ones that happen
-            // to route through a helper that remembers.
+            // A recycled tile must release media owned by the previous game before repicking.
             StopVideo();
 
             // A cut, never a transition: this tile IS a different game now,
@@ -273,20 +236,172 @@ namespace ImageRotater.Controls
         // loses selection recognise it has work to stop, since the announcement
         // names the arriving game rather than this one.
         private bool _animating;
+        private string _videoPath;
+        private int _videoGeneration;
+        private bool _videoPlaying;
+        private bool _pausedByViewport;
+        private bool _inViewport = true;
+        private bool _viewportCheckPending;
+        private System.Windows.Controls.ScrollViewer _scrollViewer;
+        private System.Windows.Controls.ScrollContentPresenter _viewportHost;
 
-        // Renders a motion pick as its own still frame, for a tile that is not
-        // selected. Same channel a static pick uses, so nothing else changes.
-        private void ShowStill(string path)
+        private void EnsureViewportTracking()
         {
-            StopVideo();
-            XamlAnimatedGif.AnimationBehavior.SetSourceUri(DisplayImage, null);
-            _animating = false;
+            if (_scrollViewer != null && _viewportHost != null)
+            {
+                return;
+            }
 
-            StagePreviousCover(path);
-            _data.ImagePath = path;
+            AttachViewportTracking();
+        }
 
-            DisplayImage.Visibility = Visibility.Visible;
-            MissingImagePlaceholder.Visibility = Visibility.Collapsed;
+        private void AttachViewportTracking()
+        {
+            DetachViewportTracking();
+
+            DependencyObject current = this;
+            while (current != null)
+            {
+                if (_viewportHost == null)
+                {
+                    _viewportHost = current as System.Windows.Controls.ScrollContentPresenter;
+                }
+
+                if (_scrollViewer == null)
+                {
+                    _scrollViewer = current as System.Windows.Controls.ScrollViewer;
+                }
+
+                if (_viewportHost != null && _scrollViewer != null)
+                {
+                    break;
+                }
+
+                current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+            }
+
+            if (_scrollViewer != null)
+            {
+                _scrollViewer.ScrollChanged += OnViewportChanged;
+                _scrollViewer.SizeChanged += OnViewportSizeChanged;
+            }
+        }
+
+        private void DetachViewportTracking()
+        {
+            if (_scrollViewer != null)
+            {
+                _scrollViewer.ScrollChanged -= OnViewportChanged;
+                _scrollViewer.SizeChanged -= OnViewportSizeChanged;
+            }
+
+            _scrollViewer = null;
+            _viewportHost = null;
+            _viewportCheckPending = false;
+        }
+
+        private void OnViewportChanged(object sender, System.Windows.Controls.ScrollChangedEventArgs e)
+        {
+            QueueViewportCheck();
+        }
+
+        private void OnViewportSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            QueueViewportCheck();
+        }
+
+        private void QueueViewportCheck()
+        {
+            if (_viewportCheckPending)
+            {
+                return;
+            }
+
+            _viewportCheckPending = true;
+            Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    _viewportCheckPending = false;
+                    UpdateViewportState();
+                }),
+                System.Windows.Threading.DispatcherPriority.Render);
+        }
+
+        private bool IsActuallyInViewport()
+        {
+            if (!IsLoaded || Visibility != Visibility.Visible)
+            {
+                return false;
+            }
+
+            if (_viewportHost == null || ActualWidth <= 0 || ActualHeight <= 0 ||
+                _viewportHost.ActualWidth <= 0 || _viewportHost.ActualHeight <= 0)
+            {
+                return true;
+            }
+
+            try
+            {
+                Rect bounds = TransformToAncestor(_viewportHost).TransformBounds(
+                    new Rect(0, 0, ActualWidth, ActualHeight));
+                Rect viewport = new Rect(0, 0, _viewportHost.ActualWidth, _viewportHost.ActualHeight);
+                Rect visible = Rect.Intersect(bounds, viewport);
+                return !visible.IsEmpty && visible.Width > 1 && visible.Height > 1;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        private void UpdateViewportState()
+        {
+            bool inViewport = IsActuallyInViewport();
+            if (_inViewport == inViewport)
+            {
+                return;
+            }
+
+            _inViewport = inViewport;
+
+            if (!inViewport)
+            {
+                if (DisplayVideo.Source != null && _videoPlaying)
+                {
+                    try
+                    {
+                        DisplayVideo.Pause();
+                        _videoPlaying = false;
+                        _pausedByViewport = true;
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                return;
+            }
+
+            if (DisplayVideo.Source != null && _pausedByViewport)
+            {
+                try
+                {
+                    DisplayVideo.Play();
+                    _videoPlaying = true;
+                    _pausedByViewport = false;
+                }
+                catch
+                {
+                }
+
+                return;
+            }
+
+            if (DisplayVideo.Source == null && !string.IsNullOrEmpty(_videoPath))
+            {
+                string path = _videoPath;
+                ShowVideo(path);
+            }
         }
 
         private void OnArtworkRotated(Guid gameId)
@@ -294,19 +409,15 @@ namespace ImageRotater.Controls
             // Normally only this tile's own game - a grid raises this for one
             // game while dozens of controls listen.
             //
-            // The exception is a tile that is currently ANIMATING but is no
-            // longer the selected one. Selection moving away is announced
-            // against the ARRIVING game, so the departing tile would never hear
-            // it and would keep decoding frames forever.
-            //
-            // UNLESS unfocused tiles are allowed to animate - then a tile that
-            // lost selection has nothing to stop.
+            // A tile that loses selection also needs to release its plugin layer.
             bool mine = GameContext != null && GameContext.Id == gameId;
 
             ImageRotaterSettings settings = _settings != null ? _settings() : null;
 
-            bool mustStandDown = _animating && !IsSelectedTile
-                && settings?.AnimateUnfocusedCovers != true;
+            bool mustStandDown = !IsSelectedTile
+                && settings?.AnimateUnfocusedCovers != true
+                && (DisplayImage.Visibility == Visibility.Visible ||
+                    DisplayVideo.Visibility == Visibility.Visible);
 
             if (!mine && !mustStandDown)
             {
@@ -352,6 +463,12 @@ namespace ImageRotater.Controls
                     return;
                 }
 
+                if (!IsSelectedTile && !settings.AnimateUnfocusedCovers)
+                {
+                    ShowNothing();
+                    return;
+                }
+
                 IReadOnlyList<string> candidates = _source.GetImagePaths(game);
                 if (candidates == null || candidates.Count == 0)
                 {
@@ -390,7 +507,7 @@ namespace ImageRotater.Controls
                 if (string.IsNullOrEmpty(path))
                 {
                     path = _selector.Select(
-                        game.Id, candidates, _previousPick, settings.CoverSelectionMode);
+                        CoverSelectionKey(game.Id), candidates, _previousPick, settings.CoverSelectionMode);
                 }
 
                 // Recorded before use, so a pick that turns out to be unusable
@@ -414,38 +531,6 @@ namespace ImageRotater.Controls
                     return;
                 }
 
-                // Moving artwork plays on the SELECTED tile only, unless the
-                // user asks otherwise.
-                //
-                // Default is selected-only because a grid realises a screenful
-                // of these at once, and every animated one decodes continuously
-                // on the UI thread in a 32-bit process - the same pressure that
-                // took Playnite down when a theme put its own media element in
-                // every tile.
-                //
-                // But BackgroundChanger plays them everywhere and people like
-                // it, so the restriction is a setting rather than a rule. Left
-                // off by default: a wall of moving thumbnails is the option,
-                // not the expectation, and the failure mode of getting this
-                // wrong is Playnite running out of address space.
-                if (PosterFrame.IsMotion(path) && !IsSelectedTile
-                    && !settings.AnimateUnfocusedCovers)
-                {
-                    string still = PosterFrame.For(path);
-
-                    if (!string.IsNullOrEmpty(still))
-                    {
-                        ShowStill(still);
-                        return;
-                    }
-
-                    // No still could be extracted - video, whose container GDI+
-                    // cannot open. Render nothing rather than start playback on
-                    // an unselected tile.
-                    ShowNothing();
-                    return;
-                }
-
                 // Video is a third channel, and a different renderer: WPF's
                 // imaging stack cannot decode a container, so this cannot be a
                 // mode of the Image.
@@ -464,8 +549,17 @@ namespace ImageRotater.Controls
                 // Noted before the teardown: when a video WAS here, the still
                 // replacing it has no previous image to crossfade from, so
                 // TargetUpdated fades the incoming still itself instead.
-                _replacingVideo = DisplayVideo.Visibility == Visibility.Visible;
-                StopVideo();
+                _replacingVideo = DisplayVideo.Visibility == Visibility.Visible &&
+                    DisplayVideo.Source != null;
+
+                // Video -> image is a real media handoff, not a teardown.
+                // Keep the video fully opaque until the incoming image has
+                // actually decoded; otherwise Playnite's native cover behind
+                // this control flashes through for a frame or two.
+                if (!_replacingVideo)
+                {
+                    StopVideo();
+                }
 
                 if (PosterFrame.IsAnimated(path))
                 {
@@ -476,6 +570,13 @@ namespace ImageRotater.Controls
                     _data.ImagePath = string.Empty;
                     _animating = true;
                     LowerVeil();
+
+                    if (_replacingVideo)
+                    {
+                        Dispatcher.BeginInvoke(
+                            new Action(() => FadeOutVideoOverReadyImage()),
+                            System.Windows.Threading.DispatcherPriority.Render);
+                    }
                 }
                 else
                 {
@@ -511,6 +612,18 @@ namespace ImageRotater.Controls
                 // no dialog and nothing in the log.
                 Logger.Error(ex, "ImageRotater cover refresh failed");
             }
+        }
+
+        // BackgroundRotationService keeps cover Session selections under a
+        // derived key so they cannot collide with a background selection for
+        // the same game. The renderer must use the exact same key whenever it
+        // has to consult the selector directly; using game.Id here created a
+        // second independent Session roll and caused a cover to change on focus.
+        private static Guid CoverSelectionKey(Guid gameId)
+        {
+            byte[] bytes = gameId.ToByteArray();
+            bytes[0] ^= 0xC0;
+            return new Guid(bytes);
         }
 
         private static bool IsUsable(string path)
@@ -786,7 +899,13 @@ namespace ImageRotater.Controls
                 // once and the veil comes down over it - once it is fully up.
                 if (Veil.Visibility == Visibility.Visible)
                 {
-                    _replacingVideo = false;
+                    // For video-to-image, dissolve the video after the still reports ready.
+                    if (_replacingVideo)
+                    {
+                        LowerVeil();
+                        FadeOutVideoOverReadyImage();
+                        return;
+                    }
 
                     if (_veilRising)
                     {
@@ -803,18 +922,10 @@ namespace ImageRotater.Controls
                 if (PreviousImage.Source == null ||
                     PreviousImage.Visibility != Visibility.Visible)
                 {
-                    // No outgoing image to dissolve - but if a VIDEO just left,
-                    // the still arriving in one frame was the only hard cut
-                    // this tile had. Fade the incoming image itself: the video
-                    // is gone, so there is nothing underneath to reveal early.
+                    // For video-to-image, fade the video only after the still is ready.
                     if (_replacingVideo)
                     {
-                        _replacingVideo = false;
-
-                        DisplayImage.BeginAnimation(
-                            OpacityProperty,
-                            new System.Windows.Media.Animation.DoubleAnimation(
-                                0.0, 1.0, new Duration(Transition.Duration)));
+                        FadeOutVideoOverReadyImage();
                     }
 
                     return;
@@ -845,6 +956,49 @@ namespace ImageRotater.Controls
                 ClearPreviousCover();
                 Logger.Warn(ex, "ImageRotater: could not crossfade the cover");
             }
+        }
+
+        private void FadeOutVideoOverReadyImage()
+        {
+            if (!_replacingVideo)
+            {
+                return;
+            }
+
+            _replacingVideo = false;
+
+            if (DisplayVideo.Source == null ||
+                DisplayVideo.Visibility != Visibility.Visible)
+            {
+                StopVideo();
+                return;
+            }
+
+            // Keep the still visible while the video layer fades out.
+            DisplayImage.BeginAnimation(OpacityProperty, null);
+            DisplayImage.Opacity = 1.0;
+            DisplayImage.Visibility = Visibility.Visible;
+
+            string fadingPath = _videoPath;
+            int videoGeneration = _videoGeneration;
+
+            var fade = new System.Windows.Media.Animation.DoubleAnimation(
+                1.0, 0.0, new Duration(Transition.Duration));
+
+            fade.Completed += (s, e) =>
+            {
+                if (videoGeneration != _videoGeneration ||
+                    !string.Equals(fadingPath, _videoPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                StopVideo();
+                DisplayVideo.BeginAnimation(OpacityProperty, null);
+                DisplayVideo.Opacity = 1.0;
+            };
+
+            DisplayVideo.BeginAnimation(OpacityProperty, fade);
         }
 
         private void ClearPreviousCover()
@@ -896,77 +1050,184 @@ namespace ImageRotater.Controls
         // runs on the incoming image - there is no outgoing layer to dissolve.
         private bool _replacingVideo;
 
+        // Tracks whether a video is replacing an already visible still.
+        private bool _videoReplacingImage;
+
         // Hands a video to the MediaElement and stands the Image down, so
         // exactly one renderer draws.
         private void ShowVideo(string path)
         {
-            _data.ImagePath = string.Empty;
-            XamlAnimatedGif.AnimationBehavior.SetSourceUri(DisplayImage, null);
-            LowerVeil();
-            DisplayImage.Visibility = Visibility.Collapsed;
-            MissingImagePlaceholder.Visibility = Visibility.Collapsed;
+            // Keep the current still while the replacement video opens.
+            _videoReplacingImage = DisplayImage.Visibility == Visibility.Visible &&
+                DisplayImage.Source != null;
 
-            ClearPreviousCover();
-
-            // Invisible until the first frame exists - MediaOpened fades it
-            // up. A MediaElement renders nothing before its media opens, so at
-            // full opacity the still-to-video switch was a hard cut through a
-            // black rectangle: the one transition on this tile with no fade.
-            DisplayVideo.BeginAnimation(OpacityProperty, null);
-
-            // Only a video arriving from NOTHING starts invisible.
-            //
-            // The fade-up is driven by MediaOpened, and WPF does not re-raise
-            // that when the same Source is assigned again - which is exactly
-            // what a refresh on the already-playing tile does. Starting at
-            // zero unconditionally therefore left the video playing at opacity
-            // 0 with the still showing through: hovering a tile made the
-            // animation "disappear" while nothing had stopped it.
-            bool alreadyShowing =
-                DisplayVideo.Source != null &&
-                DisplayVideo.Visibility == Visibility.Visible;
-
-            DisplayVideo.Opacity = alreadyShowing ? 1.0 : 0.0;
-
-            DisplayVideo.Source = new Uri(path);
-            DisplayVideo.Visibility = Visibility.Visible;
-            DisplayVideo.Play();
-            _animating = true;
-
-            // Backstop for the same reason the cover crossfade has one: if
-            // MediaOpened never arrives, nothing else would ever make this
-            // visible again.
-            if (!alreadyShowing)
+            if (!_videoReplacingImage)
             {
-                var reveal = new System.Windows.Threading.DispatcherTimer
-                {
-                    Interval = TimeSpan.FromMilliseconds(700)
-                };
-
-                reveal.Tick += (s, e) =>
-                {
-                    reveal.Stop();
-
-                    if (DisplayVideo.Source != null &&
-                        DisplayVideo.Visibility == Visibility.Visible &&
-                        DisplayVideo.Opacity < 1.0)
-                    {
-                        DisplayVideo.BeginAnimation(OpacityProperty, null);
-                        DisplayVideo.Opacity = 1.0;
-                    }
-                };
-
-                reveal.Start();
+                _data.ImagePath = string.Empty;
+                XamlAnimatedGif.AnimationBehavior.SetSourceUri(DisplayImage, null);
+                DisplayImage.Visibility = Visibility.Collapsed;
             }
 
-            // Start somewhere other than the beginning.
-            //
-            // Every tile otherwise opens on the same first second of its clip,
-            // and revisiting a game replays the same opening frames - which
-            // reads as the video being stuck rather than looping. Applied once
-            // the duration is known, since it is not available until the media
-            // opens.
-            _startAtRandomPoint = true;
+            LowerVeil();
+            MissingImagePlaceholder.Visibility = Visibility.Collapsed;
+            ClearPreviousCover();
+
+            // Only video covers need viewport tracking.
+            EnsureViewportTracking();
+            QueueViewportCheck();
+
+            bool inViewport = IsActuallyInViewport();
+            _inViewport = inViewport;
+
+            bool sameVideo =
+                !string.IsNullOrEmpty(_videoPath) &&
+                string.Equals(_videoPath, path, StringComparison.OrdinalIgnoreCase) &&
+                DisplayVideo.Source != null;
+
+            if (sameVideo)
+            {
+                DisplayVideo.BeginAnimation(OpacityProperty, null);
+                DisplayVideo.Opacity = 1.0;
+                DisplayVideo.Visibility = Visibility.Visible;
+                _animating = true;
+
+                if (_videoReplacingImage)
+                {
+                    CompleteVideoReveal();
+                }
+
+                if (!inViewport)
+                {
+                    if (_videoPlaying)
+                    {
+                        try
+                        {
+                            DisplayVideo.Pause();
+                            _videoPlaying = false;
+                        }
+                        catch
+                        {
+                        }
+                    }
+
+                    _pausedByViewport = true;
+                    return;
+                }
+
+                if (!_videoPlaying)
+                {
+                    try
+                    {
+                        DisplayVideo.Play();
+                        _videoPlaying = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn(ex, "ImageRotater: could not resume cover video");
+                    }
+                }
+
+                _pausedByViewport = false;
+                return;
+            }
+
+            if (!inViewport)
+            {
+                StopVideo();
+                _videoPath = path;
+                _inViewport = false;
+                EnsureViewportTracking();
+                QueueViewportCheck();
+                return;
+            }
+
+            _videoPath = path;
+            int generation = ++_videoGeneration;
+
+            DisplayVideo.BeginAnimation(OpacityProperty, null);
+            DisplayVideo.Opacity = 0.0;
+            DisplayVideo.Visibility = Visibility.Collapsed;
+
+            if (DisplayVideo.Source != null)
+            {
+                try
+                {
+                    DisplayVideo.Stop();
+                }
+                catch
+                {
+                }
+
+                _videoPlaying = false;
+            }
+
+            _animating = true;
+            _pausedByViewport = false;
+
+            Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    if (generation != _videoGeneration ||
+                        !string.Equals(_videoPath, path, StringComparison.OrdinalIgnoreCase) ||
+                        !IsLoaded || !IsActuallyInViewport())
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        DisplayVideo.Source = new Uri(path);
+                        DisplayVideo.Visibility = Visibility.Visible;
+                        DisplayVideo.Play();
+                        _videoPlaying = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn(ex, "ImageRotater: could not start cover video");
+                        return;
+                    }
+
+                    var reveal = new System.Windows.Threading.DispatcherTimer
+                    {
+                        Interval = TimeSpan.FromMilliseconds(700)
+                    };
+
+                    reveal.Tick += (s, e) =>
+                    {
+                        reveal.Stop();
+
+                        if (generation == _videoGeneration &&
+                            DisplayVideo.Source != null &&
+                            DisplayVideo.Visibility == Visibility.Visible &&
+                            DisplayVideo.Opacity < 1.0)
+                        {
+                            DisplayVideo.BeginAnimation(OpacityProperty, null);
+                            DisplayVideo.Opacity = 1.0;
+                            CompleteVideoReveal();
+                        }
+                    };
+
+                    reveal.Start();
+                }),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        private void CompleteVideoReveal()
+        {
+            if (!_videoReplacingImage)
+            {
+                return;
+            }
+
+            _videoReplacingImage = false;
+
+            // Release the old still after the video reveal completes.
+            _data.ImagePath = string.Empty;
+            XamlAnimatedGif.AnimationBehavior.SetSourceUri(DisplayImage, null);
+            DisplayImage.BeginAnimation(OpacityProperty, null);
+            DisplayImage.Opacity = 1.0;
+            DisplayImage.Visibility = Visibility.Collapsed;
+            ClearPreviousCover();
         }
 
         // Restarts playback after the element is re-inserted into the tree.
@@ -981,7 +1242,13 @@ namespace ImageRotater.Controls
         private void DisplayVideo_Loaded(object sender, RoutedEventArgs e)
         {
             if (DisplayVideo.Source == null ||
-                DisplayVideo.Visibility != Visibility.Visible)
+                DisplayVideo.Visibility != Visibility.Visible ||
+                !IsActuallyInViewport())
+            {
+                return;
+            }
+
+            if (_videoPlaying)
             {
                 return;
             }
@@ -989,6 +1256,8 @@ namespace ImageRotater.Controls
             try
             {
                 DisplayVideo.Play();
+                _videoPlaying = true;
+                _pausedByViewport = false;
             }
             catch (Exception ex)
             {
@@ -998,97 +1267,125 @@ namespace ImageRotater.Controls
 
         private void StopVideo()
         {
+            int generation = ++_videoGeneration;
+            _videoPath = null;
+            _videoReplacingImage = false;
+            _videoPlaying = false;
+            _pausedByViewport = false;
+
+            // Stop viewport tracking when no video is active.
+            DetachViewportTracking();
+
             if (DisplayVideo.Source == null && DisplayVideo.Visibility == Visibility.Collapsed)
             {
+                _animating = false;
                 return;
             }
-
-            DisplayVideo.Stop();
-
-            // Close() as well as Stop(), and the difference is not cosmetic.
-            // Stop halts playback but leaves the media open; Close releases it
-            // and the decoder behind it. In a virtualised grid with unfocused
-            // covers animating, that is one held decoder per realised tile, in
-            // a 32-bit process - the difference between "a screenful of videos"
-            // and "every video the user has scrolled past this session".
-            DisplayVideo.Close();
-
-            DisplayVideo.Source = null;
-            DisplayVideo.Visibility = Visibility.Collapsed;
-
-            // Cleared, or a fade left mid-flight pins the next video at
-            // whatever opacity this one died on.
-            DisplayVideo.BeginAnimation(OpacityProperty, null);
-            DisplayVideo.Opacity = 1.0;
-            _animating = false;
-        }
-
-        // Loop: artwork clips are short and meant to repeat, and MediaElement
-        // has no repeat property of its own.
-        // Set when playback starts, consumed when the media reports its length.
-        private bool _startAtRandomPoint;
-
-        // One generator for every control. Constructing Random per call seeds
-        // from the clock, and a screenful of tiles opening in the same
-        // millisecond would all pick the same "random" offset.
-        private static readonly Random StartPoint = new Random();
-
-        // Seeks to a random point once the duration is known.
-        //
-        // Duration is not available until the media opens, so this cannot be
-        // done where Play() is called. Skips the last quarter, or a clip could
-        // open a moment before it loops - which looks like it failed to play.
-        private void DisplayVideo_MediaOpened(object sender, RoutedEventArgs e)
-        {
-            // The first frame exists now; fading from here means the black
-            // pre-roll a MediaElement renders before opening is never seen.
-            DisplayVideo.BeginAnimation(
-                OpacityProperty,
-                new System.Windows.Media.Animation.DoubleAnimation(
-                    0.0, 1.0, new Duration(Transition.Duration)));
-
-            if (!_startAtRandomPoint)
-            {
-                return;
-            }
-
-            _startAtRandomPoint = false;
 
             try
             {
-                if (!DisplayVideo.NaturalDuration.HasTimeSpan)
-                {
-                    return;
-                }
-
-                double seconds = DisplayVideo.NaturalDuration.TimeSpan.TotalSeconds;
-
-                // Too short to be worth seeking into.
-                if (seconds < 2.0)
-                {
-                    return;
-                }
-
-                double offset;
-                lock (StartPoint)
-                {
-                    offset = StartPoint.NextDouble() * (seconds * 0.75);
-                }
-
-                DisplayVideo.Position = TimeSpan.FromSeconds(offset);
+                DisplayVideo.Stop();
             }
-            catch (Exception ex)
+            catch
             {
-                Logger.Warn(ex, "ImageRotater: could not set a random video start point");
             }
+
+            DisplayVideo.Source = null;
+            DisplayVideo.Visibility = Visibility.Collapsed;
+            DisplayVideo.BeginAnimation(OpacityProperty, null);
+            DisplayVideo.Opacity = 1.0;
+            _animating = false;
+
+            Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    if (generation == _videoGeneration && DisplayVideo.Source == null)
+                    {
+                        try
+                        {
+                            DisplayVideo.Close();
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }),
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+
+        private static readonly Random VideoStartRandom = new Random();
+
+        private void DisplayVideo_MediaOpened(object sender, RoutedEventArgs e)
+        {
+            if (!IsActuallyInViewport())
+            {
+                try
+                {
+                    DisplayVideo.Pause();
+                    _videoPlaying = false;
+                    _pausedByViewport = true;
+                }
+                catch
+                {
+                }
+
+                return;
+            }
+
+            ImageRotaterSettings settings = _settings != null ? _settings() : null;
+            if (settings != null &&
+                settings.CoverVideoStartMode == VideoStartMode.Random &&
+                DisplayVideo.NaturalDuration.HasTimeSpan)
+            {
+                double seconds = DisplayVideo.NaturalDuration.TimeSpan.TotalSeconds;
+                if (seconds >= 2.0)
+                {
+                    double offset;
+                    lock (VideoStartRandom)
+                    {
+                        offset = VideoStartRandom.NextDouble() * (seconds * 0.75);
+                    }
+
+                    try
+                    {
+                        DisplayVideo.Position = TimeSpan.FromSeconds(offset);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn(ex, "ImageRotater: could not set cover video start point");
+                    }
+                }
+            }
+
+            int generation = _videoGeneration;
+            var reveal = new System.Windows.Media.Animation.DoubleAnimation(
+                0.0, 1.0, new Duration(Transition.Duration));
+
+            reveal.Completed += (s, completedArgs) =>
+            {
+                if (generation == _videoGeneration)
+                {
+                    CompleteVideoReveal();
+                }
+            };
+
+            DisplayVideo.BeginAnimation(OpacityProperty, reveal);
         }
 
         private void DisplayVideo_MediaEnded(object sender, RoutedEventArgs e)
         {
+            if (!IsActuallyInViewport())
+            {
+                _videoPlaying = false;
+                _pausedByViewport = true;
+                return;
+            }
+
             try
             {
                 DisplayVideo.Position = TimeSpan.Zero;
                 DisplayVideo.Play();
+                _videoPlaying = true;
             }
             catch (Exception ex)
             {
@@ -1111,7 +1408,20 @@ namespace ImageRotater.Controls
                 Logger.Warn($"ImageRotater: could not play cover video (missing codec?): {path}");
             }
 
+            bool keepImageFallback = _videoReplacingImage &&
+                DisplayImage.Visibility == Visibility.Visible &&
+                DisplayImage.Source != null;
+
             StopVideo();
+
+            if (keepImageFallback)
+            {
+                DisplayImage.BeginAnimation(OpacityProperty, null);
+                DisplayImage.Opacity = 1.0;
+                DisplayImage.Visibility = Visibility.Visible;
+                return;
+            }
+
             ShowNothing();
         }
     }

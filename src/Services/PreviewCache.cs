@@ -20,9 +20,7 @@ namespace ImageRotater.Services
     // ffmpeg, which the plugin cannot bundle - without it the dialog still
     // badges animated results, it just cannot move them.
     //
-    // Everything lands in one session folder, deleted on shutdown: these are
-    // previews of things the user has NOT downloaded, and keeping them would
-    // grow a cache of artwork nobody chose.
+    // Preview files are removed on the next startup rather than during shutdown.
     public static class PreviewCache
     {
         private static readonly ILogger Logger = LogManager.GetLogger();
@@ -167,29 +165,41 @@ namespace ImageRotater.Services
             }
         }
 
-        // Called on shutdown. These are previews of artwork the user did not
-        // download, so none of it should outlive the session.
+        // Deletes preview files left by the previous session.
         public static void Clear()
         {
             lock (Lock)
             {
                 Converted.Clear();
 
-                if (_folder == null || !Directory.Exists(_folder))
+                string folder = _folder;
+                if (string.IsNullOrEmpty(folder))
                 {
-                    return;
+                    folder = Path.Combine(Path.GetTempPath(), "ImageRotater_previews");
                 }
 
-                try
+                if (Directory.Exists(folder))
                 {
-                    Directory.Delete(_folder, true);
-                }
-                catch (Exception)
-                {
-                    // A file still open costs one temp folder until Windows
-                    // clears it - not worth failing shutdown over.
+                    try
+                    {
+                        Directory.Delete(folder, true);
+                    }
+                    catch (Exception)
+                    {
+                        // Cleanup is best-effort; locked files can be retried later.
+                    }
                 }
 
+                _folder = null;
+            }
+        }
+
+        // Shutdown releases process-local state; disk cleanup is deferred.
+        public static void ReleaseForShutdown()
+        {
+            lock (Lock)
+            {
+                Converted.Clear();
                 _folder = null;
             }
         }

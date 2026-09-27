@@ -1,0 +1,175 @@
+<UserControl x:Class="ImageRotater.Controls.ArtworkManagerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             d:DesignHeight="760" d:DesignWidth="1180">
+
+    <UserControl.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TabControl x:Name="ManagerTabs"
+                    Grid.Row="0"
+                    SelectionChanged="ManagerTabs_SelectionChanged">
+            <TabItem x:Name="LocalTab">
+                <Grid Margin="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="420"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0"
+                            BorderBrush="{DynamicResource SeparatorBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="8">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock x:Name="FilesHeaderText"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,8"/>
+
+                            <Grid Grid.Row="1">
+                                <ListView x:Name="ItemsList"
+                                          SelectionMode="Extended"
+                                          SelectionChanged="ItemsList_SelectionChanged"
+                                          MouseDoubleClick="ItemsList_MouseDoubleClick">
+                                    <ListView.View>
+                                        <GridView>
+                                            <GridViewColumn Width="220" DisplayMemberBinding="{Binding Name}">
+                                                <GridViewColumn.Header>
+                                                    <TextBlock Text="{DynamicResource LOCImageRotaterManagerName}"/>
+                                                </GridViewColumn.Header>
+                                            </GridViewColumn>
+                                            <GridViewColumn Width="80" DisplayMemberBinding="{Binding TypeLabel}">
+                                                <GridViewColumn.Header>
+                                                    <TextBlock Text="{DynamicResource LOCImageRotaterManagerType}"/>
+                                                </GridViewColumn.Header>
+                                            </GridViewColumn>
+                                            <GridViewColumn Width="85" DisplayMemberBinding="{Binding SizeLabel}">
+                                                <GridViewColumn.Header>
+                                                    <TextBlock Text="{DynamicResource LOCImageRotaterManagerSize}"/>
+                                                </GridViewColumn.Header>
+                                            </GridViewColumn>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+
+                                <TextBlock x:Name="EmptyListText"
+                                           TextWrapping="Wrap"
+                                           TextAlignment="Center"
+                                           Foreground="Gray"
+                                           Margin="20"
+                                           VerticalAlignment="Center"
+                                           HorizontalAlignment="Center"
+                                           Visibility="Collapsed"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Column="2"
+                            BorderBrush="{DynamicResource SeparatorBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="10">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="{DynamicResource LOCImageRotaterPreview}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,8"/>
+
+                            <Border Grid.Row="1"
+                                    Background="#14000000"
+                                    CornerRadius="4"
+                                    Padding="6">
+                                <Grid>
+                                    <Image x:Name="PreviewImage"
+                                           Stretch="Uniform"
+                                           Visibility="Collapsed"/>
+                                    <MediaElement x:Name="PreviewVideo"
+                                                  LoadedBehavior="Manual"
+                                                  UnloadedBehavior="Manual"
+                                                  Stretch="Uniform"
+                                                  Visibility="Collapsed"
+                                                  MediaEnded="PreviewVideo_MediaEnded"
+                                                  MediaFailed="PreviewVideo_MediaFailed"/>
+                                    <TextBlock x:Name="PreviewHintText"
+                                               Foreground="Gray"
+                                               TextWrapping="Wrap"
+                                               TextAlignment="Center"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Margin="24"/>
+                                </Grid>
+                            </Border>
+
+                            <StackPanel Grid.Row="2" Margin="0,10,0,0">
+                                <TextBlock x:Name="PreviewNameText"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock x:Name="PreviewMetaText"
+                                           Foreground="Gray"
+                                           TextWrapping="Wrap"
+                                           Margin="0,4,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem x:Name="SearchTab"
+                     Header="{DynamicResource LOCImageRotaterManagerSearchTab}">
+                <ContentControl x:Name="SearchHost" Margin="4"/>
+            </TabItem>
+        </TabControl>
+
+        <DockPanel x:Name="LocalActionsPanel" Grid.Row="1" Margin="0,12,0,0">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                <Button x:Name="AddButton"
+                        Content="{DynamicResource LOCImageRotaterManagerAddFiles}"
+                        MinWidth="110"
+                        Margin="0,0,8,0"
+                        Click="AddButton_Click"/>
+                <Button x:Name="AutomaticButton"
+                        Content="{DynamicResource LOCImageRotaterMenuDownloadSgdb}"
+                        MinWidth="140"
+                        Margin="0,0,8,0"
+                        Click="AutomaticButton_Click"/>
+                <Button x:Name="OpenFolderButton"
+                        Content="{DynamicResource LOCImageRotaterMenuOpenFolder}"
+                        MinWidth="110"
+                        Margin="0,0,8,0"
+                        Click="OpenFolderButton_Click"/>
+                <Button x:Name="RefreshButton"
+                        Content="{DynamicResource LOCImageRotaterManagerRefresh}"
+                        MinWidth="90"
+                        Margin="0,0,8,0"
+                        Click="RefreshButton_Click"/>
+                <Button x:Name="DeleteButton"
+                        Content="{DynamicResource LOCImageRotaterManagerDeleteSelected}"
+                        MinWidth="130"
+                        Click="DeleteButton_Click"/>
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</UserControl>

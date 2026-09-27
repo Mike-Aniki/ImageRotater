@@ -61,8 +61,7 @@ namespace ImageRotater.Services
                 // take the originals with it and leave games blank.
                 Logger.Error(ex, "ImageRotater: restore failed, so nothing was deleted");
 
-                result.Error = "Could not restore the original artwork, so nothing was "
-                    + "deleted. " + ex.Message;
+                result.Error = Loc.Format("LOCImageRotaterResetRestoreFailed", ex.Message);
 
                 return result;
             }
@@ -81,10 +80,7 @@ namespace ImageRotater.Services
             // restore in the first place.
             if (result.GamesRestored == 0 && _writer != null && _writer.HasWrittenArtwork)
             {
-                result.Error =
-                    "Nothing was deleted. The record of your games' original artwork is "
-                    + "missing, so a reset would leave them with no artwork at all and "
-                    + "no way back. Use \"Repair artwork references\" instead.";
+                result.Error = Loc.Get("LOCImageRotaterResetMissingRecord");
 
                 return result;
             }

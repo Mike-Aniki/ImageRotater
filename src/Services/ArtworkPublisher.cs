@@ -91,11 +91,10 @@ namespace ImageRotater.Services
                 {
                     try
                     {
-                        // Raw, not deduplicated: this runs for every game on
-                        // the UI thread before the first frame, and the exact
-                        // listing reads same-length files in full. See the
-                        // store for what that cost on a migrated library.
-                        IReadOnlyList<string> candidates = _store.GetImagePathsRaw(game.Id, kind);
+                        // Only the first candidate and first video are needed here.
+                        string firstCandidate;
+                        string firstVideo;
+                        _store.GetSeedCandidates(game.Id, kind, out firstCandidate, out firstVideo);
 
                         // Seed a video separately from the still, because they
                         // publish to different files and a theme's MediaElement
@@ -106,15 +105,15 @@ namespace ImageRotater.Services
                         // that game's video - which for a game with several
                         // covers can take a while and looks like the feature is
                         // broken.
-                        SeedVideo(game.Id, kind, candidates);
+                        SeedVideo(game.Id, kind, firstVideo);
 
                         if (File.Exists(PublishedPathFor(game.Id, kind)))
                         {
                             continue;
                         }
 
-                        bool wrote = candidates.Count > 0
-                            ? _store.PublishCurrent(game.Id, candidates[0], kind)
+                        bool wrote = firstCandidate != null
+                            ? _store.PublishCurrent(game.Id, firstCandidate, kind)
                             // A 70-byte transparent placeholder, NOT a copy of
                             // the game's artwork. The file only has to EXIST:
                             // 1x1 transparent renders as nothing and the
@@ -147,26 +146,21 @@ namespace ImageRotater.Services
         // published yet. Separate from the still seeding above: the two live in
         // different files and a theme picks between them by existence, so a
         // game with both needs both present.
-        private void SeedVideo(Guid gameId, ArtworkKind kind, IReadOnlyList<string> candidates)
+        private void SeedVideo(Guid gameId, ArtworkKind kind, string candidate)
         {
             try
             {
-                foreach (string candidate in candidates)
+                if (string.IsNullOrEmpty(candidate))
                 {
-                    if (!PosterFrame.IsVideo(candidate))
-                    {
-                        continue;
-                    }
-
-                    // Already published - leave it, rotation owns it from here.
-                    if (File.Exists(PublishedPathFor(gameId, kind, candidate)))
-                    {
-                        return;
-                    }
-
-                    _store.PublishCurrent(gameId, candidate, kind);
                     return;
                 }
+
+                if (File.Exists(PublishedPathFor(gameId, kind, candidate)))
+                {
+                    return;
+                }
+
+                _store.PublishCurrent(gameId, candidate, kind);
             }
             catch (Exception)
             {

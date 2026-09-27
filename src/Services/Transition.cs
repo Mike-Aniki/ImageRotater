@@ -18,11 +18,7 @@ namespace ImageRotater.Services
         Cut                 // No animation at all
     }
 
-    // The one place the still transitions are decided, so a cover tile in
-    // Fullscreen and a theme-hosted cover move the same way, and a background
-    // does in either mode. Three renderers draw stills - Playnite's FadeImage
-    // for backgrounds, Playnite's cover Image and the plugin's own cover
-    // control for covers - and each reads its style and timing from here.
+    // Shared transition style and timing for native and plugin renderers.
     //
     // Covers and backgrounds are chosen separately: a flash that reads as a
     // beat on a small tile is a full-screen strobe on a background.

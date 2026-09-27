@@ -47,32 +47,31 @@ namespace ImageRotater.Services
                 {
                     if (Games == 0 && Copied + Skipped + Missing + Failed == 0)
                     {
-                        return $"No BackgroundChanger artwork found at {SourcePath}.";
+                        return Loc.Format("LOCImageRotaterNoBcAt", SourcePath);
                     }
 
-                    string text = $"Imported {Copied} file(s) for {Games} game(s).";
+                    string text = Loc.Format("LOCImageRotaterImportedFiles", Copied, Games);
 
                     if (Skipped > 0)
                     {
-                        text += $" {Skipped} already present.";
+                        text += Loc.Format("LOCImageRotaterAlreadyPresent", Skipped);
                     }
 
                     if (Missing > 0)
                     {
-                        text += $" {Missing} listed by BackgroundChanger but missing from its folder.";
+                        text += Loc.Format("LOCImageRotaterBcMissingFiles", Missing);
                     }
 
                     if (Failed > 0)
                     {
-                        text += $" {Failed} could not be copied.";
+                        text += Loc.Format("LOCImageRotaterCopyFailed", Failed);
                     }
 
                     // WPF has no WebP decoder, so a WebP the user could see in
                     // BackgroundChanger renders blank here until converted.
                     if (WebP > 0)
                     {
-                        text += $"\n\n{WebP} WebP file(s) were copied as they are. Playnite cannot show "
-                            + "WebP, so run Library > Maintenance > Convert all GIFs to MP4 to make them play (needs ffmpeg).";
+                        text += Loc.Format("LOCImageRotaterWebPCopied", WebP);
                     }
 
                     return text;

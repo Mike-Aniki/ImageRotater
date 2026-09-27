@@ -36,7 +36,7 @@ namespace ImageRotater.Services
 
             if (settings == null)
             {
-                errors.Add("Settings could not be read.");
+                errors.Add(Loc.Get("LOCImageRotaterSettingsUnreadable"));
                 return errors;
             }
 
@@ -58,12 +58,12 @@ namespace ImageRotater.Services
 
             ValidateInterval(
                 settings.BackgroundSlideshowSeconds,
-                "Background slideshow interval",
+                Loc.Get("LOCImageRotaterBackgroundInterval"),
                 errors);
 
             ValidateInterval(
                 settings.CoverSlideshowSeconds,
-                "Cover slideshow interval",
+                Loc.Get("LOCImageRotaterCoverInterval"),
                 errors);
 
             return errors;
@@ -92,10 +92,8 @@ namespace ImageRotater.Services
 
             if (trimmed.Length != ApiKeyLength)
             {
-                errors.Add(
-                    $"The SteamGridDB API key should be {ApiKeyLength} characters, "
-                    + $"but this one is {trimmed.Length}. Copy the whole key from "
-                    + "steamgriddb.com/profile/preferences/api.");
+                errors.Add(Loc.Format(
+                    "LOCImageRotaterApiKeyLength", ApiKeyLength, trimmed.Length));
                 return;
             }
 
@@ -103,9 +101,7 @@ namespace ImageRotater.Services
             {
                 if (!Uri.IsHexDigit(c))
                 {
-                    errors.Add(
-                        "The SteamGridDB API key should be letters a-f and digits "
-                        + "only. Check for a stray space or a copied label.");
+                    errors.Add(Loc.Get("LOCImageRotaterApiKeyChars"));
                     return;
                 }
             }
@@ -115,7 +111,7 @@ namespace ImageRotater.Services
         {
             if (seconds < 0)
             {
-                errors.Add($"{label} cannot be negative. Use 0 to turn it off.");
+                errors.Add(Loc.Format("LOCImageRotaterIntervalNegative", label));
                 return;
             }
 

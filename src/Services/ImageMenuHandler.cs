@@ -67,8 +67,7 @@ namespace ImageRotater.Services
             if (_steamGridDb == null || !_steamGridDb.IsConfigured)
             {
                 _api.Dialogs.ShowErrorMessage(
-                    "Add your SteamGridDB API key in ImageRotater settings first.\n\n" +
-                    "You can get a free key from steamgriddb.com under Preferences > API.",
+                    Loc.Get("LOCImageRotaterSgdbKeyRequired"),
                     "ImageRotater");
                 return;
             }
@@ -82,8 +81,10 @@ namespace ImageRotater.Services
                     ShowCloseButton = true
                 });
 
-                string label = kind == ArtworkKind.Cover ? "covers" : "backgrounds";
-                window.Title = $"ImageRotater - search {label}: {game.Name}";
+                string label = kind == ArtworkKind.Cover
+                    ? Loc.Get("LOCImageRotaterCoversLower")
+                    : Loc.Get("LOCImageRotaterBackgroundsLower");
+                window.Title = Loc.Format("LOCImageRotaterSearchWindowTitle", label, game.Name);
                 // Bigger in Fullscreen, where this is read from a sofa and the
                 // desktop size leaves most of a TV unused. Clamped to the
                 // screen so it cannot open larger than the display.
@@ -112,7 +113,7 @@ namespace ImageRotater.Services
             {
                 Logger.Error(ex, "ImageRotater: could not open the SteamGridDB browser");
                 _api.Dialogs.ShowErrorMessage(
-                    "Could not open the SteamGridDB browser. See the Playnite log for details.",
+                    Loc.Get("LOCImageRotaterSearchOpenFailed"),
                     "ImageRotater");
             }
         }
@@ -133,8 +134,7 @@ namespace ImageRotater.Services
             if (_steamGridDb == null || !_steamGridDb.IsConfigured)
             {
                 _api.Dialogs.ShowErrorMessage(
-                    "Add your SteamGridDB API key in ImageRotater settings first.\n\n" +
-                    "You can get a free key from steamgriddb.com under Preferences > API.",
+                    Loc.Get("LOCImageRotaterSgdbKeyRequired"),
                     "ImageRotater");
                 return;
             }
@@ -176,7 +176,7 @@ namespace ImageRotater.Services
                     progress.CurrentProgressValue++;
                 }
             },
-            new GlobalProgressOptions("ImageRotater: downloading artwork", true)
+            new GlobalProgressOptions(Loc.Get("LOCImageRotaterDownloadingArtwork"), true)
             {
                 IsIndeterminate = false
             });
@@ -335,7 +335,7 @@ namespace ImageRotater.Services
                 return;
             }
 
-            string message = $"Downloaded artwork for {downloaded} game(s).";
+            string message = Loc.Format("LOCImageRotaterDownloadedGames", downloaded);
 
             if (failures.Count > 0)
             {
@@ -343,16 +343,83 @@ namespace ImageRotater.Services
                 // the user can retry or add art manually for those specific
                 // titles.
                 const int maxNamed = 10;
-                message += $"\n\nNo artwork found for {failures.Count}:\n"
-                    + string.Join("\n", failures.Take(maxNamed));
+                message += Loc.Format(
+                    "LOCImageRotaterNoArtworkGames",
+                    failures.Count,
+                    string.Join("\n", failures.Take(maxNamed)));
 
                 if (failures.Count > maxNamed)
                 {
-                    message += $"\n...and {failures.Count - maxNamed} more.";
+                    message += Loc.Format("LOCImageRotaterAndMore", failures.Count - maxNamed);
                 }
             }
 
             _api.Dialogs.ShowMessage(message, "ImageRotater");
+        }
+
+        private void NotifyImagesChanged(Guid gameId)
+        {
+            _sessionCache?.Forget(gameId);
+            _onImagesChanged?.Invoke(gameId);
+        }
+
+        public void ManageImages(Game game, ArtworkKind kind)
+        {
+            if (game == null)
+            {
+                return;
+            }
+
+            try
+            {
+                Window window = _api.Dialogs.CreateWindow(new WindowCreationOptions
+                {
+                    ShowMinimizeButton = false,
+                    ShowMaximizeButton = true,
+                    ShowCloseButton = true
+                });
+
+                string label = kind == ArtworkKind.Cover
+                    ? Loc.Get("LOCImageRotaterCoversLower")
+                    : Loc.Get("LOCImageRotaterBackgroundsLower");
+                window.Title = Loc.Format("LOCImageRotaterManagerWindowTitle", label, game.Name);
+
+                bool fullscreen = _api.ApplicationInfo.Mode == ApplicationMode.Fullscreen;
+                window.Width = fullscreen
+                    ? Math.Min(1500, SystemParameters.PrimaryScreenWidth * 0.9)
+                    : 1080;
+                window.Height = fullscreen
+                    ? Math.Min(920, SystemParameters.PrimaryScreenHeight * 0.88)
+                    : 700;
+                window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                var searchView = new Controls.SteamGridDbSearchView(
+                    _api,
+                    _steamGridDb,
+                    _downloader,
+                    game,
+                    kind,
+                    _settings == null ? null : _settings(),
+                    System.IO.Path.GetDirectoryName(_store.ImagesRoot),
+                    embedded: true);
+
+                window.Content = new Controls.ArtworkManagerView(
+                    _api,
+                    _store,
+                    _sessionCache,
+                    game,
+                    kind,
+                    NotifyImagesChanged,
+                    searchView,
+                    () => DownloadFromSteamGridDb(new[] { game }, kind));
+                window.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, $"ImageRotater: could not open the artwork manager for {game.Name}");
+                _api.Dialogs.ShowErrorMessage(
+                    Loc.Get("LOCImageRotaterManagerOpenFailed"),
+                    "ImageRotater");
+            }
         }
 
         // Opens a file picker and copies the chosen images into the game's
@@ -378,9 +445,9 @@ namespace ImageRotater.Services
             // The combined filter leads so the default view shows everything;
             // the narrower groups are there for a folder holding both.
             List<string> selected = _api.Dialogs.SelectFiles(
-                "Artwork|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif;*.mp4;*.webm"
-                + "|Images|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif"
-                + "|Video|*.mp4;*.webm");
+                Loc.Get("LOCImageRotaterArtworkFilter") + "|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif;*.mp4;*.webm"
+                + "|" + Loc.Get("LOCImageRotaterImagesFilter") + "|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif"
+                + "|" + Loc.Get("LOCImageRotaterVideoFilter") + "|*.mp4;*.webm");
 
             if (selected == null || selected.Count == 0)
             {
@@ -400,13 +467,12 @@ namespace ImageRotater.Services
 
                 // The candidate list changed, so any remembered choice for this
                 // game is stale - drop it so the new image can be picked.
-                _sessionCache?.Forget(game.Id);
-                _onImagesChanged?.Invoke(game.Id);
+                NotifyImagesChanged(game.Id);
             }
 
             if (added > 0)
             {
-                string message = $"Added {added} image(s) to {targets.Count} game(s).";
+                string message = Loc.Format("LOCImageRotaterAddedImages", added, targets.Count);
 
                 // Rotation needs something to rotate TO. Checked for a single
                 // game only; a batch add is not where a one-image setup happens.
@@ -415,8 +481,7 @@ namespace ImageRotater.Services
                         only.Id, kind,
                         kind == ArtworkKind.Cover ? only.CoverImage : only.BackgroundImage) < 2)
                 {
-                    message += "\n\nTip: add at least one more - rotation and transitions "
-                        + "need two or more images.";
+                    message += Loc.Get("LOCImageRotaterAddMoreTip");
                 }
 
                 _api.Dialogs.ShowMessage(message, "ImageRotater");
@@ -464,8 +529,7 @@ namespace ImageRotater.Services
             if (!GifConverter.IsAvailable)
             {
                 _api.Dialogs.ShowErrorMessage(
-                    "This needs ffmpeg. Set its path on the Setup tab in the "
-                    + "ImageRotater settings first.",
+                    Loc.Get("LOCImageRotaterRepairVideosNeedFfmpeg"),
                     "ImageRotater");
                 return;
             }
@@ -487,19 +551,19 @@ namespace ImageRotater.Services
                 {
                     // The repaired file has the same path, but rotation may be
                     // holding a decoded copy of the broken one.
-                    _onImagesChanged?.Invoke(game.Id);
+                    NotifyImagesChanged(game.Id);
                 }
             }
 
             string message = repaired > 0
-                ? $"Repaired {repaired} video(s)."
+                ? Loc.Format("LOCImageRotaterRepairedVideos", repaired)
                 : untouched > 0
-                    ? "All videos here are already fine."
-                    : "No videos found for the selected game(s).";
+                    ? Loc.Get("LOCImageRotaterVideosAlreadyFine")
+                    : Loc.Get("LOCImageRotaterNoVideosSelected");
 
             if (failed > 0)
             {
-                message += $" {failed} could not be repaired - see the log.";
+                message += Loc.Format("LOCImageRotaterRepairFailedCount", failed);
             }
 
             _api.Dialogs.ShowMessage(message, "ImageRotater");
@@ -516,14 +580,14 @@ namespace ImageRotater.Services
             int total = targets.Sum(g => _store.GetImagePaths(g.Id, kind).Count);
             if (total == 0)
             {
-                _api.Dialogs.ShowMessage("No ImageRotater images to remove.", "ImageRotater");
+                _api.Dialogs.ShowMessage(Loc.Get("LOCImageRotaterNoImagesRemove"), "ImageRotater");
                 return;
             }
 
             // Deleting the user's files is not undoable, so confirm first and
             // say exactly how many are going.
             MessageBoxResult confirm = _api.Dialogs.ShowMessage(
-                $"Remove {total} image(s) from {targets.Count} game(s)?\n\nThe files will be deleted.",
+                Loc.Format("LOCImageRotaterRemoveQuestion", total, targets.Count),
                 "ImageRotater",
                 MessageBoxButton.YesNo);
 
@@ -543,11 +607,10 @@ namespace ImageRotater.Services
                     }
                 }
 
-                _sessionCache?.Forget(game.Id);
-                _onImagesChanged?.Invoke(game.Id);
+                NotifyImagesChanged(game.Id);
             }
 
-            _api.Dialogs.ShowMessage($"Removed {removed} image(s).", "ImageRotater");
+            _api.Dialogs.ShowMessage(Loc.Format("LOCImageRotaterRemovedImages", removed), "ImageRotater");
         }
     }
 }

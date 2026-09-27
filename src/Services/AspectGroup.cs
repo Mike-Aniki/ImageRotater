@@ -41,12 +41,12 @@ namespace ImageRotater.Services
         // still groups - it just gets a plain ratio label.
         private static readonly Tuple<double, string>[] KnownFormats =
         {
-            Tuple.Create(1.0, "1:1 - Square"),
-            Tuple.Create(2.0 / 3.0, "2:3 - Steam Vertical"),
-            Tuple.Create(920.0 / 430.0, "92:43 - Steam Horizontal"),
-            Tuple.Create(342.0 / 482.0, "22:31 - Galaxy 2.0"),
-            Tuple.Create(1920.0 / 620.0, "96:31 - Steam Hero"),
-            Tuple.Create(1600.0 / 650.0, "32:13 - Galaxy Hero")
+            Tuple.Create(1.0, "LOCImageRotaterAspectSquare"),
+            Tuple.Create(2.0 / 3.0, "LOCImageRotaterAspectSteamVertical"),
+            Tuple.Create(920.0 / 430.0, "LOCImageRotaterAspectSteamHorizontal"),
+            Tuple.Create(342.0 / 482.0, "LOCImageRotaterAspectGalaxy"),
+            Tuple.Create(1920.0 / 620.0, "LOCImageRotaterAspectSteamHero"),
+            Tuple.Create(1600.0 / 650.0, "LOCImageRotaterAspectGalaxyHero")
         };
 
         // Two ratios within this fraction of each other are the same format.
@@ -133,7 +133,7 @@ namespace ImageRotater.Services
             {
                 if (Math.Abs(known.Item1 - aspect) / aspect <= Tolerance)
                 {
-                    return known.Item2;
+                    return Loc.Get(known.Item2);
                 }
             }
 

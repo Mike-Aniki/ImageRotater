@@ -26,6 +26,9 @@ namespace ImageRotater.Controls
         private readonly ImageRotaterSettings _settings;
         private readonly string _pluginUserDataPath;
         private readonly ArtworkKind _kind;
+        private readonly bool _embedded;
+
+        public event EventHandler ArtworkChanged;
 
         // Peer source to SteamGridDB, used when the checkbox is ticked.
         private readonly WebImageSearch _webSearch;
@@ -66,7 +69,8 @@ namespace ImageRotater.Controls
             Playnite.SDK.Models.Game game,
             ArtworkKind kind = ArtworkKind.Background,
             ImageRotaterSettings settings = null,
-            string pluginUserDataPath = null)
+            string pluginUserDataPath = null,
+            bool embedded = false)
         {
             InitializeComponent();
 
@@ -82,7 +86,13 @@ namespace ImageRotater.Controls
             // Where the web view keeps its own data folder.
             _pluginUserDataPath = pluginUserDataPath;
             _kind = kind;
+            _embedded = embedded;
             _webSearch = new WebImageSearch(api);
+
+            if (_embedded)
+            {
+                CloseDialogButton.Visibility = Visibility.Collapsed;
+            }
 
             _model = new SteamGridDbSearchViewModel(client);
             DataContext = _model;
@@ -336,7 +346,7 @@ namespace ImageRotater.Controls
             catch (Exception ex)
             {
                 Logger.Error(ex, "ImageRotater: SteamGridDB search failed");
-                _model.Status = "Search failed. See the Playnite log for details.";
+                _model.Status = Loc.Get("LOCImageRotaterSearchFailed");
             }
             finally
             {
@@ -583,7 +593,7 @@ namespace ImageRotater.Controls
                 Logger.Warn(ex, "ImageRotater: could not open the artwork preview");
 
                 _api.Dialogs.ShowErrorMessage(
-                    "Could not open a preview for that image.", "ImageRotater");
+                    Loc.Get("LOCImageRotaterPreviewOpenFailed"), "ImageRotater");
             }
         }
 
@@ -600,7 +610,7 @@ namespace ImageRotater.Controls
             PreviewColumn.Width = new GridLength(320);
             PreviewPanel.Visibility = Visibility.Visible;
 
-            PreviewTitle.Text = string.IsNullOrEmpty(item.Style) ? "Preview" : item.Style;
+            PreviewTitle.Text = string.IsNullOrEmpty(item.Style) ? Loc.Get("LOCImageRotaterPreview") : item.Style;
 
             // A YouTube result's Width and Height describe its THUMBNAIL -- the
             // 480x360 poster frame -- because the video's real size is unknown
@@ -644,8 +654,10 @@ namespace ImageRotater.Controls
                 // caption says why there is no motion.
                 ShowStill(item);
 
-                PreviewStatus.Text = item.Dimensions + "   " + item.FormatLabel
-                    + "   (animated preview needs the WebView2 runtime)";
+                PreviewStatus.Text = Loc.Format(
+                    "LOCImageRotaterAnimatedPreviewNeedsWebView",
+                    item.Dimensions,
+                    item.FormatLabel);
 
                 return;
             }
@@ -693,8 +705,10 @@ namespace ImageRotater.Controls
                 // caption still says what the format is.
                 PreviewImage.Source = null;
 
-                PreviewStatus.Text = item.Dimensions + "   " + item.FormatLabel
-                    + "   (Windows cannot display this format)";
+                PreviewStatus.Text = Loc.Format(
+                    "LOCImageRotaterWindowsCannotDisplay",
+                    item.Dimensions,
+                    item.FormatLabel);
             }
         }
 
@@ -786,12 +800,12 @@ namespace ImageRotater.Controls
             var chosen = _model.SelectedArtwork();
             if (chosen.Count == 0)
             {
-                _model.Status = "Tick one or more images first.";
+                _model.Status = Loc.Get("LOCImageRotaterSelectImagesFirst");
                 return;
             }
 
             DownloadButton.IsEnabled = false;
-            _model.Status = $"Downloading {chosen.Count} image(s)...";
+            _model.Status = Loc.Format("LOCImageRotaterDownloadingImages", chosen.Count);
 
             // Read at download time, not construction: the user may have
             // changed their mind about conversion since the dialog opened.
@@ -823,12 +837,14 @@ namespace ImageRotater.Controls
             int videos = chosen.Count(c => c.IsYouTube || c.CanStreamDirectly && c.IsAnimated);
 
             string what = videos == chosen.Count
-                ? "video(s)"
-                : videos > 0 ? "file(s)" : "image(s)";
+                ? Loc.Get("LOCImageRotaterVideoFiles")
+                : videos > 0
+                    ? Loc.Get("LOCImageRotaterFiles")
+                    : Loc.Get("LOCImageRotaterImages");
 
             _model.Status = saved == chosen.Count
-                ? $"Downloaded and converted {saved} {what}."
-                : $"Downloaded {saved} of {chosen.Count}. See the Playnite log for the rest.";
+                ? Loc.Format("LOCImageRotaterDownloadedConverted", saved, what)
+                : Loc.Format("LOCImageRotaterDownloadedPartial", saved, chosen.Count);
 
             // Rotation needs something to rotate TO. One image is a static
             // replacement, and a user who picked one and saw no transition
@@ -836,8 +852,12 @@ namespace ImageRotater.Controls
             // the results to add a second one from are still on screen.
             if (saved > 0 && CandidateCount() < 2)
             {
-                _model.Status += " Tip: add at least one more - rotation and "
-                    + "transitions need two or more images.";
+                _model.Status += Loc.Get("LOCImageRotaterDownloadTip");
+            }
+
+            if (saved > 0)
+            {
+                ArtworkChanged?.Invoke(this, EventArgs.Empty);
             }
         }
 

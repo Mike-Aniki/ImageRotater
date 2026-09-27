@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
@@ -35,10 +36,14 @@ namespace ImageRotater.Services
             // Artwork ids this plugin wrote, so a restart can still tell them
             // from the user's own art. See _written.
             public List<string> Written { get; set; }
+
+            // Library files queued for deletion at the next startup.
+            public List<string> DeferredDeletePaths { get; set; }
         }
 
         private readonly IPlayniteAPI _api;
         private readonly string _backupPath;
+        private readonly FileLogger _fileLogger;
 
         // gameId -> the BackgroundImage value the game had before ImageRotater
         // first touched it. An empty string means "the game genuinely had none",
@@ -88,6 +93,9 @@ namespace ImageRotater.Services
         private HashSet<string> _written =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // Obsolete library files can be deleted on the next startup.
+        private List<string> _deferredDeletePaths = new List<string>();
+
         private void NoteWritten(string artworkId)
         {
             if (string.IsNullOrEmpty(artworkId))
@@ -109,9 +117,10 @@ namespace ImageRotater.Services
         // artwork when the recorded id no longer resolves.
         private readonly string _imagesRoot;
 
-        public PlayniteBackgroundWriter(IPlayniteAPI api, string pluginUserDataPath)
+        public PlayniteBackgroundWriter(IPlayniteAPI api, string pluginUserDataPath, FileLogger fileLogger = null)
         {
             _api = api;
+            _fileLogger = fileLogger;
             _backupPath = Path.Combine(pluginUserDataPath ?? string.Empty, "original-backgrounds.json");
             _imagesRoot = Path.Combine(pluginUserDataPath ?? string.Empty, "Images");
             Load();
@@ -204,85 +213,64 @@ namespace ImageRotater.Services
                 return false;
             }
 
+            bool trace = kind == ArtworkKind.Background && _fileLogger != null && _fileLogger.IsEnabled;
+            Stopwatch total = trace ? Stopwatch.StartNew() : null;
+            Stopwatch step = trace ? Stopwatch.StartNew() : null;
+            long rememberMs = 0;
+            long normaliseMs = 0;
+            long importMs = 0;
+            long stateMs = 0;
+            long commitMs = 0;
+            long cleanupMs = 0;
+            string toImport = imagePath;
+
             try
             {
                 RememberOriginal(game, kind);
+                if (trace)
+                {
+                    rememberMs = step.ElapsedMilliseconds;
+                    step.Restart();
+                }
 
-                // A FRESH import every rotation, deliberately.
-                //
-                // Fullscreen themes bind CoverImageObjectCached, which resolves
-                // through Playnite's ImageSourceManager - a decoded-bitmap cache
-                // keyed on the image id string. Reusing an id therefore returns
-                // the previously decoded bitmap and the artwork never visibly
-                // changes in Fullscreen, even though the database was updated.
-                // Desktop binds the uncached variant, which is why it worked
-                // there and not here. Plugins cannot evict that cache: the SDK
-                // exposes no access to it, only AddFile/RemoveFile.
-                //
-                // A new id per rotation guarantees a cache miss. The previous
-                // copy is deleted immediately below, so this stays bounded at
-                // one transient extra copy rather than accumulating.
                 string previousId = GetCurrent(game, kind);
-
-                // Backgrounds are imported at ONE width per game.
-                //
-                // Playnite blurs the window background with a fixed-radius
-                // BlurEffect applied AFTER the image has been scaled to fit,
-                // and decodes every background to the screen's working width.
-                // So a 3840px source comes down 2.7x while a 1440px one is
-                // untouched, and the same blur radius then covers a very
-                // different fraction of each picture. Rotating between them
-                // makes the blur visibly jump - and the jump vanishes when two
-                // images happen to share a resolution, which is what gave this
-                // away.
-                //
-                // Only the imported copy is resized; the candidate on disk
-                // keeps its original resolution.
-                // The levelled copy is cached beside the source and reused by
-                // the next rotation onto the same picture - see
-                // NormaliseIfBackground. Not a candidate: it lives in a folder
-                // the listing skips.
-                string toImport = NormaliseIfBackground(game, kind, imagePath);
+                toImport = NormaliseIfBackground(game, kind, imagePath);
+                if (trace)
+                {
+                    normaliseMs = step.ElapsedMilliseconds;
+                    step.Restart();
+                }
 
                 string newId = ImportFile(toImport, game.Id);
+                if (trace)
+                {
+                    importMs = step.ElapsedMilliseconds;
+                    step.Restart();
+                }
 
                 if (string.IsNullOrEmpty(newId))
                 {
+                    if (trace)
+                    {
+                        _fileLogger.Log(
+                            $"BG PERF writer \"{game.Name}\" failed=import total={total.ElapsedMilliseconds}ms " +
+                            $"remember={rememberMs}ms normalise={normaliseMs}ms import={importMs}ms source={imagePath} importPath={toImport}");
+                    }
                     return false;
                 }
 
                 NoteWritten(newId);
+                if (trace)
+                {
+                    stateMs = step.ElapsedMilliseconds;
+                    step.Restart();
+                }
 
-
-                // On the UI thread, deliberately.
-                //
-                // The property change has to raise a binding notification that
-                // reaches the library grid's tiles. Mutating from the thread
-                // the selection event happened to arrive on left the grid
-                // showing its previously rendered cover until something forced
-                // the tiles to be rebuilt - switching grid modes, which is what
-                // made this look like "the grid never updates". The details
-                // view re-reads on demand, so it always looked correct.
-                // Captured before the write is queued, compared when it runs.
                 int generation = SelectionGeneration != null ? SelectionGeneration() : 0;
-
                 bool committed = true;
 
                 InvokeOnUi(() =>
                 {
-                    // Compared HERE, inside the dispatcher callback, because the
-                    // queue is the delay - checking before queuing would prove
-                    // nothing.
-                    //
-                    // Backgrounds rotate for the game being LEFT, so this write
-                    // is always one selection behind by design. Unequal means at
-                    // least one MORE selection arrived while it waited, which
-                    // makes it two or more behind - and Playnite's background
-                    // element would render a game the user has scrolled well
-                    // past.
-                    //
-                    // Covers are exempt: they rotate for the game arrived at, so
-                    // a late cover write still belongs to a game the user chose.
                     if (kind == ArtworkKind.Background &&
                         SelectionGeneration != null &&
                         SelectionGeneration() != generation)
@@ -295,25 +283,47 @@ namespace ImageRotater.Services
                     CommitGame(game);
                 });
 
+                if (trace)
+                {
+                    commitMs = step.ElapsedMilliseconds;
+                    step.Restart();
+                }
+
                 if (!committed)
                 {
-                    // Nothing was written, so the file imported above is
-                    // unreferenced. Drop it rather than leaving an orphan in
-                    // Playnite's store.
                     DeleteReplacedCopy(game, kind, newId);
+                    if (trace)
+                    {
+                        cleanupMs = step.ElapsedMilliseconds;
+                        _fileLogger.Log(
+                            $"BG PERF writer \"{game.Name}\" stale=true total={total.ElapsedMilliseconds}ms " +
+                            $"remember={rememberMs}ms normalise={normaliseMs}ms import={importMs}ms state={stateMs}ms " +
+                            $"commit={commitMs}ms cleanup={cleanupMs}ms source={imagePath} importPath={toImport}");
+                    }
                     return false;
                 }
 
-                // Only after the write has committed. Deleting before this
-                // point is what produced the intermittent blank artwork: the
-                // file vanished while it was still the game's referenced value.
                 DeleteReplacedCopy(game, kind, previousId);
+                if (trace)
+                {
+                    cleanupMs = step.ElapsedMilliseconds;
+                    _fileLogger.Log(
+                        $"BG PERF writer \"{game.Name}\" total={total.ElapsedMilliseconds}ms " +
+                        $"remember={rememberMs}ms normalise={normaliseMs}ms import={importMs}ms state={stateMs}ms " +
+                        $"commit={commitMs}ms cleanup={cleanupMs}ms source={imagePath} importPath={toImport}");
+                }
 
                 return true;
             }
             catch (Exception ex)
             {
                 Logger.Warn(ex, $"ImageRotater: could not set {kind} for {game.Name}");
+                if (trace)
+                {
+                    _fileLogger.Log(
+                        $"BG PERF writer \"{game.Name}\" failed=exception total={total.ElapsedMilliseconds}ms " +
+                        $"source={imagePath} importPath={toImport} error={ex.GetType().Name}: {ex.Message}");
+                }
                 return false;
             }
         }
@@ -530,6 +540,17 @@ namespace ImageRotater.Services
 
         public virtual int RestoreAll()
         {
+            return RestoreAllCore(false);
+        }
+
+        // Restore artwork references now and defer obsolete file deletion to startup.
+        public int RestoreAllForShutdown()
+        {
+            return RestoreAllCore(true);
+        }
+
+        private int RestoreAllCore(bool deferFileCleanup)
+        {
             int restored = 0;
 
             // Gathered first, committed once. This runs when Playnite closes,
@@ -565,26 +586,13 @@ namespace ImageRotater.Services
                     // kind, so null is the correct value to put back.
                     string restoreTo = string.IsNullOrEmpty(entry.Value) ? null : entry.Value;
 
-                    // The recorded id may no longer resolve.
-                    //
-                    // Once Game.CoverImage points at plugin artwork the original
-                    // is unreferenced, and Playnite's own library maintenance is
-                    // free to reclaim it. Writing that dead id back gives the
-                    // game a reference to nothing, which renders as missing
-                    // artwork - the user then has to re-add it by hand, which is
-                    // exactly what this whole mechanism exists to prevent.
-                    //
-                    // OriginalArtPreserver keeps a copy in the plugin's own
-                    // folder for precisely this case. Re-import it rather than
-                    // hand back an id that resolves to nothing.
+                    // The recorded id may no longer resolve. Re-import the
+                    // preserved original instead of handing Playnite a dead id.
                     if (restoreTo != null && !ArtworkIdResolves(restoreTo))
                     {
                         restoreTo = ReimportPreservedOriginal(game, kind) ?? restoreTo;
                     }
 
-                    // On the UI thread for the same reason as SetArtwork: a
-                    // restore that does not notify leaves the grid showing
-                    // plugin artwork that is no longer in the database.
                     string finalValue = restoreTo;
                     InvokeOnUi(() => SetCurrent(game, kind, finalValue));
 
@@ -593,10 +601,7 @@ namespace ImageRotater.Services
                         touched.Add(game);
                     }
 
-                    // Restore is the one place plugin-written files are cleaned
-                    // up, since rotation deliberately leaves them behind. Only
-                    // remove what we put there, and never a file the game still
-                    // uses for its other artwork.
+                    // Delete obsolete plugin files immediately or queue them for startup cleanup.
                     if (!string.IsNullOrEmpty(current) &&
                         !string.Equals(current, entry.Value, StringComparison.OrdinalIgnoreCase) &&
                         IsSafeToDelete(game, kind, current))
@@ -624,24 +629,156 @@ namespace ImageRotater.Services
                 }
             }
 
-            // One attempt each, no retry. Playnite's RemoveFile retries a
-            // locked file five times half a second apart, and at shutdown
-            // every cover still on a visible tile IS locked - that was
-            // seconds added to closing Fullscreen, and the file stayed behind
-            // regardless. A leftover costs disk, not correctness.
+            foreach (string id in toDelete.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (deferFileCleanup)
+                {
+                    try
+                    {
+                        string path = _api.Database.GetFullFilePath(id);
+                        if (!string.IsNullOrEmpty(path) &&
+                            !_deferredDeletePaths.Contains(path, StringComparer.OrdinalIgnoreCase))
+                        {
+                            _deferredDeletePaths.Add(path);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // Deferred cleanup is best-effort.
+                    }
+                }
+                else
+                {
+                    TryDeleteLibraryFileOnce(id);
+                }
+
+                // This plugin-written id is no longer referenced by the game.
+                _written.Remove(id);
+            }
+
+            _originals.Clear();
+            _imported.Clear();
+            Save();
+
+            return restored;
+        }
+
+        // Deletes files deferred by the previous clean shutdown.
+        public int CleanupDeferredFiles()
+        {
+            if (_deferredDeletePaths == null || _deferredDeletePaths.Count == 0)
+            {
+                return 0;
+            }
+
+            int removed = 0;
+            var remaining = new List<string>();
+
+            foreach (string path in _deferredDeletePaths
+                .Where(p => !string.IsNullOrEmpty(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        File.Delete(path);
+                        removed++;
+                    }
+                }
+                catch (Exception)
+                {
+                    remaining.Add(path);
+                }
+            }
+
+            _deferredDeletePaths = remaining;
+            Save();
+            return removed;
+        }
+
+        public virtual int RestoreKind(ArtworkKind targetKind)
+        {
+            int restored = 0;
+            var touched = new List<Game>();
+            var toDelete = new List<string>();
+            var restoredKeys = new List<string>();
+
+            foreach (KeyValuePair<string, string> entry in _originals.ToList())
+            {
+                Guid gameId;
+                if (!TryParseKey(entry.Key, out gameId) || KindFromKey(entry.Key) != targetKind)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    Game game = LookupGame(gameId);
+                    if (game == null)
+                    {
+                        restoredKeys.Add(entry.Key);
+                        continue;
+                    }
+
+                    string current = GetCurrent(game, targetKind);
+                    string restoreTo = string.IsNullOrEmpty(entry.Value) ? null : entry.Value;
+
+                    if (restoreTo != null && !ArtworkIdResolves(restoreTo))
+                    {
+                        restoreTo = ReimportPreservedOriginal(game, targetKind) ?? restoreTo;
+                    }
+
+                    string finalValue = restoreTo;
+                    InvokeOnUi(() => SetCurrent(game, targetKind, finalValue));
+
+                    if (!touched.Contains(game))
+                    {
+                        touched.Add(game);
+                    }
+
+                    if (!string.IsNullOrEmpty(current) &&
+                        !string.Equals(current, entry.Value, StringComparison.OrdinalIgnoreCase) &&
+                        IsSafeToDelete(game, targetKind, current))
+                    {
+                        toDelete.Add(current);
+                    }
+
+                    restoredKeys.Add(entry.Key);
+                    restored++;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn(ex, $"ImageRotater: could not restore {targetKind} for {entry.Key}");
+                }
+            }
+
+            if (touched.Count > 0)
+            {
+                try
+                {
+                    InvokeOnUi(() => CommitGames(touched));
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn(ex, $"ImageRotater: could not commit restored {targetKind}");
+                }
+            }
+
             foreach (string id in toDelete)
             {
                 TryDeleteLibraryFileOnce(id);
             }
 
-            _originals.Clear();
+            foreach (string key in restoredKeys)
+            {
+                _originals.Remove(key);
+            }
 
-            // The imported copies have just been deleted, so their remembered
-            // ids no longer resolve. Keeping them would make a later rotation
-            // reuse an id pointing at nothing.
-            _imported.Clear();
-
-            Save();
+            if (restoredKeys.Count > 0)
+            {
+                Save();
+            }
 
             return restored;
         }
@@ -898,6 +1035,7 @@ namespace ImageRotater.Services
                     _written = state.Written != null
                         ? new HashSet<string>(state.Written, StringComparer.OrdinalIgnoreCase)
                         : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    _deferredDeletePaths = state.DeferredDeletePaths ?? new List<string>();
                     return;
                 }
 
@@ -905,6 +1043,7 @@ namespace ImageRotater.Services
                     ?? new Dictionary<string, string>();
                 _imported = new Dictionary<string, string>();
                 _written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                _deferredDeletePaths = new List<string>();
             }
             catch (Exception ex)
             {
@@ -914,6 +1053,7 @@ namespace ImageRotater.Services
                 _originals = new Dictionary<string, string>();
                 _imported = new Dictionary<string, string>();
                 _written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                _deferredDeletePaths = new List<string>();
             }
         }
 
@@ -933,7 +1073,8 @@ namespace ImageRotater.Services
                 {
                     Originals = _originals,
                     Imported = _imported,
-                    Written = new List<string>(_written)
+                    Written = new List<string>(_written),
+                    DeferredDeletePaths = new List<string>(_deferredDeletePaths)
                 };
 
                 string temp = _backupPath + ".tmp";

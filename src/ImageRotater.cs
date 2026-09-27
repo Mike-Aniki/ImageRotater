@@ -51,6 +51,10 @@ namespace ImageRotater
         // value it captured against this one to tell whether the user has moved
         // on again since - see PlayniteBackgroundWriter.SelectionGeneration.
         private int _selectionGeneration;
+
+        // Session cover choices are primed once at startup.
+        private bool _sessionCoversPrimed;
+
         private DateTime _backgroundDue = DateTime.MaxValue;
         private DateTime _lastFadeRetime = DateTime.MinValue;
         private DateTime _coverDue = DateTime.MaxValue;
@@ -59,14 +63,10 @@ namespace ImageRotater
         // a file, updates the database and refreshes a tile.
         private const int MinimumSlideshowSeconds = 5;
 
-        // How long a selection has to hold before it counts as looked at.
-        // A held D-pad moves a tile every 100-150 ms in Fullscreen, so this
-        // sits clear of that and still feels immediate on a single press.
-        private const int SettleMilliseconds = 250;
+        // Delay background pre-staging briefly so fast scrolling skips intermediate games.
+        private const int BackgroundSettleMilliseconds = 250;
 
-        // The game whose cover rotation is waiting for the selection to
-        // settle, and the last game that did settle - the only one whose
-        // background is worth rotating on the way out.
+        // Background pre-staging state for the settled selection.
         private Game _settling;
         private Guid _settledGameId;
         private System.Windows.Threading.DispatcherTimer _settleTimer;
@@ -80,7 +80,7 @@ namespace ImageRotater
                     _settleTimer = new System.Windows.Threading.DispatcherTimer(
                         System.Windows.Threading.DispatcherPriority.Normal)
                     {
-                        Interval = TimeSpan.FromMilliseconds(SettleMilliseconds)
+                        Interval = TimeSpan.FromMilliseconds(BackgroundSettleMilliseconds)
                     };
 
                     _settleTimer.Tick += OnSelectionSettled;
@@ -90,7 +90,7 @@ namespace ImageRotater
             }
         }
 
-        // The cover rotation, once the user has actually stopped on a game.
+        // Marks the selection as settled for background pre-staging.
         private void OnSelectionSettled(object sender, EventArgs e)
         {
             SettleTimer.Stop();
@@ -102,12 +102,6 @@ namespace ImageRotater
             }
 
             _settledGameId = game.Id;
-
-            long ms = Timed(() => _rotationService.ApplyTo(game, ArtworkKind.Cover));
-            if (ms > 100)
-            {
-                Logger.Info($"ImageRotater: cover rotation for \"{game.Name}\" took {ms} ms");
-            }
         }
 
         public override Guid Id { get; } = Guid.Parse("72b7d457-0621-429b-8368-665bc53ff896");
@@ -172,7 +166,7 @@ namespace ImageRotater
             _imageSource = new FolderImageSource(_store, ArtworkKind.Background);
             _coverSource = new FolderImageSource(_store, ArtworkKind.Cover);
 
-            _writer = new PlayniteBackgroundWriter(api, GetPluginUserDataPath());
+            _writer = new PlayniteBackgroundWriter(api, GetPluginUserDataPath(), _fileLogger);
 
             // A background write is queued to the UI thread, so it commits
             // after the selection that triggered it - and during fast scrolling
@@ -295,12 +289,15 @@ namespace ImageRotater
             }
         }
 
-        // Timed so a slow selection shows up in the log with a number on it.
-        // The first selection of a session runs during startup, before the
-        // theme has drawn, and is the other place this plugin does real work
-        // on the UI thread.
+        // Selection timing is collected only when debug logging is enabled.
         public override void OnGameSelected(OnGameSelectedEventArgs args)
         {
+            if (_fileLogger == null || !_fileLogger.IsEnabled)
+            {
+                HandleGameSelected(args);
+                return;
+            }
+
             var timer = System.Diagnostics.Stopwatch.StartNew();
             Array.Clear(_selectionPhases, 0, _selectionPhases.Length);
             try
@@ -313,16 +310,14 @@ namespace ImageRotater
 
                 if (timer.ElapsedMilliseconds > 100)
                 {
-                    Logger.Info(
-                        $"ImageRotater: selection handling took {timer.ElapsedMilliseconds} ms "
-                        + $"(fade retime {_selectionPhases[0]}, background {_selectionPhases[1]})");
+                    _fileLogger.Log(
+                        $"PERF selection total={timer.ElapsedMilliseconds}ms "
+                        + $"fade={_selectionPhases[0]}ms background={_selectionPhases[1]}ms");
                 }
             }
         }
 
-        // Milliseconds spent in each phase of the last selection: fade retime,
-        // background rotation. Filled by HandleGameSelected. The cover
-        // rotation runs later, once the selection settles, and logs itself.
+        // Populated only while verbose diagnostics are enabled.
         private readonly long[] _selectionPhases = new long[2];
 
         private static long Timed(Action action)
@@ -341,34 +336,20 @@ namespace ImageRotater
             if ((DateTime.UtcNow - _lastFadeRetime).TotalSeconds > 10)
             {
                 _lastFadeRetime = DateTime.UtcNow;
-                _selectionPhases[0] = Timed(() => FadeImageTuner.Apply());
+                if (_fileLogger != null && _fileLogger.IsEnabled)
+                {
+                    _selectionPhases[0] = Timed(() => FadeImageTuner.Apply());
+                }
+                else
+                {
+                    FadeImageTuner.Apply();
+                }
             }
 
             Game selected = args?.NewValue?.FirstOrDefault();
 
-            // Bumped FIRST, before any rotation runs.
-            //
-            // Backgrounds rotate for the game being LEFT, which pre-stages the
-            // next image and avoids a flash mid-transition. The cost is that
-            // the write is queued to the UI thread and commits after Playnite
-            // has already moved on - and when the user scrolls quickly, after
-            // they have moved on AGAIN. Playnite's background element then
-            // renders a game two selections back. Observed in the log as:
-            //
-            //   12:22:07.345  selected "Persona 3 Reload"
-            //   12:22:08.520  selected "Phantom Fury"
-            //   12:22:08.538  Background: "Persona 3 Reload"   <- 18ms too late
-            //
-            // This counter is what lets such a write recognise it has been
-            // overtaken and decline to commit.
+            // Advance the generation before rotation so queued background writes can detect stale selections.
             _selectionGeneration++;
-
-            // Only the selected tile animates. Every other one showing motion
-            // artwork renders its still frame instead - a screenful of tiles
-            // each decoding frames on the UI thread, in a 32-bit process, is
-            // the pressure that took Playnite down when a theme put its own
-            // media element in every tile.
-            CoverImageControl.NotifySelectionChanged(selected?.Id ?? Guid.Empty);
 
             if (selected != null)
             {
@@ -378,18 +359,38 @@ namespace ImageRotater
                 // blank.
                 UpdateHasDataCover(selected);
 
-                // Logged for EVERY selection, including ones that rotate
-                // nothing - "the plugin never saw this game" and "it saw it
-                // and declined" look identical otherwise. The IsEnabled guard
-                // is not redundant: Log() gates internally, but the string
-                // here is interpolated BEFORE the call, on every selection,
-                // in the hottest path the plugin has.
+                // Avoid formatting selection diagnostics unless debug logging is enabled.
                 if (_fileLogger.IsEnabled)
                 {
                     _fileLogger.Log(
                         $"selected \"{selected.Name}\" ({selected.Id}) hasDataCover={Settings?.HasDataCover}");
                 }
+
+                // Session mode uses its startup-primed choice; other modes rotate on arrival.
+                bool rotateCoverNow = Settings == null
+                    || Settings.CoverSelectionMode != SelectionMode.Session
+                    || !_sessionCoversPrimed;
+
+                if (rotateCoverNow)
+                {
+                    if (_fileLogger != null && _fileLogger.IsEnabled)
+                    {
+                        long coverMs = Timed(() => _rotationService.ApplyTo(selected, ArtworkKind.Cover));
+                        if (coverMs > 100)
+                        {
+                            _fileLogger.Log(
+                                $"PERF cover-rotation game=\"{selected.Name}\" total={coverMs}ms");
+                        }
+                    }
+                    else
+                    {
+                        _rotationService.ApplyTo(selected, ArtworkKind.Cover);
+                    }
+                }
             }
+
+            // Notify after publishing so theme controls read the same cover choice.
+            CoverImageControl.NotifySelectionChanged(selected?.Id ?? Guid.Empty);
 
             // The two kinds rotate at different moments, deliberately.
             //
@@ -406,20 +407,18 @@ namespace ImageRotater
             // and the write alone updates the tile: Playnite notifies the
             // property both Desktop and Fullscreen tiles bind.
             //
-            // Neither rotates for a game the user merely scrolled PAST.
-            //
-            // Every arrival used to rotate its cover at once: a file copy into
-            // Playnite's store, a database write, and a tile that then has to
-            // decode a brand-new file - the fresh id defeats Playnite's bitmap
-            // cache by design. Held down, the D-pad fires that per tile, and
-            // the covers visibly lagged behind the scroll. So the cover waits
-            // for the selection to settle, and a departing game's background
-            // rotates only if that game had settled - one the user flew past
-            // was never looked at, and has nothing to pre-stage for.
+            // Backgrounds rotate only after the selection settles; covers rotate on arrival.
             Game left = args?.OldValue?.FirstOrDefault();
             if (left != null && left.Id == _settledGameId)
             {
-                _selectionPhases[1] = Timed(() => _rotationService.ApplyTo(left, ArtworkKind.Background));
+                if (_fileLogger != null && _fileLogger.IsEnabled)
+                {
+                    _selectionPhases[1] = Timed(() => _rotationService.ApplyTo(left, ArtworkKind.Background));
+                }
+                else
+                {
+                    _rotationService.ApplyTo(left, ArtworkKind.Background);
+                }
             }
 
             _settledGameId = Guid.Empty;
@@ -454,8 +453,12 @@ namespace ImageRotater
         // feature that is off would be pure waste.
         private void ScheduleSlideshow()
         {
-            int bg = Settings?.BackgroundSlideshowSeconds ?? 0;
-            int cover = Settings?.CoverSlideshowSeconds ?? 0;
+            int bg = Settings != null && Settings.EnableRotation && Settings.RotateBackgrounds
+                ? Settings.BackgroundSlideshowSeconds
+                : 0;
+            int cover = Settings != null && Settings.EnableRotation && Settings.RotateCovers
+                ? Settings.CoverSlideshowSeconds
+                : 0;
 
             _backgroundDue = bg >= MinimumSlideshowSeconds && _slideshowGame != null
                 ? DateTime.UtcNow.AddSeconds(bg)
@@ -581,7 +584,8 @@ namespace ImageRotater
                 // still run - a pulse to the same picture every N seconds.
                 if (now >= _backgroundDue)
                 {
-                    if (_store.GetImagePaths(game.Id, ArtworkKind.Background).Count > 1)
+                    if (Settings != null && Settings.EnableRotation && Settings.RotateBackgrounds &&
+                        _store.GetImagePaths(game.Id, ArtworkKind.Background).Count > 1)
                     {
                         // Playnite's own background element crossfades on
                         // source change, so this swap fades without any work
@@ -592,7 +596,7 @@ namespace ImageRotater
                         // context change - they would all keep showing the
                         // previous pick, and a video or GIF would keep playing
                         // it while the file underneath had already moved on.
-                        CoverImageControl.NotifyArtworkRotated(game.Id);
+                        BackgroundImageControl.NotifyBackgroundRotated(game.Id);
                     }
 
                     _backgroundDue = now.AddSeconds(Settings.BackgroundSlideshowSeconds);
@@ -600,7 +604,8 @@ namespace ImageRotater
 
                 if (now >= _coverDue)
                 {
-                    if (_store.GetImagePaths(game.Id, ArtworkKind.Cover).Count > 1)
+                    if (Settings != null && Settings.EnableRotation && Settings.RotateCovers &&
+                        _store.GetImagePaths(game.Id, ArtworkKind.Cover).Count > 1)
                     {
                         // One path for both modes.
                         //
@@ -668,7 +673,7 @@ namespace ImageRotater
 
             try
             {
-                Settings.HasDataCover = _store.GetImagePaths(game.Id, ArtworkKind.Cover).Count > 0;
+                Settings.HasDataCover = _store.HasAnyImage(game.Id, ArtworkKind.Cover);
             }
             catch (Exception)
             {
@@ -701,7 +706,9 @@ namespace ImageRotater
             {
                 if (args.Name == "Background" || args.Name == "PluginBackgroundImage")
                 {
-                    return new BackgroundImageControl(_imageSource, _selector, _loader, () => Settings);
+                    return new BackgroundImageControl(
+                        _imageSource, _selector, _loader, () => Settings, _fileLogger,
+                        imageId => PlayniteApi.Database.GetFullFilePath(imageId));
                 }
 
                 if (args.Name == "Cover" || args.Name == "PluginCoverImage")
@@ -732,19 +739,19 @@ namespace ImageRotater
                 new MainMenuItem
                 {
                     MenuSection = "@ImageRotater",
-                    Description = "Optimise stored images (reduce file sizes)",
+                    Description = Loc.Get("LOCImageRotaterMenuOptimise"),
                     Action = a => OptimiseStoredImages()
                 },
                 new MainMenuItem
                 {
                     MenuSection = "@ImageRotater",
-                    Description = "Convert stored GIFs to MP4",
+                    Description = Loc.Get("LOCImageRotaterMenuConvertGifs"),
                     Action = a => ConvertStoredGifs()
                 },
                 new MainMenuItem
                 {
                     MenuSection = "@ImageRotater",
-                    Description = "Restore original Playnite backgrounds",
+                    Description = Loc.Get("LOCImageRotaterMenuRestoreOriginals"),
                     Action = a => RestoreOriginalBackgrounds()
                 }
             };
@@ -764,10 +771,7 @@ namespace ImageRotater
             if (!GifConverter.IsAvailable)
             {
                 PlayniteApi.Dialogs.ShowMessage(
-                    "This needs ffmpeg on your PATH.\n\n"
-                    + "ImageRotater cannot bundle it: ffmpeg is GPL-licensed and this plugin is "
-                    + "MIT, so shipping the binary would change the licence of the whole project. "
-                    + "Install ffmpeg and run this again.",
+                    Loc.Get("LOCImageRotaterNeedFfmpeg"),
                     "ImageRotater");
                 return;
             }
@@ -777,7 +781,7 @@ namespace ImageRotater
             if (gifs.Count == 0)
             {
                 PlayniteApi.Dialogs.ShowMessage(
-                    "No GIFs found in ImageRotater's folders.", "ImageRotater");
+                    Loc.Get("LOCImageRotaterNoGifs"), "ImageRotater");
                 return;
             }
 
@@ -790,9 +794,7 @@ namespace ImageRotater
             }
 
             var confirm = PlayniteApi.Dialogs.ShowMessage(
-                $"Convert {gifs.Count} GIF(s) totalling {totalBytes / 1024 / 1024} MB to MP4?\n\n"
-                + "Each GIF is replaced only after its MP4 is written, so nothing is lost if this "
-                + "is interrupted. Playnite may be unresponsive while it runs.",
+                Loc.Format("LOCImageRotaterConvertGifsQuestion", gifs.Count, totalBytes / 1024 / 1024),
                 "ImageRotater",
                 System.Windows.MessageBoxButton.YesNo);
 
@@ -817,7 +819,7 @@ namespace ImageRotater
                         }
 
                         string gif = gifs[i];
-                        progress.Text = $"Converting {System.IO.Path.GetFileName(gif)}...";
+                        progress.Text = Loc.Format("LOCImageRotaterConvertingFile", System.IO.Path.GetFileName(gif));
                         progress.CurrentProgressValue = i;
 
                         try
@@ -844,7 +846,7 @@ namespace ImageRotater
                         }
                     }
                 },
-                new GlobalProgressOptions("Converting GIFs to MP4...", true)
+                new GlobalProgressOptions(Loc.Get("LOCImageRotaterConvertingGifs"), true)
                 {
                     IsIndeterminate = false
                 });
@@ -856,8 +858,8 @@ namespace ImageRotater
 
             PlayniteApi.Dialogs.ShowMessage(
                 converted == 0
-                    ? "No GIFs could be converted. See the log for details."
-                    : $"Converted {converted} of {gifs.Count} GIF(s), saving {saved / 1024 / 1024} MB.",
+                    ? Loc.Get("LOCImageRotaterNoGifsConverted")
+                    : Loc.Format("LOCImageRotaterGifsConverted", converted, gifs.Count, saved / 1024 / 1024),
                 "ImageRotater");
         }
 
@@ -939,11 +941,7 @@ namespace ImageRotater
         private void OptimiseStoredImages()
         {
             var confirm = PlayniteApi.Dialogs.ShowMessage(
-                "Re-save stored artwork in a more compact form?\n\n"
-                + "Large images are re-encoded to reduce their size. Files that "
-                + "would not get meaningfully smaller are left alone, and images "
-                + "with transparency are never touched.\n\n"
-                + "This rewrites the stored files and cannot be undone.",
+                Loc.Get("LOCImageRotaterOptimiseQuestion"),
                 "ImageRotater",
                 System.Windows.MessageBoxButton.YesNo);
 
@@ -953,7 +951,7 @@ namespace ImageRotater
             }
 
             RunImageJob(
-                "ImageRotater: optimising images...",
+                Loc.Get("LOCImageRotaterOptimising"),
                 (optimizer, ids, report) => optimizer.OptimiseAll(ids, report));
         }
 
@@ -965,14 +963,13 @@ namespace ImageRotater
             if (count == 0)
             {
                 PlayniteApi.Dialogs.ShowMessage(
-                    "ImageRotater has not changed any game backgrounds, so there is nothing to restore.",
+                    Loc.Get("LOCImageRotaterNothingRestore"),
                     "ImageRotater");
                 return;
             }
 
             var confirm = PlayniteApi.Dialogs.ShowMessage(
-                $"Restore the original background on {count} game(s)?\n\n" +
-                "Artwork ImageRotater applied will be replaced by whatever each game had before.",
+                Loc.Format("LOCImageRotaterRestoreQuestion", count),
                 "ImageRotater",
                 System.Windows.MessageBoxButton.YesNo);
 
@@ -985,7 +982,7 @@ namespace ImageRotater
             _rotationService.ForgetAll();
 
             PlayniteApi.Dialogs.ShowMessage(
-                $"Restored {restored} game background(s).",
+                Loc.Format("LOCImageRotaterRestoredBackgrounds", restored),
                 "ImageRotater");
         }
 
@@ -1008,6 +1005,26 @@ namespace ImageRotater
                 PlayniteApi.ApplicationInfo.Mode.ToString(),
                 Settings);
 
+            // Remove files deferred by the previous clean shutdown before rotation starts.
+            try
+            {
+                var cleanupTimer = System.Diagnostics.Stopwatch.StartNew();
+                int removed = _writer.CleanupDeferredFiles();
+                Services.PreviewCache.Clear();
+                cleanupTimer.Stop();
+
+                // Cleanup timing is debug-only.
+                if (_fileLogger != null && _fileLogger.IsEnabled && removed > 0)
+                {
+                    _fileLogger.Log(
+                        $"startup deferred-cleanup files={removed} total={cleanupTimer.ElapsedMilliseconds}ms");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: could not clean deferred files from the previous session");
+            }
+
             // Playnite's own crossfade dips a quarter dark at the midpoint of
             // every background change - see FadeImageTuner. Retimed after the
             // window has built its template; Background priority queues this
@@ -1029,22 +1046,81 @@ namespace ImageRotater
             // guarantees the file exists for every game that has artwork, so
             // the throw is impossible rather than merely unlikely.
             //
-            // Timed and logged: this is the one thing the plugin does
-            // synchronously on the UI thread during startup, so when Playnite
-            // launches slowly the log should say at once whether this is why.
+            // Time the synchronous startup seed for debug diagnostics and slow-start warnings.
             try
             {
                 var timer = System.Diagnostics.Stopwatch.StartNew();
                 int seeded = _publisher.SeedEveryGame(PlayniteApi.Database.Games);
                 timer.Stop();
 
-                Logger.Info(
-                    $"ImageRotater: startup seed took {timer.ElapsedMilliseconds} ms "
-                    + $"for {PlayniteApi.Database.Games.Count} game(s), wrote {seeded} file(s)");
+                string seedPerf =
+                    $"PERF startup-seed total={timer.ElapsedMilliseconds}ms "
+                    + $"games={PlayniteApi.Database.Games.Count} wrote={seeded}";
+
+                if (_fileLogger != null && _fileLogger.IsEnabled)
+                {
+                    _fileLogger.Log(seedPerf);
+                }
+
+                // Only report unusually slow startup work to the normal Playnite log.
+                if (timer.ElapsedMilliseconds >= 1500)
+                {
+                    Logger.Warn("ImageRotater: slow " + seedPerf);
+                }
             }
             catch (Exception ex)
             {
                 Logger.Error(ex, "ImageRotater: could not seed published artwork files");
+            }
+
+            // Prime Session cover choices before the library is browsed.
+            _sessionCoversPrimed = false;
+            if (Settings != null && Settings.EnableRotation && Settings.RotateCovers
+                && Settings.CoverSelectionMode == SelectionMode.Session)
+            {
+                try
+                {
+                    var timer = System.Diagnostics.Stopwatch.StartNew();
+                    int rememberedBefore = _sessionCache != null ? _sessionCache.Count : 0;
+
+                    foreach (Game game in PlayniteApi.Database.Games)
+                    {
+                        try
+                        {
+                            // ApplyTo performs the plugin-artwork check internally.
+                            _rotationService.ApplyTo(game, ArtworkKind.Cover);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Warn(ex, $"ImageRotater: could not prime session cover for \"{game.Name}\"");
+                        }
+                    }
+
+                    timer.Stop();
+                    _sessionCoversPrimed = true;
+
+                    int primed = _sessionCache != null
+                        ? Math.Max(0, _sessionCache.Count - rememberedBefore)
+                        : 0;
+
+                    string primePerf =
+                        $"PERF session-cover-prime total={timer.ElapsedMilliseconds}ms "
+                        + $"primed={primed} games={PlayniteApi.Database.Games.Count}";
+
+                    if (_fileLogger != null && _fileLogger.IsEnabled)
+                    {
+                        _fileLogger.Log(primePerf);
+                    }
+
+                    if (timer.ElapsedMilliseconds >= 1500)
+                    {
+                        Logger.Warn("ImageRotater: slow " + primePerf);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "ImageRotater: could not prime session covers");
+                }
             }
         }
 
@@ -1072,9 +1148,8 @@ namespace ImageRotater
 
             _slideshowGame = null;
 
-            // Previews are of artwork the user did NOT download, so none of it
-            // should outlive the session.
-            Services.PreviewCache.Clear();
+            // Defer preview-file cleanup to the next startup.
+            Services.PreviewCache.ReleaseForShutdown();
 
             // Put every game's own artwork back before Playnite closes.
             //
@@ -1096,11 +1171,15 @@ namespace ImageRotater
             // reference.
             try
             {
-                int restored = _writer.RestoreAll();
+                var shutdownTimer = System.Diagnostics.Stopwatch.StartNew();
+                int restored = _writer.RestoreAllForShutdown();
+                shutdownTimer.Stop();
 
-                if (restored > 0)
+                if (restored > 0 && _fileLogger != null && _fileLogger.IsEnabled)
                 {
-                    _fileLogger?.Log($"restored {restored} game(s) to their own artwork on shutdown");
+                    _fileLogger.Log(
+                        $"restored {restored} game(s) to their own artwork on shutdown "
+                        + $"without disk cleanup ({shutdownTimer.ElapsedMilliseconds}ms)");
                 }
             }
             catch (Exception ex)
@@ -1115,17 +1194,14 @@ namespace ImageRotater
             if (!GifConverter.IsAvailable)
             {
                 PlayniteApi.Dialogs.ShowErrorMessage(
-                    "This needs ffmpeg. Set its path on the Setup tab first.", "ImageRotater");
+                    Loc.Get("LOCImageRotaterNeedFfmpeg"), "ImageRotater");
 
                 return;
             }
 
             RunBulkJob(
-                "Convert every GIF in your ImageRotater library to MP4?\n\n"
-                + "MP4 is much smaller and plays through hardware rather than decoding "
-                + "every frame on the UI thread. Each GIF is removed only once its MP4 "
-                + "exists.",
-                "Converting artwork...",
+                Loc.Get("LOCImageRotaterConvertAllGifsQuestion"),
+                Loc.Get("LOCImageRotaterConvertingArtwork"),
                 () => BulkConverter.GifsToMp4(_store).Summary);
         }
 
@@ -1135,19 +1211,14 @@ namespace ImageRotater
             if (!GifConverter.IsAvailable)
             {
                 PlayniteApi.Dialogs.ShowErrorMessage(
-                    "This needs ffmpeg. Set its path on the Setup tab first.", "ImageRotater");
+                    Loc.Get("LOCImageRotaterNeedFfmpeg"), "ImageRotater");
 
                 return;
             }
 
             RunBulkJob(
-                "Check every video in your ImageRotater library and repair the broken "
-                + "ones?\n\n"
-                + "Videos downloaded in a fragmented format show as solid black tiles "
-                + "even though nothing reports an error. The repair rewrites only the "
-                + "container - a stream copy, so no quality is lost and healthy videos "
-                + "are left untouched.",
-                "Converting artwork...",
+                Loc.Get("LOCImageRotaterRepairAllVideosQuestion"),
+                Loc.Get("LOCImageRotaterConvertingArtwork"),
                 () => BulkConverter.RepairVideos(_store).Summary);
         }
 
@@ -1155,12 +1226,8 @@ namespace ImageRotater
         public void ConvertJpegsToPng()
         {
             RunBulkJob(
-                "Convert every JPEG in your ImageRotater library to PNG?\n\n"
-                + "PNG is lossless, so no further quality is lost each time an image is "
-                + "processed - but the files get considerably larger. Quality already "
-                + "lost to JPEG cannot be recovered. Each JPEG is removed only once its "
-                + "PNG exists.",
-                "Converting artwork...",
+                Loc.Get("LOCImageRotaterConvertJpegsQuestion"),
+                Loc.Get("LOCImageRotaterConvertingArtwork"),
                 () => BulkConverter.JpegsToPng(_store).Summary);
         }
 
@@ -1176,7 +1243,7 @@ namespace ImageRotater
             if (!System.IO.Directory.Exists(System.IO.Path.Combine(bcRoot, "BackgroundChanger")))
             {
                 PlayniteApi.Dialogs.ShowMessage(
-                    $"No BackgroundChanger artwork found at {bcRoot}.", "ImageRotater");
+                    Loc.Format("LOCImageRotaterNoBcArtwork", bcRoot), "ImageRotater");
 
                 return;
             }
@@ -1184,10 +1251,8 @@ namespace ImageRotater
             var known = new HashSet<Guid>(PlayniteApi.Database.Games.Select(g => g.Id));
 
             RunBulkJob(
-                "Import BackgroundChanger's covers and backgrounds into ImageRotater?\n\n"
-                + "Files are copied; BackgroundChanger's own data is left untouched. "
-                + "Running this again only adds what is new.",
-                "Importing from BackgroundChanger...",
+                Loc.Get("LOCImageRotaterImportBcQuestion"),
+                Loc.Get("LOCImageRotaterImportingBc"),
                 () => BackgroundChangerImporter.Import(bcRoot, known, _store).Summary);
         }
 
@@ -1264,7 +1329,7 @@ namespace ImageRotater
                 Logger.Error(ex, "ImageRotater: could not repair artwork references");
 
                 PlayniteApi.Dialogs.ShowErrorMessage(
-                    "Could not repair the artwork references. " + ex.Message, "ImageRotater");
+                    Loc.Format("LOCImageRotaterRepairArtworkFailed", ex.Message), "ImageRotater");
 
                 return false;
             }
@@ -1272,7 +1337,7 @@ namespace ImageRotater
             if (cleared == 0 && orphans == 0 && videos == 0)
             {
                 PlayniteApi.Dialogs.ShowMessage(
-                    "Nothing needed repairing - every game points at artwork that exists.",
+                    Loc.Get("LOCImageRotaterNothingRepair"),
                     "ImageRotater");
 
                 return false;
@@ -1281,11 +1346,7 @@ namespace ImageRotater
             _rotationService?.ForgetAll();
 
             PlayniteApi.Dialogs.ShowMessage(
-                $"Cleared {cleared} broken artwork reference(s).\n\n"
-                + "Those games now show Playnite's own placeholder instead of a black "
-                + "tile. Use your library plugin's \"Download metadata\" to fetch their "
-                + "artwork again.\n\n"
-                + "Playnite will offer to restart when you save these settings.",
+                Loc.Format("LOCImageRotaterRepairArtworkDone", cleared),
                 "ImageRotater");
 
             return true;
@@ -1301,6 +1362,19 @@ namespace ImageRotater
         // as the toggle being broken.
         public void NotifySettingsSaved()
         {
+            if (Settings != null && _writer != null)
+            {
+                if (!Settings.EnableRotation || !Settings.RotateBackgrounds)
+                {
+                    _writer.RestoreKind(ArtworkKind.Background);
+                }
+
+                if (!Settings.EnableRotation || !Settings.RotateCovers)
+                {
+                    _writer.RestoreKind(ArtworkKind.Cover);
+                }
+            }
+
             _rotationService?.ForgetAll();
 
             // Playnite's background control is tuned per instance to the
@@ -1333,16 +1407,11 @@ namespace ImageRotater
         // to raise that flag.
         public bool ResetLibrary()
         {
-            const string Warning =
-                "This removes EVERY image and video ImageRotater holds for your whole "
-                + "library, and puts each game back to its own artwork.\n\n"
-                + "Downloaded artwork is deleted from disk and cannot be recovered.\n\n"
-                + "You should restart Playnite afterwards.\n\n"
-                + "Continue?";
+            string warning = Loc.Get("LOCImageRotaterResetWarning");
 
             if (PlayniteApi.Dialogs.ShowMessage(
-                    Warning,
-                    "ImageRotater - reset library",
+                    warning,
+                    Loc.Get("LOCImageRotaterResetTitle"),
                     System.Windows.MessageBoxButton.YesNo,
                     System.Windows.MessageBoxImage.Warning)
                 != System.Windows.MessageBoxResult.Yes)
@@ -1361,7 +1430,7 @@ namespace ImageRotater
                 Logger.Error(ex, "ImageRotater: library reset failed");
 
                 PlayniteApi.Dialogs.ShowErrorMessage(
-                    "The reset did not finish. " + ex.Message, "ImageRotater");
+                    Loc.Format("LOCImageRotaterResetFailed", ex.Message), "ImageRotater");
 
                 return false;
             }
@@ -1374,15 +1443,13 @@ namespace ImageRotater
                 return false;
             }
 
-            string summary =
-                $"Restored {result.GamesRestored} game(s) and cleared "
-                + $"{result.FoldersDeleted} folder(s).";
+            string summary = Loc.Format(
+                "LOCImageRotaterResetDone", result.GamesRestored, result.FoldersDeleted);
 
             if (result.FoldersFailed > 0)
             {
-                summary += $"\n\n{result.FoldersFailed} folder(s) could not be deleted, "
-                    + "usually because a file was still open. Running this again after "
-                    + "the restart will clear them.";
+                summary += Loc.Format(
+                    "LOCImageRotaterResetFoldersFailed", result.FoldersFailed);
             }
 
             // Stops the rotation service handing out picks that point at files
@@ -1390,7 +1457,7 @@ namespace ImageRotater
             _rotationService?.ForgetAll();
 
             PlayniteApi.Dialogs.ShowMessage(
-                summary + "\n\nPlaynite will offer to restart when you close settings.",
+                summary + Loc.Get("LOCImageRotaterRestartNotice"),
                 "ImageRotater");
 
             return true;

@@ -207,7 +207,7 @@ namespace ImageRotater.Controls
 
         public string PageLabel
         {
-            get { return $"Page {CurrentPage} of {PageCount}"; }
+            get { return Loc.Format("LOCImageRotaterPageOf", CurrentPage, PageCount); }
         }
 
         private string _status = string.Empty;
@@ -275,7 +275,7 @@ namespace ImageRotater.Controls
                 RebuildFilterOptions();
                 ApplyFilter();
 
-                Status = "yt-dlp is not set up. Add it on the Setup tab in settings.";
+                Status = Loc.Get("LOCImageRotaterYtDlpNotSetup");
                 return false;
             }
 
@@ -324,26 +324,25 @@ namespace ImageRotater.Controls
 
                 if (mapped.Count > 0)
                 {
-                    Status = $"{mapped.Count} from YouTube.";
+                    Status = Loc.Format("LOCImageRotaterFromYouTube", mapped.Count);
                 }
                 else if (!search.HasJsRuntime)
                 {
                     // The likeliest cause by far, and unguessable otherwise:
                     // yt-dlp exits 0 with no results when it has no JS runtime,
                     // which is indistinguishable from finding nothing.
-                    Status = "No results - deno is not set up, and yt-dlp needs it to "
-                        + "read YouTube. Add it on the Setup tab in settings.";
+                    Status = Loc.Get("LOCImageRotaterDenoSearchMissing");
                 }
                 else
                 {
-                    Status = "No videos found. Try different search words.";
+                    Status = Loc.Get("LOCImageRotaterNoVideosFound");
                 }
 
                 return mapped.Count > 0;
             }
             catch (Exception ex)
             {
-                Status = "YouTube search failed. " + ex.Message;
+                Status = Loc.Format("LOCImageRotaterYouTubeSearchFailed", ex.Message);
                 return false;
             }
             finally
@@ -379,7 +378,7 @@ namespace ImageRotater.Controls
                     RebuildFilterOptions();
                     ApplyFilter();
 
-                    Status = "No game on Steam matches this name. Try the other tabs.";
+                    Status = Loc.Get("LOCImageRotaterNoSteamGame");
                     return false;
                 }
 
@@ -398,16 +397,16 @@ namespace ImageRotater.Controls
                 int videos = found.Count(a => a.IsAnimated);
 
                 Status = found.Count == 0
-                    ? "Steam has no artwork of this kind for this game."
+                    ? Loc.Get("LOCImageRotaterSteamNoArtwork")
                     : videos > 0
-                        ? $"{found.Count} from Steam, {videos} animated."
-                        : $"{found.Count} from Steam.";
+                        ? Loc.Format("LOCImageRotaterSteamFoundAnimated", found.Count, videos)
+                        : Loc.Format("LOCImageRotaterSteamFound", found.Count);
 
                 return found.Count > 0;
             }
             catch (Exception ex)
             {
-                Status = "Could not reach Steam. " + ex.Message;
+                Status = Loc.Format("LOCImageRotaterSteamReachFailed", ex.Message);
                 return false;
             }
             finally
@@ -420,7 +419,7 @@ namespace ImageRotater.Controls
         {
             if (search == null || !search.IsAvailable)
             {
-                Status = "Web search is not available.";
+                Status = Loc.Get("LOCImageRotaterWebUnavailable");
                 return false;
             }
 
@@ -441,11 +440,11 @@ namespace ImageRotater.Controls
 
                 if (_allResults.Count == 0)
                 {
-                    Status = $"No images found for \"{query}\".";
+                    Status = Loc.Format("LOCImageRotaterNoImagesForQuery", query);
                     return false;
                 }
 
-                Status = $"{_filtered.Count} of {_allResults.Count} match for \"{query}\".";
+                Status = Loc.Format("LOCImageRotaterMatchesForQuery", _filtered.Count, _allResults.Count, query);
                 return true;
             }
             finally
@@ -458,7 +457,7 @@ namespace ImageRotater.Controls
         {
             if (_client == null || !_client.IsConfigured)
             {
-                Status = "No SteamGridDB API key configured. Add one in ImageRotater settings.";
+                Status = Loc.Get("LOCImageRotaterNoSgdbKey");
                 return false;
             }
 
@@ -476,7 +475,7 @@ namespace ImageRotater.Controls
 
                 if (games.Data == null || games.Data.Count == 0)
                 {
-                    Status = $"SteamGridDB has no match for \"{gameName}\".";
+                    Status = Loc.Format("LOCImageRotaterNoSgdbGame", gameName);
                     return false;
                 }
 
@@ -503,16 +502,16 @@ namespace ImageRotater.Controls
                 // makes that visible instead of mysterious.
                 string matched = games.Data[0].Name;
                 string via = string.Equals(matched, gameName, StringComparison.OrdinalIgnoreCase)
-                    ? $"\"{matched}\""
-                    : $"\"{matched}\" (matched from \"{gameName}\")";
+                    ? Loc.Format("LOCImageRotaterQuoted", matched)
+                    : Loc.Format("LOCImageRotaterMatchedFrom", matched, gameName);
 
                 if (_allResults.Count == 0)
                 {
-                    Status = $"No artwork found for {via}.";
+                    Status = Loc.Format("LOCImageRotaterNoArtworkFor", via);
                     return false;
                 }
 
-                Status = $"{_filtered.Count} of {_allResults.Count} match for {via}.";
+                Status = Loc.Format("LOCImageRotaterMatchesFor", _filtered.Count, _allResults.Count, via);
                 return true;
             }
             finally
@@ -713,7 +712,7 @@ namespace ImageRotater.Controls
 
             if (_allResults.Count > 0)
             {
-                Status = $"{_filtered.Count} of {_allResults.Count} match.";
+                Status = Loc.Format("LOCImageRotaterMatches", _filtered.Count, _allResults.Count);
             }
         }
     }

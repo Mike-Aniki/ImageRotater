@@ -56,10 +56,6 @@ namespace ImageRotater.Services
                 get { return BytesBefore - BytesAfter; }
             }
 
-            // Set by whichever operation produced this, so the wording matches.
-            // Normalising deliberately makes files LARGER - reporting a saving
-            // there would be nonsense.
-            public string Verb { get; set; } = "Optimised";
             public bool ReportSavings { get; set; } = true;
 
             public string Summary
@@ -69,14 +65,14 @@ namespace ImageRotater.Services
                     if (FilesOptimised == 0)
                     {
                         return ReportSavings
-                            ? $"Checked {FilesConsidered} image(s); nothing could be made smaller."
-                            : $"Checked {FilesConsidered} image(s); all were already a matching size.";
+                            ? Loc.Format("LOCImageRotaterCheckedNothingSmaller", FilesConsidered)
+                            : Loc.Format("LOCImageRotaterCheckedMatchingSize", FilesConsidered);
                     }
 
-                    string counts = $"{Verb} {FilesOptimised} of {FilesConsidered} image(s)";
+                    string counts = Loc.Format("LOCImageRotaterOptimisedCount", FilesOptimised, FilesConsidered);
 
                     return ReportSavings
-                        ? counts + $", saving {Megabytes(BytesSaved)} MB."
+                        ? counts + Loc.Format("LOCImageRotaterSavingMb", Megabytes(BytesSaved))
                         : counts + ".";
                 }
             }

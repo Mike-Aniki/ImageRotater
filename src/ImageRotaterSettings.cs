@@ -15,16 +15,33 @@ namespace ImageRotater
         Fixed           // Always the first image, alphabetically
     }
 
+    public enum VideoStartMode
+    {
+        Beginning,
+        Random
+    }
+
     public class ImageRotaterSettings : ObservableObject
     {
         private bool enableRotation = true;     // Master switch for the whole feature
         private bool enableDebugLogging = false; // Verbose log to ImageRotater.log
         private SelectionMode selectionMode = SelectionMode.Session;
+        private bool rotateBackgrounds = true;
         private bool rotateCovers = false;
+        private VideoStartMode coverVideoStartMode = VideoStartMode.Beginning;
 
-        // Off by default: covers are box art the user has usually curated
-        // deliberately, so replacing them is a bigger intrusion than swapping a
-        // background and should be opted into.
+        public bool RotateBackgrounds
+        {
+            get => rotateBackgrounds;
+            set
+            {
+                rotateBackgrounds = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(EnableBackgroundImage));
+            }
+        }
+
+        // Off by default: covers are usually curated deliberately.
         public bool RotateCovers
         {
             get => rotateCovers;
@@ -123,9 +140,14 @@ namespace ImageRotater
         // Fullscreen tiles holding a stale cover until rebuilt - Playnite 10.57
         // notifies them properly, so hosting the element is now purely the
         // theme's choice and needs no permission from a setting.
+        public bool EnableBackgroundImage
+        {
+            get => enableRotation && rotateBackgrounds;
+        }
+
         public bool EnableCoverImage
         {
-            get => rotateCovers;
+            get => enableRotation && rotateCovers;
         }
 
         // True when the CURRENTLY SELECTED game has plugin-owned covers.
@@ -283,6 +305,12 @@ namespace ImageRotater
             set { coverSelectionMode = value; OnPropertyChanged(); }
         }
 
+        public VideoStartMode CoverVideoStartMode
+        {
+            get => coverVideoStartMode;
+            set { coverVideoStartMode = value; OnPropertyChanged(); }
+        }
+
         // Play animated covers on every tile, not just the selected one.
         //
         // BackgroundChanger does this and people prefer the look, so it is
@@ -353,7 +381,13 @@ namespace ImageRotater
         public bool EnableRotation
         {
             get => enableRotation;
-            set { enableRotation = value; OnPropertyChanged(); }
+            set
+            {
+                enableRotation = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(EnableBackgroundImage));
+                OnPropertyChanged(nameof(EnableCoverImage));
+            }
         }
 
         public SelectionMode SelectionMode
@@ -493,9 +527,7 @@ namespace ImageRotater
             if (string.IsNullOrWhiteSpace(key))
             {
                 // No tick and no cross: absent is the default, not a failure.
-                ApiKeyStatus = SetupStatus.Neutral(
-                    "No key set. SteamGridDB search is unavailable; "
-                    + "the other sources still work.");
+                ApiKeyStatus = SetupStatus.Neutral(Loc.Get("LOCImageRotaterNoKey"));
                 return;
             }
 
@@ -503,7 +535,7 @@ namespace ImageRotater
 
             ApiKeyStatus = problem != null
                 ? SetupStatus.Problem(problem)
-                : SetupStatus.Ok("Key looks right.");
+                : SetupStatus.Ok(Loc.Get("LOCImageRotaterKeyLooksRight"));
         }
 
         // Clears every image the plugin holds and restores each game's own
@@ -677,23 +709,21 @@ namespace ImageRotater
                 bool onPath = string.IsNullOrWhiteSpace(configured);
                 string version = _probe.Probe(resolved, Flag);
 
-                return SetupStatus.Ok(onPath ? version + " (on your PATH)" : version);
+                return SetupStatus.Ok(onPath ? Loc.Format("LOCImageRotaterOnPath", version) : version);
             }
 
             if (!string.IsNullOrWhiteSpace(configured))
             {
                 return SetupStatus.Problem(
-                    _probe.Probe(resolved, Flag) + " - check this path points at deno.exe");
+                    Loc.Format("LOCImageRotaterBadToolPath", _probe.Probe(resolved, Flag), "deno"));
             }
 
             if (!_probe.Works(ytDlp, Services.ToolProbe.YtDlpVersionFlag))
             {
-                return SetupStatus.Neutral("Only needed once yt-dlp is set up.");
+                return SetupStatus.Neutral(Loc.Get("LOCImageRotaterDenoOnlyNeeded"));
             }
 
-            return SetupStatus.Neutral(
-                "deno was not found. yt-dlp needs it to read YouTube, and without "
-                + "it a YouTube search returns nothing rather than reporting an error.");
+            return SetupStatus.Neutral(Loc.Get("LOCImageRotaterDenoNotFound"));
         }
 
         // Turns a probe result into the line under the box.
@@ -711,17 +741,16 @@ namespace ImageRotater
             {
                 bool onPath = string.IsNullOrWhiteSpace(configured);
 
-                return SetupStatus.Ok(onPath ? result + " (on your PATH)" : result);
+                return SetupStatus.Ok(onPath ? Loc.Format("LOCImageRotaterOnPath", result) : result);
             }
 
             if (string.IsNullOrWhiteSpace(configured))
             {
                 return SetupStatus.Neutral(
-                    $"{name} was not found on your PATH. Browse to it above, or "
-                    + "leave this blank and the features that need it stay off.");
+                    Loc.Format("LOCImageRotaterToolNotFound", name));
             }
 
-            return SetupStatus.Problem(result + " - check this path points at " + name + ".exe");
+            return SetupStatus.Problem(Loc.Format("LOCImageRotaterBadToolPath", result, name));
         }
 
         // Snapshot for cancel. Deep clone via JSON so every property is covered

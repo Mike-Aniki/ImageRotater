@@ -94,6 +94,10 @@ namespace ImageRotater.Services
 
             Log($"ImagesRoot       = {settings.ImagesRoot}");
             Log($"RotateCovers     = {settings.RotateCovers}");
+            Log($"RotateBackgrounds = {settings.RotateBackgrounds}");
+            Log($"BackgroundMode    = {settings.SelectionMode}");
+            Log($"Letterbox         = {settings.LetterboxBackgrounds}");
+            Log($"Normalise         = {settings.NormaliseBackgroundSize}");
             Log($"EnableCoverImage = {settings.EnableCoverImage}");
             Log($"Theme binds: {{ImagesRoot}}\\{{game id}}\\covers{GameImageStore.PublishedFolderSuffix}\\{GameImageStore.PublishedFileName}");
             Log($"Log file: {_path}");
