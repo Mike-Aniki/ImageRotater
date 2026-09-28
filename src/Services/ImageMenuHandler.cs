@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -386,21 +386,30 @@ namespace ImageRotater.Services
 
                 bool fullscreen = _api.ApplicationInfo.Mode == ApplicationMode.Fullscreen;
                 window.Width = fullscreen
-                    ? Math.Min(1500, SystemParameters.PrimaryScreenWidth * 0.9)
-                    : 1080;
+                    ? Math.Min(1560, SystemParameters.PrimaryScreenWidth * 0.92)
+                    : 1240;
                 window.Height = fullscreen
-                    ? Math.Min(920, SystemParameters.PrimaryScreenHeight * 0.88)
-                    : 700;
+                    ? Math.Min(940, SystemParameters.PrimaryScreenHeight * 0.90)
+                    : 800;
                 window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-                var searchView = new Controls.SteamGridDbSearchView(
-                    _api,
-                    _steamGridDb,
-                    _downloader,
-                    game,
-                    kind,
-                    _settings == null ? null : _settings(),
-                    System.IO.Path.GetDirectoryName(_store.ImagesRoot),
-                    embedded: true);
+                // Open the manager maximized so the artwork grid and preview have the
+                // full desktop available immediately. Users can still restore the window
+                // with the standard title-bar button if they want a smaller view.
+                window.WindowState = WindowState.Maximized;
+
+                // Search is intentionally lazy. Building the search view and immediately
+                // querying online sources used to happen while the manager was opening,
+                // even when the user only wanted to manage local artwork.
+                Func<Controls.SteamGridDbSearchView> searchViewFactory = () =>
+                    new Controls.SteamGridDbSearchView(
+                        _api,
+                        _steamGridDb,
+                        _downloader,
+                        game,
+                        kind,
+                        _settings == null ? null : _settings(),
+                        System.IO.Path.GetDirectoryName(_store.ImagesRoot),
+                        embedded: true);
 
                 window.Content = new Controls.ArtworkManagerView(
                     _api,
@@ -409,7 +418,7 @@ namespace ImageRotater.Services
                     game,
                     kind,
                     NotifyImagesChanged,
-                    searchView,
+                    searchViewFactory,
                     () => DownloadFromSteamGridDb(new[] { game }, kind));
                 window.ShowDialog();
             }

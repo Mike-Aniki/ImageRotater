@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -8,6 +8,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using ImageRotater.Models;
 using ImageRotater.Services;
@@ -25,7 +26,9 @@ namespace ImageRotater.Controls
         private readonly ArtworkKind _kind;
         private readonly Action<Guid> _onImagesChanged;
         private readonly Action _automaticDownload;
-        private readonly SteamGridDbSearchView _searchView;
+        private SteamGridDbSearchView _searchView;
+        private readonly Func<SteamGridDbSearchView> _searchViewFactory;
+        private bool _managerLoaded;
         private readonly ObservableCollection<ArtworkManagerItem> _items =
             new ObservableCollection<ArtworkManagerItem>();
 
@@ -36,7 +39,7 @@ namespace ImageRotater.Controls
             Game game,
             ArtworkKind kind,
             Action<Guid> onImagesChanged,
-            SteamGridDbSearchView searchView,
+            Func<SteamGridDbSearchView> searchViewFactory,
             Action automaticDownload)
         {
             _api = api;
@@ -46,21 +49,26 @@ namespace ImageRotater.Controls
             _kind = kind;
             _onImagesChanged = onImagesChanged;
             _automaticDownload = automaticDownload;
-            _searchView = searchView;
+            _searchViewFactory = searchViewFactory;
 
             InitializeComponent();
 
-            ItemsList.ItemsSource = _items;
-            SearchHost.Content = _searchView;
+            // The visible navigation buttons are separate from the hidden TabControl.
+            // IsChecked on LocalNavButton is applied while InitializeComponent is still
+            // building the visual tree, so its Checked handler can run before LocalTab
+            // exists. Explicitly select the local page once all named controls exist.
+            ManagerTabs.SelectedItem = LocalTab;
+            LocalNavButton.IsChecked = true;
+            SearchNavButton.IsChecked = false;
 
-            if (_searchView != null)
-            {
-                _searchView.ArtworkChanged += SearchView_ArtworkChanged;
-            }
+            ItemsList.ItemsSource = _items;
+            // SearchHost stays empty until Search online is opened for the first time.
+            // This avoids constructing the heavy search UI during manager startup.
 
             LocalTab.Header = kind == ArtworkKind.Cover
                 ? Loc.Get("LOCImageRotaterManagerMyCovers")
                 : Loc.Get("LOCImageRotaterManagerMyBackgrounds");
+            LocalNavButton.Content = LocalTab.Header;
             PreviewHintText.Text = Loc.Get("LOCImageRotaterManagerSelectItem");
             PreviewNameText.Text = string.Empty;
             PreviewMetaText.Text = string.Empty;
@@ -71,6 +79,23 @@ namespace ImageRotater.Controls
 
         private void ArtworkManagerView_Loaded(object sender, RoutedEventArgs e)
         {
+            _managerLoaded = true;
+
+            // Keep startup deterministic even when the active Playnite theme delays
+            // template/selection initialization. The manager must always open on the
+            // local artwork page.
+            if (!ReferenceEquals(ManagerTabs.SelectedItem, LocalTab))
+            {
+                ManagerTabs.SelectedItem = LocalTab;
+            }
+
+            LocalNavButton.IsChecked = true;
+            SearchNavButton.IsChecked = false;
+            LocalActionsPanel.Visibility = Visibility.Visible;
+
+            // One local scan only. Previously selecting LocalTab during construction and
+            // Loaded both triggered ReloadItems(), decoding every thumbnail twice before
+            // the user could interact with the manager.
             ReloadItems();
         }
 
@@ -94,7 +119,24 @@ namespace ImageRotater.Controls
             }
         }
 
-        private void ManagerTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void ManagerNav_Checked(object sender, RoutedEventArgs e)
+        {
+            if (ManagerTabs == null || LocalTab == null || SearchTab == null)
+            {
+                return;
+            }
+
+            if (ReferenceEquals(sender, LocalNavButton))
+            {
+                ManagerTabs.SelectedItem = LocalTab;
+            }
+            else if (ReferenceEquals(sender, SearchNavButton))
+            {
+                ManagerTabs.SelectedItem = SearchTab;
+            }
+        }
+
+        private async void ManagerTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (!ReferenceEquals(e.Source, ManagerTabs) ||
                 LocalActionsPanel == null || LocalTab == null)
@@ -103,7 +145,22 @@ namespace ImageRotater.Controls
             }
 
             bool local = ReferenceEquals(ManagerTabs.SelectedItem, LocalTab);
+
+            // Keep the standalone navigation buttons synchronized with the hidden page host.
+            if (LocalNavButton != null && SearchNavButton != null)
+            {
+                LocalNavButton.IsChecked = local;
+                SearchNavButton.IsChecked = !local;
+            }
+
             LocalActionsPanel.Visibility = local ? Visibility.Visible : Visibility.Collapsed;
+
+            // SelectionChanged can fire while InitializeComponent / constructor setup is
+            // still running. Do not perform disk scans or construct the search UI then.
+            if (!_managerLoaded)
+            {
+                return;
+            }
 
             if (local)
             {
@@ -112,7 +169,34 @@ namespace ImageRotater.Controls
             else
             {
                 StopPreview();
+                SteamGridDbSearchView searchView = EnsureSearchView();
+                if (searchView != null)
+                {
+                    await searchView.EnsureInitialSearchAsync();
+                }
             }
+        }
+
+        private SteamGridDbSearchView EnsureSearchView()
+        {
+            if (_searchView != null)
+            {
+                return _searchView;
+            }
+
+            if (_searchViewFactory == null)
+            {
+                return null;
+            }
+
+            _searchView = _searchViewFactory();
+            if (_searchView != null)
+            {
+                _searchView.ArtworkChanged += SearchView_ArtworkChanged;
+                SearchHost.Content = _searchView;
+            }
+
+            return _searchView;
         }
 
         private void ReloadItems(string preferredPath = null)
@@ -127,12 +211,14 @@ namespace ImageRotater.Controls
             StopPreview();
             _items.Clear();
 
+            string fixedArtwork = _store.GetFixedArtworkPath(_game.Id, _kind);
             foreach (string path in _store
                 .GetImagePathsRaw(_game.Id, _kind)
-                .Where(GameImageStore.IsSupported)
-                .OrderBy(Path.GetFileName, StringComparer.CurrentCultureIgnoreCase))
+                .Where(GameImageStore.IsSupported))
             {
-                _items.Add(new ArtworkManagerItem(path));
+                bool isFixed = !string.IsNullOrEmpty(fixedArtwork) &&
+                    string.Equals(path, fixedArtwork, StringComparison.OrdinalIgnoreCase);
+                _items.Add(new ArtworkManagerItem(path, isFixed));
             }
 
             UpdateCounts();
@@ -141,7 +227,8 @@ namespace ImageRotater.Controls
             EmptyListText.Text = _kind == ArtworkKind.Cover
                 ? Loc.Get("LOCImageRotaterManagerNoCovers")
                 : Loc.Get("LOCImageRotaterManagerNoBackgrounds");
-            EmptyListText.Visibility = hasItems ? Visibility.Collapsed : Visibility.Visible;
+            EmptyStatePanel.Visibility = hasItems ? Visibility.Collapsed : Visibility.Visible;
+            ItemsList.Visibility = hasItems ? Visibility.Visible : Visibility.Collapsed;
 
             if (!hasItems)
             {
@@ -166,6 +253,7 @@ namespace ImageRotater.Controls
             ItemsList.SelectedItem = target;
             ItemsList.ScrollIntoView(target);
             UpdateDeleteButton();
+            UpdateFixedArtworkButton();
         }
 
         private void UpdateCounts()
@@ -174,6 +262,7 @@ namespace ImageRotater.Controls
                 ? Loc.Get("LOCImageRotaterMenuCovers")
                 : Loc.Get("LOCImageRotaterMenuBackgrounds");
             FilesHeaderText.Text = Loc.Format("LOCImageRotaterManagerItemsHeading", label, _items.Count);
+            UpdateSelectionSummary();
         }
 
         private void UpdateDeleteButton()
@@ -183,6 +272,60 @@ namespace ImageRotater.Controls
             DeleteButton.Content = count > 1
                 ? Loc.Format("LOCImageRotaterManagerDeleteSelectedCount", count)
                 : Loc.Get("LOCImageRotaterManagerDeleteSelected");
+            UpdateSelectionSummary();
+        }
+
+        private void UpdateSelectionSummary()
+        {
+            if (SelectionSummaryText == null || ItemsList == null)
+            {
+                return;
+            }
+
+            int selected = ItemsList.SelectedItems.Count;
+            SelectionSummaryText.Text = selected > 0
+                ? Loc.Format("LOCImageRotaterManagerSelectedCount", selected)
+                : Loc.Format("LOCImageRotaterManagerItemsCount", _items.Count);
+        }
+
+        private void UpdateFixedArtworkButton()
+        {
+            if (SetFixedArtworkButton == null || ItemsList == null)
+            {
+                return;
+            }
+
+            var selected = ItemsList.SelectedItem as ArtworkManagerItem;
+            SetFixedArtworkButton.IsEnabled =
+                ItemsList.SelectedItems.Count == 1 && selected != null && !selected.IsFixed;
+        }
+
+        private void SetFixedArtworkButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (ItemsList.SelectedItems.Count != 1)
+            {
+                return;
+            }
+
+            var selected = ItemsList.SelectedItem as ArtworkManagerItem;
+            if (selected == null || selected.IsFixed)
+            {
+                return;
+            }
+
+            if (!_store.SetFixedArtwork(_game.Id, _kind, selected.Path))
+            {
+                return;
+            }
+
+            _sessionCache?.Forget(_game.Id);
+            NotifyImagesChanged();
+            ReloadItems(selected.Path);
+        }
+
+        private void OpenSearchButton_Click(object sender, RoutedEventArgs e)
+        {
+            ManagerTabs.SelectedItem = SearchTab;
         }
 
         private void NotifyImagesChanged()
@@ -299,6 +442,7 @@ namespace ImageRotater.Controls
         private void ItemsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             UpdateDeleteButton();
+            UpdateFixedArtworkButton();
 
             ArtworkManagerItem item = ItemsList.SelectedItem as ArtworkManagerItem;
             if (item == null)
@@ -323,13 +467,9 @@ namespace ImageRotater.Controls
         {
             StopPreview();
 
+            PreviewEmptyPanel.Visibility = Visibility.Collapsed;
             PreviewNameText.Text = item.Name;
-            PreviewMetaText.Text = string.Format(
-                CultureInfo.CurrentCulture,
-                "{0} • {1} • {2}",
-                item.TypeLabel,
-                item.SizeLabel,
-                item.ModifiedLabel);
+            PreviewMetaText.Text = item.DetailsLabel + " • " + item.ModifiedLabel;
 
             try
             {
@@ -363,7 +503,7 @@ namespace ImageRotater.Controls
             {
                 StopPreview();
                 PreviewHintText.Text = Loc.Get("LOCImageRotaterManagerPreviewUnavailable");
-                PreviewHintText.Visibility = Visibility.Visible;
+                PreviewEmptyPanel.Visibility = Visibility.Visible;
             }
         }
 
@@ -383,7 +523,7 @@ namespace ImageRotater.Controls
         {
             StopPreview();
             PreviewHintText.Text = Loc.Get("LOCImageRotaterManagerPreviewUnavailable");
-            PreviewHintText.Visibility = Visibility.Visible;
+            PreviewEmptyPanel.Visibility = Visibility.Visible;
         }
 
         private void StopPreview()
@@ -410,7 +550,7 @@ namespace ImageRotater.Controls
             PreviewHintText.Text = _items.Count == 0
                 ? Loc.Get("LOCImageRotaterManagerNoItemsPreview")
                 : Loc.Get("LOCImageRotaterManagerSelectItem");
-            PreviewHintText.Visibility = Visibility.Visible;
+            PreviewEmptyPanel.Visibility = Visibility.Visible;
             PreviewNameText.Text = string.Empty;
             PreviewMetaText.Text = string.Empty;
         }
@@ -447,9 +587,11 @@ namespace ImageRotater.Controls
 
         private sealed class ArtworkManagerItem
         {
-            public ArtworkManagerItem(string path)
+            public ArtworkManagerItem(string path, bool isFixed)
             {
                 Path = path;
+                IsFixed = isFixed;
+                FixedBadgeVisibility = isFixed ? Visibility.Visible : Visibility.Collapsed;
                 Name = System.IO.Path.GetFileName(path);
 
                 string ext = System.IO.Path.GetExtension(path) ?? string.Empty;
@@ -475,15 +617,88 @@ namespace ImageRotater.Controls
                 ModifiedLabel = info.Exists
                     ? info.LastWriteTime.ToString("g", CultureInfo.CurrentCulture)
                     : string.Empty;
+
+                string dimensions = TryGetDimensions(path, IsVideo);
+                DetailsLabel = string.IsNullOrEmpty(dimensions)
+                    ? TypeLabel + " • " + SizeLabel
+                    : dimensions + " • " + TypeLabel + " • " + SizeLabel;
+                VideoIconVisibility = IsVideo ? Visibility.Visible : Visibility.Collapsed;
+                ThumbnailSource = TryLoadThumbnail(path, IsVideo, IsGif);
             }
 
             public string Path { get; }
+            public bool IsFixed { get; }
+            public Visibility FixedBadgeVisibility { get; }
             public string Name { get; }
             public bool IsVideo { get; }
             public bool IsGif { get; }
             public string TypeLabel { get; }
             public string SizeLabel { get; }
             public string ModifiedLabel { get; }
+            public string DetailsLabel { get; }
+            public Visibility VideoIconVisibility { get; }
+            public ImageSource ThumbnailSource { get; }
+
+            private static ImageSource TryLoadThumbnail(string path, bool isVideo, bool isGif)
+            {
+                if (isVideo)
+                {
+                    return null;
+                }
+
+                try
+                {
+                    string source = path;
+                    if (string.IsNullOrEmpty(source) || !File.Exists(source))
+                    {
+                        return null;
+                    }
+
+                    var bitmap = new BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmap.DecodePixelWidth = 220;
+                    bitmap.UriSource = new Uri(source, UriKind.Absolute);
+                    bitmap.EndInit();
+                    bitmap.Freeze();
+                    return bitmap;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            private static string TryGetDimensions(string path, bool isVideo)
+            {
+                if (isVideo)
+                {
+                    return string.Empty;
+                }
+
+                try
+                {
+                    using (var stream = File.OpenRead(path))
+                    {
+                        var decoder = BitmapDecoder.Create(
+                            stream,
+                            BitmapCreateOptions.PreservePixelFormat,
+                            BitmapCacheOption.None);
+                        BitmapFrame frame = decoder.Frames.FirstOrDefault();
+                        if (frame != null && frame.PixelWidth > 0 && frame.PixelHeight > 0)
+                        {
+                            return frame.PixelWidth.ToString(CultureInfo.InvariantCulture)
+                                + " × "
+                                + frame.PixelHeight.ToString(CultureInfo.InvariantCulture);
+                        }
+                    }
+                }
+                catch
+                {
+                }
+
+                return string.Empty;
+            }
         }
     }
 }

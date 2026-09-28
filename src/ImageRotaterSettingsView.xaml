@@ -1,467 +1,539 @@
-<UserControl x:Class="ImageRotater.ImageRotaterSettingsView"
+﻿<UserControl x:Class="ImageRotater.ImageRotaterSettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:controls="clr-namespace:ImageRotater.Controls"
              mc:Ignorable="d"
-             d:DesignHeight="560" d:DesignWidth="760">
+             d:DesignHeight="600" d:DesignWidth="820">
 
     <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <!-- Palette and control styles, shared in shape with UniPlaySong and
-                     SuperScroll. Every control below carries an explicit style from it,
-                     so the host theme's implicit styles cannot reach in. -->
                 <ResourceDictionary Source="pack://application:,,,/ImageRotater;component/Controls/Settings/SettingsResources.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <controls:EnumRadioConverter x:Key="EnumRadio"/>
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <!-- Two-level navigation: the rail is the groups, the strip along the top of each is its
-         pages. Every entry holds a strip, including the ones with a single page today, so
-         adding a page later is one more TabItem rather than a restructure. -->
-    <TabControl Style="{StaticResource IrRail}">
-
-        <!-- ================================ SETUP ================================ -->
-        <!-- First deliberately: everything here is a prerequisite for a feature that is
-             otherwise silently unavailable. -->
-        <TabItem Header="{DynamicResource LOCImageRotaterSetup}">
-            <TabControl Style="{StaticResource IrStrip}">
-                <TabItem Header="{DynamicResource LOCImageRotaterTools}">
-                <ScrollViewer Style="{StaticResource IrPage}">
-                    <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
-
-                        <TextBlock Text="{DynamicResource LOCImageRotaterSetup}" Style="{StaticResource IrPageTitle}"/>
-                        <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="{DynamicResource LOCImageRotaterSetupIntro}"/>
-
-                        <Border Style="{StaticResource IrCard}">
-                            <StackPanel>
-                                <TextBlock Text="{DynamicResource LOCImageRotaterSteamGridDB}" Style="{StaticResource IrCardTitle}"/>
-                                <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="{DynamicResource LOCImageRotaterSteamGridDBHelp}"/>
-                                <DockPanel Margin="0,2,0,6">
-                                    <TextBlock Text="{DynamicResource LOCImageRotaterApiKey}" Style="{StaticResource IrLabel}" Width="72"/>
-                                    <TextBox Style="{StaticResource IrTextBox}"
-                                             Text="{Binding Settings.SteamGridDbApiKey, UpdateSourceTrigger=PropertyChanged}"/>
-                                </DockPanel>
-                                <!-- Same check Save blocks on, reported as you type. -->
-                                <TextBlock Style="{StaticResource IrStatus}" Foreground="{Binding ApiKeyStatus.Brush}" Margin="72,0,0,4">
-                                    <Run Text="{Binding ApiKeyStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding ApiKeyStatus.Message, Mode=OneWay}"/>
-                                </TextBlock>
-                                <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,0,0,0"
-                                           Text="{DynamicResource LOCImageRotaterApiKeyStorage}"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Style="{StaticResource IrCard}">
-                            <StackPanel>
-                                <TextBlock Text="{DynamicResource LOCImageRotaterFfmpeg}" Style="{StaticResource IrCardTitle}"/>
-                                <DockPanel Margin="0,0,0,6">
-                                    <Button Content="{DynamicResource LOCImageRotaterBrowse}" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
-                                            Margin="8,0,0,0" Command="{Binding BrowseFfmpeg}"/>
-                                    <TextBox Style="{StaticResource IrTextBox}"
-                                             Text="{Binding Settings.FfmpegPath, UpdateSourceTrigger=PropertyChanged}"/>
-                                </DockPanel>
-                                <TextBlock Style="{StaticResource IrStatus}" Foreground="{Binding FfmpegStatus.Brush}" Margin="0,0,0,6">
-                                    <Run Text="{Binding FfmpegStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding FfmpegStatus.Message, Mode=OneWay}"/>
-                                </TextBlock>
-                                <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,0,0,0"
-                                           Text="{DynamicResource LOCImageRotaterFfmpegHelp}"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Style="{StaticResource IrCard}">
-                            <StackPanel>
-                                <TextBlock Text="{DynamicResource LOCImageRotaterYtDlp}" Style="{StaticResource IrCardTitle}"/>
-                                <DockPanel Margin="0,0,0,6">
-                                    <Button Content="{DynamicResource LOCImageRotaterBrowse}" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
-                                            Margin="8,0,0,0" Command="{Binding BrowseYtDlp}"/>
-                                    <TextBox Style="{StaticResource IrTextBox}"
-                                             Text="{Binding Settings.YtDlpPath, UpdateSourceTrigger=PropertyChanged}"/>
-                                </DockPanel>
-                                <TextBlock Style="{StaticResource IrStatus}" Foreground="{Binding YtDlpStatus.Brush}" Margin="0,0,0,6">
-                                    <Run Text="{Binding YtDlpStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding YtDlpStatus.Message, Mode=OneWay}"/>
-                                </TextBlock>
-                                <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,0,0,0"
-                                           Text="{DynamicResource LOCImageRotaterYtDlpHelp}"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Style="{StaticResource IrCard}">
-                            <StackPanel>
-                                <TextBlock Text="{DynamicResource LOCImageRotaterDeno}" Style="{StaticResource IrCardTitle}"/>
-                                <DockPanel Margin="0,0,0,6">
-                                    <Button Content="{DynamicResource LOCImageRotaterBrowse}" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
-                                            Margin="8,0,0,0" Command="{Binding BrowseDeno}"/>
-                                    <TextBox Style="{StaticResource IrTextBox}"
-                                             Text="{Binding Settings.DenoPath, UpdateSourceTrigger=PropertyChanged}"/>
-                                </DockPanel>
-                                <TextBlock Style="{StaticResource IrStatus}" Foreground="{Binding DenoStatus.Brush}" Margin="0,0,0,6">
-                                    <Run Text="{Binding DenoStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding DenoStatus.Message, Mode=OneWay}"/>
-                                </TextBlock>
-                                <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,0,0,0"
-                                           Text="{DynamicResource LOCImageRotaterDenoHelp}"/>
-                            </StackPanel>
-                        </Border>
-
-                        <TextBlock Style="{StaticResource IrHintFlush}"
-                                   Text="{DynamicResource LOCImageRotaterToolPathHint}"/>
-
-                    </StackPanel>
-                </ScrollViewer>
-                </TabItem>
-            </TabControl>
-        </TabItem>
+    <!-- One level of navigation on purpose. Settings are grouped by what the user wants
+         to change, not by implementation details. Advanced/tooling pages stay at the end. -->
+    <TabControl x:Name="MainSettingsTabs" Style="{StaticResource IrRail}">
 
         <!-- ================================ GENERAL ================================ -->
         <TabItem Header="{DynamicResource LOCImageRotaterGeneral}">
-            <TabControl Style="{StaticResource IrStrip}">
-                <TabItem Header="{DynamicResource LOCImageRotaterGeneral}">
-                <ScrollViewer Style="{StaticResource IrPage}">
-                    <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
+            <ScrollViewer Style="{StaticResource IrPage}">
+                <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
+                    <TextBlock Text="{DynamicResource LOCImageRotaterGeneral}" Style="{StaticResource IrPageTitle}"/>
+                    <TextBlock Text="{DynamicResource LOCImageRotaterGeneralIntro}" Style="{StaticResource IrPageSubtitle}"/>
 
-                        <TextBlock Text="{DynamicResource LOCImageRotaterGeneral}" Style="{StaticResource IrPageTitle}"/>
-                        <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="{DynamicResource LOCImageRotaterGeneralIntro}"/>
+                    <!-- Master switch: the first thing a new user needs to understand. -->
+                    <Border Style="{StaticResource IrCardFeature}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,20,0">
+                                <TextBlock Text="{DynamicResource LOCImageRotaterEnableRotation}" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterMasterDescription}" Style="{StaticResource IrHintFlush}" Margin="0,3,0,0"/>
+                            </StackPanel>
+                            <CheckBox Grid.Column="1"
+                                      Style="{StaticResource IrToggleSwitchOnly}"
+                                      ToolTip="{DynamicResource LOCImageRotaterEnableRotationToggle}"
+                                      VerticalAlignment="Center"
+                                      IsChecked="{Binding Settings.EnableRotation}"/>
+                        </Grid>
+                    </Border>
 
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterRotation}" Style="{StaticResource IrSectionTitle}"/>
+                    <Border Style="{StaticResource IrSectionBar}">
+                        <TextBlock Text="{DynamicResource LOCImageRotaterChooseContent}" Style="{StaticResource IrSectionTitle}"/>
+                    </Border>
+                    <TextBlock Text="{DynamicResource LOCImageRotaterChooseContentHint}" Style="{StaticResource IrHintFlush}" Margin="2,0,0,10"/>
+
+                    <!-- Two task-oriented cards. Users can enable a feature and immediately jump
+                         to its detailed settings without hunting through the navigation rail. -->
+                    <Grid IsEnabled="{Binding Settings.EnableRotation}" Margin="0,0,0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="14"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Style="{StaticResource IrOverviewCard}">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{DynamicResource LOCImageRotaterBackgroundCardTitle}" Style="{StaticResource IrOverviewTitle}"/>
+                                    <CheckBox Grid.Column="1" Style="{StaticResource IrToggleSwitchOnly}"
+                                              ToolTip="{DynamicResource LOCImageRotaterEnableBackgrounds}"
+                                              IsChecked="{Binding Settings.RotateBackgrounds}"/>
+                                </Grid>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterBackgroundCardText}" Style="{StaticResource IrOverviewText}"/>
+                                <Button Style="{StaticResource IrButtonSecondary}"
+                                        Content="{DynamicResource LOCImageRotaterConfigureBackgrounds}"
+                                        HorizontalAlignment="Left"
+                                        Margin="0,12,0,0"
+                                        Click="OpenBackgrounds_Click"/>
+                            </StackPanel>
                         </Border>
 
-                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterEnableRotation}"
-                                  IsChecked="{Binding Settings.EnableRotation}"/>
-                        <TextBlock Style="{StaticResource IrHint}"
-                                   Text="{DynamicResource LOCImageRotaterEnableRotationHint}"/>
-
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterTroubleshooting}" Style="{StaticResource IrSectionTitle}"/>
+                        <Border Grid.Column="2" Style="{StaticResource IrOverviewCard}">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{DynamicResource LOCImageRotaterCoverCardTitle}" Style="{StaticResource IrOverviewTitle}"/>
+                                    <CheckBox Grid.Column="1" Style="{StaticResource IrToggleSwitchOnly}"
+                                              ToolTip="{DynamicResource LOCImageRotaterEnableCovers}"
+                                              IsChecked="{Binding Settings.RotateCovers}"/>
+                                </Grid>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterCoverCardText}" Style="{StaticResource IrOverviewText}"/>
+                                <Button Style="{StaticResource IrButtonSecondary}"
+                                        Content="{DynamicResource LOCImageRotaterConfigureCovers}"
+                                        HorizontalAlignment="Left"
+                                        Margin="0,12,0,0"
+                                        Click="OpenCovers_Click"/>
+                            </StackPanel>
                         </Border>
+                    </Grid>
 
-                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterEnableDebug}"
-                                  IsChecked="{Binding Settings.EnableDebugLogging}"/>
-                        <TextBlock Style="{StaticResource IrHint}"
-                                   Text="{DynamicResource LOCImageRotaterEnableDebugHint}"/>
-
-                    </StackPanel>
-                </ScrollViewer>
-                </TabItem>
-            </TabControl>
+                    <!-- Optional capabilities stay last: useful, but not required for basic use. -->
+                    <Border Style="{StaticResource IrToolsCalloutCard}" Margin="0,4,0,14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,20,0">
+                                <TextBlock Text="{DynamicResource LOCImageRotaterToolsCalloutEyebrow}" Style="{StaticResource IrEyebrow}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterToolsCalloutTitle}" Style="{StaticResource IrCardTitle}" Margin="0,2,0,5"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterToolsCalloutText}" Style="{StaticResource IrHintFlush}" Margin="0,0,0,3"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterToolsCalloutNote}" Style="{StaticResource IrHintFlush}" Margin="0,0,0,0"/>
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Style="{StaticResource IrButton}"
+                                    Content="{DynamicResource LOCImageRotaterOpenTools}"
+                                    VerticalAlignment="Center"
+                                    Click="OpenTools_Click"/>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
         </TabItem>
 
         <!-- ================================ BACKGROUNDS ================================ -->
-        <TabItem Header="{DynamicResource LOCImageRotaterBackgrounds}">
-            <TabControl Style="{StaticResource IrStrip}">
-                <TabItem Header="{DynamicResource LOCImageRotaterGeneral}">
-                <ScrollViewer Style="{StaticResource IrPage}">
-                    <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
+        <TabItem x:Name="BackgroundsTab" Header="{DynamicResource LOCImageRotaterBackgrounds}">
+            <ScrollViewer Style="{StaticResource IrPage}">
+                <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
+                    <TextBlock Text="{DynamicResource LOCImageRotaterBackgrounds}" Style="{StaticResource IrPageTitle}"/>
+                    <TextBlock Text="{DynamicResource LOCImageRotaterBackgroundIntro}" Style="{StaticResource IrPageSubtitle}"/>
 
-                        <TextBlock Text="{DynamicResource LOCImageRotaterBackgrounds}" Style="{StaticResource IrPageTitle}"/>
-                        <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="{DynamicResource LOCImageRotaterBackgroundIntro}"/>
-
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterRotation}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
-
-                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterEnableBackgrounds}"
-                                  IsChecked="{Binding Settings.RotateBackgrounds}"/>
-                        <TextBlock Style="{StaticResource IrHint}"
-                                   Text="{DynamicResource LOCImageRotaterEnableBackgroundsHint}"/>
-
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterShape}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
-
-                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterLetterbox}"
-                                  IsChecked="{Binding Settings.LetterboxBackgrounds}"/>
-                        <TextBlock Style="{StaticResource IrHint}"
-                                   Text="{DynamicResource LOCImageRotaterLetterboxHint}"/>
-
-                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterLevelBackgrounds}"
-                                  IsChecked="{Binding Settings.NormaliseBackgroundSize}"/>
-                        <TextBlock Style="{StaticResource IrHint}"
-                                   Text="{DynamicResource LOCImageRotaterLevelBackgroundsHint}"/>
-
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterWhenSeveral}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
-                        <TextBlock Style="{StaticResource IrHintFlush}"
-                                   Text="{DynamicResource LOCImageRotaterBackgroundSeveralHint}"/>
-
-                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickSession}" GroupName="SelectionMode"
-                                     IsChecked="{Binding Settings.SelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Session}"/>
-                        <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="{DynamicResource LOCImageRotaterBackgroundPickSessionHint}"/>
-
-                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickEverySelection}" GroupName="SelectionMode"
-                                     IsChecked="{Binding Settings.SelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=EverySelection}"/>
-                        <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="{DynamicResource LOCImageRotaterBackgroundPickEveryHint}"/>
-
-                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickFixed}" GroupName="SelectionMode"
-                                     IsChecked="{Binding Settings.SelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Fixed}"/>
-                        <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="{DynamicResource LOCImageRotaterPickFixedHint}"/>
-
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterSlideshow}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
-
-                        <StackPanel Orientation="Horizontal" Margin="0,4,0,2">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterChangeEvery}" Style="{StaticResource IrLabel}" Width="112"/>
-                            <Slider Style="{StaticResource IrSlider}" Width="240"
-                                    Minimum="0" Maximum="300" TickFrequency="5" IsSnapToTickEnabled="True"
-                                    Value="{Binding Settings.BackgroundSlideshowSeconds}"/>
-                            <TextBlock Style="{StaticResource IrValue}"
-                                       Text="{Binding Settings.BackgroundSlideshowSeconds, StringFormat='{}{0:0} s'}"/>
+                    <Border Style="{StaticResource IrCardFeature}">
+                        <StackPanel>
+                            <CheckBox Style="{StaticResource IrToggle}"
+                                      Content="{DynamicResource LOCImageRotaterEnableBackgrounds}"
+                                      IsChecked="{Binding Settings.RotateBackgrounds}"/>
+                            <TextBlock Style="{StaticResource IrHint}"
+                                       Text="{DynamicResource LOCImageRotaterEnableBackgroundsHint}"/>
                         </StackPanel>
-                        <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,4,0,12"
-                                   Text="{DynamicResource LOCImageRotaterBackgroundSlideshowHint}"/>
+                    </Border>
 
+                    <StackPanel IsEnabled="{Binding Settings.EnableBackgroundImage}">
+                        <Border Style="{StaticResource IrSectionBar}">
+                            <TextBlock Text="{DynamicResource LOCImageRotaterSelectionBehaviour}" Style="{StaticResource IrSectionTitle}"/>
+                        </Border>
+
+                        <Border Style="{StaticResource IrCard}">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterWhenSeveralFriendly}" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterBackgroundSeveralHint}"/>
+
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickSession}" GroupName="SelectionMode"
+                                             IsChecked="{Binding Settings.SelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Session}"/>
+                                <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterBackgroundPickSessionHint}"/>
+
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickEverySelection}" GroupName="SelectionMode"
+                                             IsChecked="{Binding Settings.SelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=EverySelection}"/>
+                                <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterBackgroundPickEveryHint}"/>
+
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickFixed}" GroupName="SelectionMode"
+                                             IsChecked="{Binding Settings.SelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Fixed}"/>
+                                <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterPickFixedHint}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource IrCard}">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterSlideshowFriendly}" Style="{StaticResource IrCardTitle}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                                    <TextBlock Text="{DynamicResource LOCImageRotaterChangeEvery}" Style="{StaticResource IrLabel}" Width="112"/>
+                                    <Slider Style="{StaticResource IrSlider}" Width="240"
+                                            Minimum="0" Maximum="300" TickFrequency="5" IsSnapToTickEnabled="True"
+                                            Value="{Binding Settings.BackgroundSlideshowSeconds}"/>
+                                    <TextBlock Style="{StaticResource IrValue}"
+                                               Text="{Binding Settings.BackgroundSlideshowSeconds, StringFormat='{}{0:0} s'}"/>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,6,0,0"
+                                           Text="{DynamicResource LOCImageRotaterBackgroundSlideshowHint}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource IrSectionBar}">
+                            <TextBlock Text="{DynamicResource LOCImageRotaterAppearance}" Style="{StaticResource IrSectionTitle}"/>
+                        </Border>
+
+                        <Border Style="{StaticResource IrCard}">
+                            <StackPanel>
+                                <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterLetterbox}"
+                                          IsChecked="{Binding Settings.LetterboxBackgrounds}"/>
+                                <TextBlock Style="{StaticResource IrHint}" Text="{DynamicResource LOCImageRotaterLetterboxHint}"/>
+
+                                <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterLevelBackgrounds}"
+                                          IsChecked="{Binding Settings.NormaliseBackgroundSize}"/>
+                                <TextBlock Style="{StaticResource IrHint}" Text="{DynamicResource LOCImageRotaterLevelBackgroundsHint}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource IrCard}">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterTransition}" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterBackgroundTransitionHint}"/>
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCrossfade}" GroupName="BackgroundTransition"
+                                             IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Crossfade}"/>
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeBlack}" GroupName="BackgroundTransition"
+                                             IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughBlack}"/>
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeWhite}" GroupName="BackgroundTransition"
+                                             IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughWhite}"/>
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCut}" GroupName="BackgroundTransition"
+                                             IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Cut}"/>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
-                </ScrollViewer>
-                </TabItem>
-                <TabItem Header="{DynamicResource LOCImageRotaterAnimationFilter}">
-                    <ScrollViewer Style="{StaticResource IrPage}">
-                        <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
-
-                            <TextBlock Text="{DynamicResource LOCImageRotaterBackgroundAnimation}" Style="{StaticResource IrPageTitle}"/>
-                            <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                       Text="{DynamicResource LOCImageRotaterBackgroundAnimationIntro}"/>
-                            <Border Style="{StaticResource IrSectionBar}">
-                                <TextBlock Text="{DynamicResource LOCImageRotaterTransition}" Style="{StaticResource IrSectionTitle}"/>
-                            </Border>
-                            <TextBlock Style="{StaticResource IrHintFlush}"
-                                       Text="{DynamicResource LOCImageRotaterBackgroundTransitionHint}"/>
-
-                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCrossfade}" GroupName="BackgroundTransition"
-                                         IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Crossfade}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeBlack}" GroupName="BackgroundTransition"
-                                         IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughBlack}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeWhite}" GroupName="BackgroundTransition"
-                                         IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughWhite}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCut}" GroupName="BackgroundTransition"
-                                         IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Cut}"/>
-                        </StackPanel>
-                    </ScrollViewer>
-                </TabItem>
-            </TabControl>
+                </StackPanel>
+            </ScrollViewer>
         </TabItem>
 
         <!-- ================================ COVERS ================================ -->
-        <TabItem Header="{DynamicResource LOCImageRotaterCovers}">
-            <TabControl Style="{StaticResource IrStrip}">
-                <TabItem Header="{DynamicResource LOCImageRotaterGeneral}">
-                <ScrollViewer Style="{StaticResource IrPage}">
-                    <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
+        <TabItem x:Name="CoversTab" Header="{DynamicResource LOCImageRotaterCovers}">
+            <ScrollViewer Style="{StaticResource IrPage}">
+                <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
+                    <TextBlock Text="{DynamicResource LOCImageRotaterCovers}" Style="{StaticResource IrPageTitle}"/>
+                    <TextBlock Text="{DynamicResource LOCImageRotaterCoverIntro}" Style="{StaticResource IrPageSubtitle}"/>
 
-                        <TextBlock Text="{DynamicResource LOCImageRotaterCovers}" Style="{StaticResource IrPageTitle}"/>
-                        <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="{DynamicResource LOCImageRotaterCoverIntro}"/>
-
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterRotation}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
-
-                        <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterEnableCovers}"
-                                  IsChecked="{Binding Settings.RotateCovers}"/>
-                        <TextBlock Style="{StaticResource IrHint}"
-                                   Text="{DynamicResource LOCImageRotaterEnableCoversHint}"/>
-
-                        <CheckBox Style="{StaticResource IrToggleChild}" Content="{DynamicResource LOCImageRotaterAnimateUnfocused}"
-                                  IsChecked="{Binding Settings.AnimateUnfocusedCovers}"
-                                  IsEnabled="{Binding Settings.RotateCovers}"/>
-                        <TextBlock Style="{StaticResource IrHintIndented}"
-                                   Text="{DynamicResource LOCImageRotaterAnimateUnfocusedHint}"/>
-
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterVideoStart}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
-
-                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterVideoStartBeginning}" GroupName="CoverVideoStartMode"
-                                     IsEnabled="{Binding Settings.RotateCovers}"
-                                     IsChecked="{Binding Settings.CoverVideoStartMode, Converter={StaticResource EnumRadio}, ConverterParameter=Beginning}"/>
-                        <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="{DynamicResource LOCImageRotaterVideoStartBeginningHint}"/>
-
-                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterVideoStartRandom}" GroupName="CoverVideoStartMode"
-                                     IsEnabled="{Binding Settings.RotateCovers}"
-                                     IsChecked="{Binding Settings.CoverVideoStartMode, Converter={StaticResource EnumRadio}, ConverterParameter=Random}"/>
-                        <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="{DynamicResource LOCImageRotaterVideoStartRandomHint}"/>
-
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterWhenSeveral}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
-                        <TextBlock Style="{StaticResource IrHintFlush}"
-                                   Text="{DynamicResource LOCImageRotaterCoverSeveralHint}"/>
-
-                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickSession}" GroupName="CoverSelectionMode"
-                                     IsChecked="{Binding Settings.CoverSelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Session}"/>
-                        <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="{DynamicResource LOCImageRotaterCoverPickSessionHint}"/>
-
-                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickEverySelection}" GroupName="CoverSelectionMode"
-                                     IsChecked="{Binding Settings.CoverSelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=EverySelection}"/>
-                        <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="{DynamicResource LOCImageRotaterCoverPickEveryHint}"/>
-
-                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickFixed}" GroupName="CoverSelectionMode"
-                                     IsChecked="{Binding Settings.CoverSelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Fixed}"/>
-                        <TextBlock Style="{StaticResource IrRadioHint}"
-                                   Text="{DynamicResource LOCImageRotaterPickFixedHint}"/>
-
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterSlideshow}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
-
-                        <StackPanel Orientation="Horizontal" Margin="0,4,0,2">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterChangeEvery}" Style="{StaticResource IrLabel}" Width="112"/>
-                            <Slider Style="{StaticResource IrSlider}" Width="240"
-                                    Minimum="0" Maximum="300" TickFrequency="5" IsSnapToTickEnabled="True"
-                                    Value="{Binding Settings.CoverSlideshowSeconds}"/>
-                            <TextBlock Style="{StaticResource IrValue}"
-                                       Text="{Binding Settings.CoverSlideshowSeconds, StringFormat='{}{0:0} s'}"/>
+                    <Border Style="{StaticResource IrCardFeature}">
+                        <StackPanel>
+                            <CheckBox Style="{StaticResource IrToggle}"
+                                      Content="{DynamicResource LOCImageRotaterEnableCovers}"
+                                      IsChecked="{Binding Settings.RotateCovers}"/>
+                            <TextBlock Style="{StaticResource IrHint}" Text="{DynamicResource LOCImageRotaterEnableCoversHint}"/>
                         </StackPanel>
-                        <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,4,0,12"
-                                   Text="{DynamicResource LOCImageRotaterCoverSlideshowHint}"/>
+                    </Border>
 
+                    <StackPanel IsEnabled="{Binding Settings.EnableCoverImage}">
+                        <Border Style="{StaticResource IrSectionBar}">
+                            <TextBlock Text="{DynamicResource LOCImageRotaterSelectionBehaviour}" Style="{StaticResource IrSectionTitle}"/>
+                        </Border>
+
+                        <Border Style="{StaticResource IrCard}">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterWhenSeveralFriendly}" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterCoverSeveralHint}"/>
+
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickSession}" GroupName="CoverSelectionMode"
+                                             IsChecked="{Binding Settings.CoverSelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Session}"/>
+                                <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterCoverPickSessionHint}"/>
+
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickEverySelection}" GroupName="CoverSelectionMode"
+                                             IsChecked="{Binding Settings.CoverSelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=EverySelection}"/>
+                                <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterCoverPickEveryHint}"/>
+
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPickFixed}" GroupName="CoverSelectionMode"
+                                             IsChecked="{Binding Settings.CoverSelectionMode, Converter={StaticResource EnumRadio}, ConverterParameter=Fixed}"/>
+                                <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterPickFixedHint}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource IrCard}">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterSlideshowFriendly}" Style="{StaticResource IrCardTitle}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                                    <TextBlock Text="{DynamicResource LOCImageRotaterChangeEvery}" Style="{StaticResource IrLabel}" Width="112"/>
+                                    <Slider Style="{StaticResource IrSlider}" Width="240"
+                                            Minimum="0" Maximum="300" TickFrequency="5" IsSnapToTickEnabled="True"
+                                            Value="{Binding Settings.CoverSlideshowSeconds}"/>
+                                    <TextBlock Style="{StaticResource IrValue}"
+                                               Text="{Binding Settings.CoverSlideshowSeconds, StringFormat='{}{0:0} s'}"/>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,6,0,0"
+                                           Text="{DynamicResource LOCImageRotaterCoverSlideshowHint}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource IrSectionBar}">
+                            <TextBlock Text="{DynamicResource LOCImageRotaterAnimationAndPerformance}" Style="{StaticResource IrSectionTitle}"/>
+                        </Border>
+
+                        <Border Style="{StaticResource IrCardWarn}">
+                            <StackPanel>
+                                <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterAnimateUnfocused}"
+                                          IsChecked="{Binding Settings.AnimateUnfocusedCovers}"/>
+                                <TextBlock Style="{StaticResource IrWarning}" Text="{DynamicResource LOCImageRotaterAnimateUnfocusedHint}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource IrCard}">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterVideoStart}" Style="{StaticResource IrCardTitle}"/>
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterVideoStartBeginning}" GroupName="CoverVideoStartMode"
+                                             IsChecked="{Binding Settings.CoverVideoStartMode, Converter={StaticResource EnumRadio}, ConverterParameter=Beginning}"/>
+                                <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterVideoStartBeginningHint}"/>
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterVideoStartRandom}" GroupName="CoverVideoStartMode"
+                                             IsChecked="{Binding Settings.CoverVideoStartMode, Converter={StaticResource EnumRadio}, ConverterParameter=Random}"/>
+                                <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterVideoStartRandomHint}"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource IrCard}">
+                            <StackPanel>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterTransition}" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterCoverTransitionHint}"/>
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCrossfade}" GroupName="CoverTransition"
+                                             IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Crossfade}"/>
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeBlack}" GroupName="CoverTransition"
+                                             IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughBlack}"/>
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeWhite}" GroupName="CoverTransition"
+                                             IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughWhite}"/>
+                                <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCut}" GroupName="CoverTransition"
+                                             IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Cut}"/>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
-                </ScrollViewer>
-                </TabItem>
-                <TabItem Header="{DynamicResource LOCImageRotaterAnimationFilter}">
-                    <ScrollViewer Style="{StaticResource IrPage}">
-                        <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
 
-                            <TextBlock Text="{DynamicResource LOCImageRotaterCoverAnimation}" Style="{StaticResource IrPageTitle}"/>
-                            <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                       Text="{DynamicResource LOCImageRotaterCoverAnimationIntro}"/>
-                            <Border Style="{StaticResource IrSectionBar}">
-                                <TextBlock Text="{DynamicResource LOCImageRotaterTransition}" Style="{StaticResource IrSectionTitle}"/>
-                            </Border>
-                            <TextBlock Style="{StaticResource IrHintFlush}"
-                                       Text="{DynamicResource LOCImageRotaterCoverTransitionHint}"/>
+        <!-- ================================ TOOLS ================================ -->
+        <TabItem x:Name="ToolsTab" Header="{DynamicResource LOCImageRotaterTools}">
+            <ScrollViewer Style="{StaticResource IrPage}">
+                <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
+                    <TextBlock Text="{DynamicResource LOCImageRotaterTools}" Style="{StaticResource IrPageTitle}"/>
+                    <TextBlock Text="{DynamicResource LOCImageRotaterSetupIntro}" Style="{StaticResource IrPageSubtitle}"/>
 
-                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCrossfade}" GroupName="CoverTransition"
-                                         IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Crossfade}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeBlack}" GroupName="CoverTransition"
-                                         IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughBlack}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeWhite}" GroupName="CoverTransition"
-                                         IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughWhite}"/>
-                            <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCut}" GroupName="CoverTransition"
-                                         IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Cut}"/>
+                    <Border Style="{StaticResource IrSectionBar}">
+                        <TextBlock Text="{DynamicResource LOCImageRotaterOnlineArtwork}" Style="{StaticResource IrSectionTitle}"/>
+                    </Border>
+
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterSteamGridDB}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterSteamGridDBHelp}"/>
+                            <DockPanel Margin="0,4,0,6">
+                                <TextBlock Text="{DynamicResource LOCImageRotaterApiKey}" Style="{StaticResource IrLabel}" Width="72"/>
+                                <TextBox Style="{StaticResource IrTextBox}"
+                                         Text="{Binding Settings.SteamGridDbApiKey, UpdateSourceTrigger=PropertyChanged}"/>
+                            </DockPanel>
+                            <TextBlock Style="{StaticResource IrStatus}" Foreground="{Binding ApiKeyStatus.Brush}" Margin="72,0,0,4">
+                                <Run Text="{Binding ApiKeyStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding ApiKeyStatus.Message, Mode=OneWay}"/>
+                            </TextBlock>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,0,0,0" Text="{DynamicResource LOCImageRotaterApiKeyStorage}"/>
                         </StackPanel>
-                    </ScrollViewer>
-                </TabItem>
-            </TabControl>
+                    </Border>
+
+                    <Border Style="{StaticResource IrSectionBar}">
+                        <TextBlock Text="{DynamicResource LOCImageRotaterVideoTools}" Style="{StaticResource IrSectionTitle}"/>
+                    </Border>
+                    <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterToolPathHint}"/>
+
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterFfmpeg}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterFfmpegHelp}"/>
+                            <DockPanel Margin="0,4,0,6">
+                                <Button Content="{DynamicResource LOCImageRotaterBrowse}" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
+                                        Margin="8,0,0,0" Command="{Binding BrowseFfmpeg}"/>
+                                <TextBox Style="{StaticResource IrTextBox}"
+                                         Text="{Binding Settings.FfmpegPath, UpdateSourceTrigger=PropertyChanged}"/>
+                            </DockPanel>
+                            <TextBlock Style="{StaticResource IrStatus}" Foreground="{Binding FfmpegStatus.Brush}">
+                                <Run Text="{Binding FfmpegStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding FfmpegStatus.Message, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterYtDlp}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterYtDlpHelp}"/>
+                            <DockPanel Margin="0,4,0,6">
+                                <Button Content="{DynamicResource LOCImageRotaterBrowse}" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
+                                        Margin="8,0,0,0" Command="{Binding BrowseYtDlp}"/>
+                                <TextBox Style="{StaticResource IrTextBox}"
+                                         Text="{Binding Settings.YtDlpPath, UpdateSourceTrigger=PropertyChanged}"/>
+                            </DockPanel>
+                            <TextBlock Style="{StaticResource IrStatus}" Foreground="{Binding YtDlpStatus.Brush}">
+                                <Run Text="{Binding YtDlpStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding YtDlpStatus.Message, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterDeno}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterDenoHelp}"/>
+                            <DockPanel Margin="0,4,0,6">
+                                <Button Content="{DynamicResource LOCImageRotaterBrowse}" Style="{StaticResource IrButton}" DockPanel.Dock="Right"
+                                        Margin="8,0,0,0" Command="{Binding BrowseDeno}"/>
+                                <TextBox Style="{StaticResource IrTextBox}"
+                                         Text="{Binding Settings.DenoPath, UpdateSourceTrigger=PropertyChanged}"/>
+                            </DockPanel>
+                            <TextBlock Style="{StaticResource IrStatus}" Foreground="{Binding DenoStatus.Brush}">
+                                <Run Text="{Binding DenoStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding DenoStatus.Message, Mode=OneWay}"/>
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
         </TabItem>
 
         <!-- ================================ LIBRARY ================================ -->
         <TabItem Header="{DynamicResource LOCImageRotaterLibrary}">
-            <TabControl Style="{StaticResource IrStrip}">
-                <TabItem Header="{DynamicResource LOCImageRotaterMaintenance}">
-                <ScrollViewer Style="{StaticResource IrPage}">
-                    <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
+            <ScrollViewer Style="{StaticResource IrPage}">
+                <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
+                    <TextBlock Text="{DynamicResource LOCImageRotaterLibrary}" Style="{StaticResource IrPageTitle}"/>
+                    <TextBlock Text="{DynamicResource LOCImageRotaterLibraryIntro}" Style="{StaticResource IrPageSubtitle}"/>
 
-                        <TextBlock Text="{DynamicResource LOCImageRotaterLibrary}" Style="{StaticResource IrPageTitle}"/>
-                        <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="{DynamicResource LOCImageRotaterLibraryIntro}"/>
+                    <Border Style="{StaticResource IrSectionBar}">
+                        <TextBlock Text="{DynamicResource LOCImageRotaterMigration}" Style="{StaticResource IrSectionTitle}"/>
+                    </Border>
 
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterConvert}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterImportBackgroundChanger}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterMigrationIntro}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterImportBackgroundChangerHint}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterImportWebPHint}"/>
+                            <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterImportBackgroundChanger}"
+                                    Command="{Binding ImportBackgroundChanger}"/>
+                        </StackPanel>
+                    </Border>
 
-                        <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterConvertGifs}"
-                                Margin="0,4,0,0" Command="{Binding ConvertGifs}"/>
-                        <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,4,0,12"
-                                   Text="{DynamicResource LOCImageRotaterConvertGifsHint}"/>
 
-                        <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterConvertJpegs}"
-                                Command="{Binding ConvertJpegs}"/>
-                        <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,4,0,12"
-                                   Text="{DynamicResource LOCImageRotaterConvertJpegsHint}"/>
+                    <Border Style="{StaticResource IrSectionBar}">
+                        <TextBlock Text="{DynamicResource LOCImageRotaterMaintenance}" Style="{StaticResource IrSectionTitle}"/>
+                    </Border>
 
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterRepair}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterOptimiseImages}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterOptimiseImagesHint}"/>
+                            <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterOptimiseImagesButton}"
+                                    Command="{Binding OptimiseImages}"/>
+                        </StackPanel>
+                    </Border>
 
-                        <Border Style="{StaticResource IrCard}">
-                            <StackPanel>
-                                <TextBlock Text="{DynamicResource LOCImageRotaterRepairVideos}" Style="{StaticResource IrCardTitle}"/>
-                                <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="{DynamicResource LOCImageRotaterRepairVideosHint}"/>
-                                <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterRepairVideosButton}"
-                                        Command="{Binding RepairVideos}"/>
-                            </StackPanel>
-                        </Border>
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterConvertGifs}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterConvertGifsHint}"/>
+                            <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterConvertGifs}"
+                                    Command="{Binding ConvertGifs}"/>
+                        </StackPanel>
+                    </Border>
 
-                        <Border Style="{StaticResource IrCard}">
-                            <StackPanel>
-                                <TextBlock Text="{DynamicResource LOCImageRotaterRepairArtwork}" Style="{StaticResource IrCardTitle}"/>
-                                <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="{DynamicResource LOCImageRotaterRepairArtworkHint}"/>
-                                <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterRepairArtwork}"
-                                        Command="{Binding RepairArtwork}"
-                                        CommandParameter="{Binding RelativeSource={RelativeSource Self}}"/>
-                            </StackPanel>
-                        </Border>
+                    <Border Style="{StaticResource IrSectionBar}">
+                        <TextBlock Text="{DynamicResource LOCImageRotaterRecovery}" Style="{StaticResource IrSectionTitle}"/>
+                    </Border>
 
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterDangerZone}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
+                    <Border Style="{StaticResource IrCardWarn}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterRestoreOriginalBackgrounds}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrWarningFlush}" Text="{DynamicResource LOCImageRotaterRestoreOriginalBackgroundsHint}"/>
+                            <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterRestoreOriginalBackgroundsButton}"
+                                    Command="{Binding RestoreOriginalBackgrounds}"/>
+                        </StackPanel>
+                    </Border>
 
-                        <!-- Last, and boxed in red, so it is not something you reach by accident on
-                             the way to a path box. -->
-                        <Border Style="{StaticResource IrCardDanger}">
-                            <StackPanel>
-                                <TextBlock Text="{DynamicResource LOCImageRotaterResetLibrary}" Style="{StaticResource IrCardTitleDanger}"/>
-                                <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="{DynamicResource LOCImageRotaterResetLibraryHint}"/>
-                                <Button Style="{StaticResource IrButtonDanger}" Content="{DynamicResource LOCImageRotaterResetLibraryButton}"
-                                        Command="{Binding ResetLibrary}"
-                                        CommandParameter="{Binding RelativeSource={RelativeSource Self}}"/>
-                            </StackPanel>
-                        </Border>
+                    <Border Style="{StaticResource IrSectionBar}">
+                        <TextBlock Text="{DynamicResource LOCImageRotaterDangerZone}" Style="{StaticResource IrSectionTitle}"/>
+                    </Border>
 
-                    </StackPanel>
-                </ScrollViewer>
-                </TabItem>
-
-                <!-- Its own page, apart from maintenance: this is the first
-                     thing a user arriving from another plugin looks for, and
-                     it should not sit between "convert" and "delete". -->
-                <TabItem Header="{DynamicResource LOCImageRotaterMigration}">
-                <ScrollViewer Style="{StaticResource IrPage}">
-                    <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
-
-                        <TextBlock Text="{DynamicResource LOCImageRotaterMigration}" Style="{StaticResource IrPageTitle}"/>
-                        <TextBlock Style="{StaticResource IrPageSubtitle}"
-                                   Text="{DynamicResource LOCImageRotaterMigrationIntro}"/>
-
-                        <Border Style="{StaticResource IrSectionBar}">
-                            <TextBlock Text="{DynamicResource LOCImageRotaterBackgroundChanger}" Style="{StaticResource IrSectionTitle}"/>
-                        </Border>
-
-                        <Border Style="{StaticResource IrCard}">
-                            <StackPanel>
-                                <TextBlock Text="{DynamicResource LOCImageRotaterImportBackgroundChanger}" Style="{StaticResource IrCardTitle}"/>
-                                <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="{DynamicResource LOCImageRotaterImportBackgroundChangerHint}"/>
-                                <TextBlock Style="{StaticResource IrHintFlush}"
-                                           Text="{DynamicResource LOCImageRotaterImportWebPHint}"/>
-                                <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterImportBackgroundChanger}"
-                                        Command="{Binding ImportBackgroundChanger}"/>
-                            </StackPanel>
-                        </Border>
-
-                    </StackPanel>
-                </ScrollViewer>
-                </TabItem>
-            </TabControl>
+                    <Border Style="{StaticResource IrCardDanger}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterResetLibrary}" Style="{StaticResource IrCardTitleDanger}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterResetLibraryHint}"/>
+                            <Button Style="{StaticResource IrButtonDanger}" Content="{DynamicResource LOCImageRotaterResetLibraryButton}"
+                                    Command="{Binding ResetLibrary}" CommandParameter="{Binding RelativeSource={RelativeSource Self}}"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
         </TabItem>
 
+        <!-- ================================ ADVANCED ================================ -->
+        <TabItem Header="{DynamicResource LOCImageRotaterAdvanced}">
+            <ScrollViewer Style="{StaticResource IrPage}">
+                <StackPanel MaxWidth="820" HorizontalAlignment="Stretch">
+                    <TextBlock Text="{DynamicResource LOCImageRotaterAdvanced}" Style="{StaticResource IrPageTitle}"/>
+                    <TextBlock Text="{DynamicResource LOCImageRotaterAdvancedIntro}" Style="{StaticResource IrPageSubtitle}"/>
+
+                    <Border Style="{StaticResource IrSectionBar}">
+                        <TextBlock Text="{DynamicResource LOCImageRotaterDiagnostics}" Style="{StaticResource IrSectionTitle}"/>
+                    </Border>
+
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <CheckBox Style="{StaticResource IrToggle}"
+                                      Content="{DynamicResource LOCImageRotaterEnableDebug}"
+                                      IsChecked="{Binding Settings.EnableDebugLogging}"/>
+                            <TextBlock Style="{StaticResource IrHint}" Text="{DynamicResource LOCImageRotaterEnableDebugHint}"/>
+                            <Border Style="{StaticResource IrAdvancedNote}">
+                                <TextBlock Text="{DynamicResource LOCImageRotaterDebugRecommendation}" Style="{StaticResource IrHintFlush}" Margin="0"/>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource IrSectionBar}">
+                        <TextBlock Text="{DynamicResource LOCImageRotaterTroubleshooting}" Style="{StaticResource IrSectionTitle}"/>
+                    </Border>
+
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterRepairVideos}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterRepairVideosHint}"/>
+                            <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterRepairVideosButton}"
+                                    Command="{Binding RepairVideos}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterRepairArtwork}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterRepairArtworkHint}"/>
+                            <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterRepairArtwork}"
+                                    Command="{Binding RepairArtwork}" CommandParameter="{Binding RelativeSource={RelativeSource Self}}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource IrSectionBar}">
+                        <TextBlock Text="{DynamicResource LOCImageRotaterExpertTools}" Style="{StaticResource IrSectionTitle}"/>
+                    </Border>
+
+                    <Border Style="{StaticResource IrCardWarn}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterConvertJpegs}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrWarningFlush}" Text="{DynamicResource LOCImageRotaterConvertJpegsHint}"/>
+                            <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterConvertJpegs}"
+                                    Command="{Binding ConvertJpegs}"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
     </TabControl>
 </UserControl>

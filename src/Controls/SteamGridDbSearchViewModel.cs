@@ -83,8 +83,7 @@ namespace ImageRotater.Controls
             get => isChecked;
             set
             {
-                isChecked = value;
-                OnPropertyChanged();
+                SetCheckedSilently(value);
 
                 foreach (FilterOption dimension in Dimensions)
                 {
@@ -93,6 +92,17 @@ namespace ImageRotater.Controls
 
                 Changed?.Invoke();
             }
+        }
+
+        internal void SetCheckedSilently(bool value)
+        {
+            if (isChecked == value)
+            {
+                return;
+            }
+
+            isChecked = value;
+            OnPropertyChanged(nameof(IsChecked));
         }
     }
 
@@ -203,11 +213,17 @@ namespace ImageRotater.Controls
             OnPropertyChanged(nameof(CanGoBack));
             OnPropertyChanged(nameof(CanGoForward));
             OnPropertyChanged(nameof(PageLabel));
+            OnPropertyChanged(nameof(ResultsLabel));
         }
 
         public string PageLabel
         {
             get { return Loc.Format("LOCImageRotaterPageOf", CurrentPage, PageCount); }
+        }
+
+        public string ResultsLabel
+        {
+            get { return Loc.Format("LOCImageRotaterResultsCount", _filtered.Count); }
         }
 
         private string _status = string.Empty;
@@ -264,13 +280,20 @@ namespace ImageRotater.Controls
         // existing tile, filter and selection all work unchanged - the poster
         // frame is an ordinary JPEG. Only the download differs, which
         // IsYouTube marks.
+        private static bool RequestIsCurrent(Func<bool> isCurrent)
+        {
+            return isCurrent == null || isCurrent();
+        }
+
         public async Task<bool> SearchYouTubeAsync(
-            string query, ImageRotaterSettings settings, CancellationToken cancellationToken)
+            string query, ImageRotaterSettings settings, CancellationToken cancellationToken,
+            Func<bool> isCurrent = null)
         {
             var search = new YouTubeSearch(settings);
 
             if (!search.IsAvailable)
             {
+                if (!RequestIsCurrent(isCurrent)) return false;
                 _allResults = new List<SteamGridDbArtwork>();
                 RebuildFilterOptions();
                 ApplyFilter();
@@ -284,6 +307,8 @@ namespace ImageRotater.Controls
             {
                 List<Models.YouTubeVideo> videos =
                     await search.SearchAsync(query, 24, cancellationToken).ConfigureAwait(true);
+
+                if (!RequestIsCurrent(isCurrent)) return false;
 
                 var mapped = new List<SteamGridDbArtwork>();
                 int id = 0;
@@ -342,12 +367,13 @@ namespace ImageRotater.Controls
             }
             catch (Exception ex)
             {
+                if (!RequestIsCurrent(isCurrent)) return false;
                 Status = Loc.Format("LOCImageRotaterYouTubeSearchFailed", ex.Message);
                 return false;
             }
             finally
             {
-                IsBusy = false;
+                if (RequestIsCurrent(isCurrent)) IsBusy = false;
             }
         }
 
@@ -357,7 +383,7 @@ namespace ImageRotater.Controls
         // game, so this is a direct lookup rather than a search. Results are
         // plain JPEG, which WPF decodes natively - the reason this tab leads.
         public async Task<bool> LoadSteamArtworkAsync(
-            Playnite.SDK.Models.Game game, ArtworkKind kind)
+            Playnite.SDK.Models.Game game, ArtworkKind kind, Func<bool> isCurrent = null)
         {
             IsBusy = true;
             try
@@ -371,6 +397,8 @@ namespace ImageRotater.Controls
                 string appId = await Task
                     .Run(() => SteamArtworkSource.ResolveAppId(game))
                     .ConfigureAwait(true);
+
+                if (!RequestIsCurrent(isCurrent)) return false;
 
                 if (appId == null)
                 {
@@ -390,6 +418,8 @@ namespace ImageRotater.Controls
                         .ToList())
                     .ConfigureAwait(true);
 
+                if (!RequestIsCurrent(isCurrent)) return false;
+
                 _allResults = found;
                 RebuildFilterOptions();
                 ApplyFilter();
@@ -406,19 +436,21 @@ namespace ImageRotater.Controls
             }
             catch (Exception ex)
             {
+                if (!RequestIsCurrent(isCurrent)) return false;
                 Status = Loc.Format("LOCImageRotaterSteamReachFailed", ex.Message);
                 return false;
             }
             finally
             {
-                IsBusy = false;
+                if (RequestIsCurrent(isCurrent)) IsBusy = false;
             }
         }
 
-        public async Task<bool> SearchWebAsync(string query, WebImageSearch search)
+        public async Task<bool> SearchWebAsync(string query, WebImageSearch search, Func<bool> isCurrent = null)
         {
             if (search == null || !search.IsAvailable)
             {
+                if (!RequestIsCurrent(isCurrent)) return false;
                 Status = Loc.Get("LOCImageRotaterWebUnavailable");
                 return false;
             }
@@ -433,6 +465,8 @@ namespace ImageRotater.Controls
                 // NotSupportedException from RebuildFilterOptions.
                 List<SteamGridDbArtwork> found =
                     await Task.Run(() => search.Search(query).ToList()).ConfigureAwait(true);
+
+                if (!RequestIsCurrent(isCurrent)) return false;
 
                 _allResults = found;
                 RebuildFilterOptions();
@@ -449,11 +483,11 @@ namespace ImageRotater.Controls
             }
             finally
             {
-                IsBusy = false;
+                if (RequestIsCurrent(isCurrent)) IsBusy = false;
             }
         }
 
-        public async Task<bool> SearchAsync(string gameName, SteamGridDbArtworkType type)
+        public async Task<bool> SearchAsync(string gameName, SteamGridDbArtworkType type, Func<bool> isCurrent = null)
         {
             if (_client == null || !_client.IsConfigured)
             {
@@ -466,6 +500,8 @@ namespace ImageRotater.Controls
             {
                 SteamGridDbResult<List<SteamGridDbGame>> games =
                     await _client.SearchGamesAsync(gameName).ConfigureAwait(true);
+
+                if (!RequestIsCurrent(isCurrent)) return false;
 
                 if (!games.Success)
                 {
@@ -483,6 +519,8 @@ namespace ImageRotater.Controls
                 // name match first, which is right for a per-game action.
                 SteamGridDbResult<List<SteamGridDbArtwork>> artwork =
                     await _client.GetArtworkAsync(games.Data[0].Id, type).ConfigureAwait(true);
+
+                if (!RequestIsCurrent(isCurrent)) return false;
 
                 if (!artwork.Success)
                 {
@@ -516,7 +554,7 @@ namespace ImageRotater.Controls
             }
             finally
             {
-                IsBusy = false;
+                if (RequestIsCurrent(isCurrent)) IsBusy = false;
             }
         }
 
@@ -532,6 +570,41 @@ namespace ImageRotater.Controls
             _wantGroups.UnionWith(preset.Groups ?? new List<string>());
             _wantDims.UnionWith(preset.Dimensions ?? new List<string>());
             _wantStyles.UnionWith(preset.Styles ?? new List<string>());
+        }
+
+        // Replaces the currently remembered filter ticks with a preset and
+        // applies them to any options already visible on screen.
+        public void ApplyPresetTicks(SearchPreset preset)
+        {
+            _wantGroups.Clear();
+            _wantDims.Clear();
+            _wantStyles.Clear();
+
+            if (preset != null)
+            {
+                _wantGroups.UnionWith(preset.Groups ?? new List<string>());
+                _wantDims.UnionWith(preset.Dimensions ?? new List<string>());
+                _wantStyles.UnionWith(preset.Styles ?? new List<string>());
+            }
+
+            foreach (FilterOption option in DimensionOptions)
+            {
+                option.SetChecked(_wantDims.Contains(option.Value), false);
+            }
+
+            foreach (AspectGroupOption group in AspectGroups)
+            {
+                bool groupChecked = group.Dimensions.Count > 0 &&
+                    group.Dimensions.All(d => _wantDims.Contains(d.Value));
+                group.SetCheckedSilently(groupChecked);
+            }
+
+            foreach (FilterOption option in StyleOptions)
+            {
+                option.SetChecked(_wantStyles.Contains(option.Value), false);
+            }
+
+            ApplyFilter();
         }
 
         // Writes the current ticks into a preset, for saving.

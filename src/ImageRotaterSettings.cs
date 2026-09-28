@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows;
 using ImageRotater.Services;
@@ -548,9 +548,19 @@ namespace ImageRotater
             plugin?.ImportFromBackgroundChanger();
         });
 
+        public RelayCommand<object> OptimiseImages => new RelayCommand<object>(a =>
+        {
+            plugin?.OptimiseStoredImages();
+        });
+
         public RelayCommand<object> ConvertGifs => new RelayCommand<object>(a =>
         {
             plugin?.ConvertGifsToMp4();
+        });
+
+        public RelayCommand<object> RestoreOriginalBackgrounds => new RelayCommand<object>(a =>
+        {
+            plugin?.RestoreOriginalBackgrounds();
         });
 
         public RelayCommand<object> ConvertJpegs => new RelayCommand<object>(a =>

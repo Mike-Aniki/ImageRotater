@@ -41,7 +41,19 @@ namespace ImageRotater.Services
         // still groups - it just gets a plain ratio label.
         private static readonly Tuple<double, string>[] KnownFormats =
         {
+            // Human-friendly ratios first. Web searches often return dozens of
+            // slightly different pixel sizes that are still the same practical
+            // shape; naming those shapes is much easier to scan than 4771:3000.
+            Tuple.Create(16.0 / 9.0, "LOCImageRotaterAspectWidescreen"),
+            Tuple.Create(16.0 / 10.0, "LOCImageRotaterAspectLandscape"),
+            Tuple.Create(4.0 / 3.0, "LOCImageRotaterAspectStandard"),
+            Tuple.Create(3.0 / 2.0, "LOCImageRotaterAspectPhoto"),
+            Tuple.Create(3.0 / 4.0, "LOCImageRotaterAspectPortrait"),
+            Tuple.Create(9.0 / 16.0, "LOCImageRotaterAspectVertical"),
             Tuple.Create(1.0, "LOCImageRotaterAspectSquare"),
+
+            // Store-specific formats keep the names users already know from
+            // SteamGridDB and the stores themselves.
             Tuple.Create(2.0 / 3.0, "LOCImageRotaterAspectSteamVertical"),
             Tuple.Create(920.0 / 430.0, "LOCImageRotaterAspectSteamHorizontal"),
             Tuple.Create(342.0 / 482.0, "LOCImageRotaterAspectGalaxy"),

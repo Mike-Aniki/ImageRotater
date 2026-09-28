@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -33,6 +33,7 @@ namespace ImageRotater.Services
             };
 
         private static readonly string[] Empty = new string[0];
+        private const string FixedArtworkFileName = ".imagerotater-fixed";
 
         // Whether a file would be listed at all, by extension. For callers
         // that copy files in from elsewhere and want to skip what would only
@@ -329,11 +330,111 @@ namespace ImageRotater.Services
 
         private static List<string> ListCandidateFiles(string folder)
         {
-            return Directory.GetFiles(folder)
+            var files = Directory.GetFiles(folder)
                 .Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
                 .Where(f => !IsPublishedCopy(f))
                 .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            // Fixed artwork is a single explicit choice, not a manual playlist.
+            // Promote it to index 0 so SelectionMode.Fixed can keep using the
+            // simple, well-tested "first candidate" rule.
+            string fixedFile = Path.Combine(folder, FixedArtworkFileName);
+            if (!File.Exists(fixedFile))
+            {
+                return files;
+            }
+
+            try
+            {
+                string fixedName = (File.ReadAllText(fixedFile) ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(fixedName))
+                {
+                    return files;
+                }
+
+                int index = files.FindIndex(f =>
+                    string.Equals(Path.GetFileName(f), fixedName, StringComparison.OrdinalIgnoreCase));
+                if (index > 0)
+                {
+                    string selected = files[index];
+                    files.RemoveAt(index);
+                    files.Insert(0, selected);
+                }
+
+                return files;
+            }
+            catch
+            {
+                return files;
+            }
+        }
+
+        public string GetFixedArtworkPath(Guid gameId, ArtworkKind kind)
+        {
+            try
+            {
+                string folder = CandidateFolderFor(gameId, kind);
+                if (folder == null)
+                {
+                    return null;
+                }
+
+                string marker = Path.Combine(folder, FixedArtworkFileName);
+                if (!File.Exists(marker))
+                {
+                    return null;
+                }
+
+                string name = (File.ReadAllText(marker) ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(name))
+                {
+                    return null;
+                }
+
+                string path = Path.Combine(folder, name);
+                return File.Exists(path) && IsSupported(path) ? path : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public bool SetFixedArtwork(Guid gameId, ArtworkKind kind, string artworkPath)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(artworkPath) || !File.Exists(artworkPath) || !IsSupported(artworkPath))
+                {
+                    return false;
+                }
+
+                string folder = GetGameFolder(gameId, kind);
+                Directory.CreateDirectory(folder);
+
+                string fullFolder = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                string fullArtwork = Path.GetFullPath(artworkPath);
+                if (!fullArtwork.StartsWith(fullFolder, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                File.WriteAllText(Path.Combine(folder, FixedArtworkFileName), Path.GetFileName(fullArtwork));
+
+                string key = gameId.ToString("N") + "|" + (int)kind;
+                lock (_listCacheLock)
+                {
+                    _listCache.Remove(key);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, $"ImageRotater: could not set fixed artwork for game {gameId}");
+                return false;
+            }
         }
 
         // The fixed name a theme can path to without knowing which file the

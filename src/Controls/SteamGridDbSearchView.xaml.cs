@@ -27,6 +27,7 @@ namespace ImageRotater.Controls
         private readonly string _pluginUserDataPath;
         private readonly ArtworkKind _kind;
         private readonly bool _embedded;
+        private bool _initialSearchStarted;
 
         public event EventHandler ArtworkChanged;
 
@@ -112,6 +113,7 @@ namespace ImageRotater.Controls
                 TileWidth = 340;
                 ThumbnailHeight = 160;
                 FiltersColumn.Width = new GridLength(0);
+                FiltersSplitter.Visibility = Visibility.Collapsed;
                 FilterToggleRow.Visibility = Visibility.Visible;
             }
 
@@ -139,20 +141,23 @@ namespace ImageRotater.Controls
             }
 
             RestorePreset();
+            UpdateSourceUi();
+            UpdateDownloadButtonState();
 
-            // Search straight away - the user opened this from a specific game,
-            // so making them press Search first is a pointless extra step.
-            //
-            // Focus goes to the RESULTS, not the search box. The box is already
-            // filled with the game's name and the search runs on its own, so a
-            // controller user wants to be browsing results immediately - and
-            // landing in a text box with a controller means an on-screen
-            // keyboard nobody asked for.
+            // Standalone search windows search immediately. When this view is embedded
+            // in the artwork manager, startup is lazy: the manager opens on local artwork
+            // without paying the cost of constructing results or hitting the network.
             Loaded += async (s, e) =>
             {
                 _open = this;
-                await RunSearch();
-                FocusFirstResult();
+
+                // Standalone search windows still search immediately. When embedded in the
+                // artwork manager, defer all network/result work until the user actually
+                // opens Search online.
+                if (!_embedded)
+                {
+                    await EnsureInitialSearchAsync();
+                }
             };
 
             // Cleared on unload, so a controller press after the dialog has
@@ -174,6 +179,18 @@ namespace ImageRotater.Controls
                     _previewRenderer = null;
                 }
             };
+        }
+
+        public async Task EnsureInitialSearchAsync()
+        {
+            if (_initialSearchStarted)
+            {
+                return;
+            }
+
+            _initialSearchStarted = true;
+            await RunSearch();
+            FocusFirstResult();
         }
 
         // Opens the dialog the way it was last closed for this artwork kind.
@@ -228,12 +245,16 @@ namespace ImageRotater.Controls
                 return;
             }
 
-            // Start from what was loaded, so a dialog that never got results
-            // (no key, network down) keeps the remembered ticks rather than
-            // saving none - and so ConvertGifs survives a session without
-            // ffmpeg, when the box is disabled and reads false.
-            SearchPreset preset = SearchPresets.Load(_pluginUserDataPath, _kind) ?? new SearchPreset();
+            // The unnamed preset is the automatic "last used" state.
+            SearchPreset preset = CaptureCurrentPreset(
+                SearchPresets.Load(_pluginUserDataPath, _kind) ?? new SearchPreset());
 
+            SearchPresets.Save(_pluginUserDataPath, _kind, preset);
+        }
+
+        private SearchPreset CaptureCurrentPreset(SearchPreset preset = null)
+        {
+            preset = preset ?? new SearchPreset();
             _model.SnapshotTicks(preset);
 
             preset.ShowAnimated = ShowAnimatedBox.IsChecked == true;
@@ -247,8 +268,7 @@ namespace ImageRotater.Controls
             }
 
             preset.Tab = (SourceTabs.SelectedItem as TabItem)?.Name ?? preset.Tab;
-
-            SearchPresets.Save(_pluginUserDataPath, _kind, preset);
+            return preset;
         }
 
         // Puts keyboard focus on the first result tile, so D-pad navigation has
@@ -310,53 +330,76 @@ namespace ImageRotater.Controls
 
         private async Task RunSearch()
         {
+            int generation = ++_searchGeneration;
+            Func<bool> isCurrent = () => generation == _searchGeneration;
+
             SearchButton.IsEnabled = false;
             try
             {
                 if (ReferenceEquals(SourceTabs.SelectedItem, SteamTab))
                 {
-                    await _model.LoadSteamArtworkAsync(_game, _kind);
+                    await _model.LoadSteamArtworkAsync(_game, _kind, isCurrent);
                     return;
                 }
 
                 if (ReferenceEquals(SourceTabs.SelectedItem, YouTubeTab))
                 {
                     await _model.SearchYouTubeAsync(
-                        SearchBox.Text, _settings, System.Threading.CancellationToken.None);
+                        SearchBox.Text, _settings, System.Threading.CancellationToken.None, isCurrent);
                     return;
                 }
 
                 if (ReferenceEquals(SourceTabs.SelectedItem, WebTab))
                 {
-                    // NOT wrapped in Task.Run: the method puts only the
-                    // browsing off-thread itself, because the collections it
-                    // updates afterwards are bound to the UI and WPF rejects
-                    // collection changes from any other thread.
-                    await _model.SearchWebAsync(SearchBox.Text, _webSearch);
+                    await _model.SearchWebAsync(SearchBox.Text, _webSearch, isCurrent);
                     return;
                 }
 
-                // Covers come from grids, backgrounds from heroes.
                 SteamGridDbArtworkType type = _kind == ArtworkKind.Cover
                     ? SteamGridDbArtworkType.Grid
                     : SteamGridDbArtworkType.Hero;
 
-                await _model.SearchAsync(SearchBox.Text, type);
+                await _model.SearchAsync(SearchBox.Text, type, isCurrent);
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "ImageRotater: SteamGridDB search failed");
-                _model.Status = Loc.Get("LOCImageRotaterSearchFailed");
+                if (isCurrent())
+                {
+                    Logger.Error(ex, "ImageRotater: SteamGridDB search failed");
+                    _model.Status = Loc.Get("LOCImageRotaterSearchFailed");
+                }
             }
             finally
             {
-                SearchButton.IsEnabled = true;
+                if (isCurrent())
+                {
+                    SearchButton.IsEnabled = true;
+                }
             }
         }
 
         private async void SearchButton_Click(object sender, RoutedEventArgs e)
         {
             await RunSearch();
+        }
+
+        // The visible source selector uses standalone radio buttons. The hidden
+        // TabControl is state only, so Playnite cannot crop or merge its chrome.
+        private void SourceNav_Checked(object sender, RoutedEventArgs e)
+        {
+            if (SourceTabs == null || !(sender is System.Windows.Controls.Primitives.ToggleButton sourceButton))
+            {
+                return;
+            }
+
+            string target = sourceButton.Tag as string;
+            TabItem tab = SourceTabs.Items.OfType<TabItem>()
+                .FirstOrDefault(t => t.Name == target);
+
+            if (tab != null && !ReferenceEquals(SourceTabs.SelectedItem, tab))
+            {
+                SourceTabs.SelectedItem = tab;
+            }
         }
 
         // Re-run on tab change so the results always match the visible tab.
@@ -383,6 +426,8 @@ namespace ImageRotater.Controls
             {
                 return;
             }
+
+            UpdateSourceUi();
 
             // The old tab's results must not sit under the new tab's header
             // while the next search runs.
@@ -435,7 +480,8 @@ namespace ImageRotater.Controls
         {
             bool show = FilterToggleRow.IsChecked == true;
 
-            FiltersColumn.Width = show ? new GridLength(260) : new GridLength(0);
+            FiltersColumn.Width = show ? new GridLength(280) : new GridLength(0);
+            FiltersSplitter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         }
 
         // Escape closes, and so does the controller's B.
@@ -491,6 +537,9 @@ namespace ImageRotater.Controls
         // is enough - and it is cleared on unload so a closed dialog cannot be
         // told to close again.
         private static SteamGridDbSearchView _open;
+        // Monotonic request id. Results from an older async search must never
+        // overwrite the source the user is currently viewing.
+        private int _searchGeneration;
 
         private void CloseWindow()
         {
@@ -768,6 +817,84 @@ namespace ImageRotater.Controls
             _model.PreviousPage();
         }
 
+        private void UpdateSourceUi()
+        {
+            if (SourceTabs == null)
+            {
+                return;
+            }
+
+            bool onSteam = ReferenceEquals(SourceTabs.SelectedItem, SteamTab);
+            bool onSgdb = ReferenceEquals(SourceTabs.SelectedItem, SteamGridDbTab);
+            bool onWeb = ReferenceEquals(SourceTabs.SelectedItem, WebTab);
+            bool onYouTube = ReferenceEquals(SourceTabs.SelectedItem, YouTubeTab);
+
+            // Keep the visible source buttons in sync when a saved state changes
+            // SourceTabs programmatically during startup.
+            if (SteamSourceButton != null) SteamSourceButton.IsChecked = onSteam;
+            if (SteamGridDbSourceButton != null) SteamGridDbSourceButton.IsChecked = onSgdb;
+            if (WebSourceButton != null) WebSourceButton.IsChecked = onWeb;
+            if (YouTubeSourceButton != null) YouTubeSourceButton.IsChecked = onYouTube;
+
+            // Only show controls that can materially affect the current source.
+            // This keeps Steam and YouTube from presenting filters they cannot use,
+            // while SteamGridDB keeps the richer curated metadata controls.
+            SizeFilterSection.Visibility = onYouTube ? Visibility.Collapsed : Visibility.Visible;
+            StyleFilterSection.Visibility = onSgdb ? Visibility.Visible : Visibility.Collapsed;
+            AnimationFilterSection.Visibility = Visibility.Visible;
+            ContentFilterSection.Visibility = onSgdb ? Visibility.Visible : Visibility.Collapsed;
+
+        }
+
+        private void ClearFilters_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (AspectGroupOption group in _model.AspectGroups)
+            {
+                group.SetCheckedSilently(false);
+                foreach (FilterOption dimension in group.Dimensions)
+                {
+                    dimension.SetChecked(false, false);
+                }
+            }
+
+            foreach (FilterOption style in _model.StyleOptions)
+            {
+                style.SetChecked(false, false);
+            }
+
+            ShowAnimatedBox.IsChecked = true;
+            ShowNsfwBox.IsChecked = false;
+            ShowHumorBox.IsChecked = false;
+            ShowEpilepsyBox.IsChecked = false;
+
+            _model.Filter.ShowAnimated = true;
+            _model.Filter.ShowNsfw = false;
+            _model.Filter.ShowHumor = false;
+            _model.Filter.ShowEpilepsy = false;
+            _model.Filter.Dimensions.Clear();
+            _model.Filter.Styles.Clear();
+            _model.ApplyFilter();
+        }
+
+        private void ResultSelection_Changed(object sender, RoutedEventArgs e)
+        {
+            UpdateDownloadButtonState();
+        }
+
+        private void UpdateDownloadButtonState()
+        {
+            if (DownloadButton == null || _model == null)
+            {
+                return;
+            }
+
+            int count = _model.SelectedArtwork().Count;
+            DownloadButton.IsEnabled = count > 0;
+            DownloadButton.Content = count > 0
+                ? Loc.Format("LOCImageRotaterDownloadSelectedCount", count)
+                : Loc.Get("LOCImageRotaterDownloadSelected");
+        }
+
         // The content boxes apply as they are ticked, like every other filter.
         // The shape and style ticks do the same through the view model.
         //
@@ -800,35 +927,47 @@ namespace ImageRotater.Controls
             var chosen = _model.SelectedArtwork();
             if (chosen.Count == 0)
             {
-                _model.Status = Loc.Get("LOCImageRotaterSelectImagesFirst");
+                ShowDownloadFeedback(Loc.Get("LOCImageRotaterSelectImagesFirst"), false, false);
                 return;
             }
 
             DownloadButton.IsEnabled = false;
-            _model.Status = Loc.Format("LOCImageRotaterDownloadingImages", chosen.Count);
+            DownloadProgress.IsIndeterminate = false;
+            DownloadProgress.Maximum = chosen.Count;
+            DownloadProgress.Value = 0;
+            ShowDownloadFeedback(Loc.Format("LOCImageRotaterDownloadingProgress", 0, chosen.Count), true, true);
 
             // Read at download time, not construction: the user may have
             // changed their mind about conversion since the dialog opened.
             _downloader.ConvertGifsToMp4 = ConvertGifsBox.IsChecked == true;
 
             int saved = 0;
+            bool failed = false;
             try
             {
+                int current = 0;
                 foreach (SteamGridDbArtwork artwork in chosen)
                 {
+                    current++;
+                    DownloadFeedbackText.Text = Loc.Format("LOCImageRotaterDownloadingProgress", current, chosen.Count);
+                    DownloadProgress.Value = current - 1;
+
                     if (await _downloader.DownloadAsync(_gameId, artwork, _kind) != null)
                     {
                         saved++;
                     }
+
+                    DownloadProgress.Value = current;
                 }
             }
             catch (Exception ex)
             {
+                failed = true;
                 Logger.Error(ex, "ImageRotater: SteamGridDB download failed");
             }
             finally
             {
-                DownloadButton.IsEnabled = true;
+                UpdateDownloadButtonState();
             }
 
             // Say what was actually fetched. A video download runs yt-dlp and
@@ -842,22 +981,66 @@ namespace ImageRotater.Controls
                     ? Loc.Get("LOCImageRotaterFiles")
                     : Loc.Get("LOCImageRotaterImages");
 
-            _model.Status = saved == chosen.Count
-                ? Loc.Format("LOCImageRotaterDownloadedConverted", saved, what)
-                : Loc.Format("LOCImageRotaterDownloadedPartial", saved, chosen.Count);
+            string feedback;
+            bool success = !failed && saved == chosen.Count;
+            if (success)
+            {
+                feedback = Loc.Format("LOCImageRotaterDownloadComplete", saved, what);
+            }
+            else if (saved > 0)
+            {
+                feedback = Loc.Format("LOCImageRotaterDownloadedPartial", saved, chosen.Count);
+            }
+            else
+            {
+                feedback = Loc.Get("LOCImageRotaterDownloadFailed");
+            }
 
-            // Rotation needs something to rotate TO. One image is a static
-            // replacement, and a user who picked one and saw no transition
-            // reasonably concludes the plugin is broken - say so here, while
-            // the results to add a second one from are still on screen.
+            // Rotation needs something to rotate TO. Keep this useful hint, but
+            // put it in the temporary feedback instead of reserving a permanent
+            // status strip at the bottom of the dialog.
             if (saved > 0 && CandidateCount() < 2)
             {
-                _model.Status += Loc.Get("LOCImageRotaterDownloadTip");
+                feedback += Loc.Get("LOCImageRotaterDownloadTip");
             }
+
+            ShowDownloadFeedback(feedback, success, false);
 
             if (saved > 0)
             {
                 ArtworkChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        private int _downloadFeedbackGeneration;
+
+        private async void ShowDownloadFeedback(string message, bool success, bool inProgress)
+        {
+            if (DownloadFeedbackPopup == null)
+            {
+                return;
+            }
+
+            int generation = ++_downloadFeedbackGeneration;
+
+            DownloadFeedbackText.Text = message ?? string.Empty;
+            DownloadFeedbackIcon.Text = inProgress ? "↓" : success ? "✓" : "!";
+            DownloadFeedbackIcon.Foreground = new System.Windows.Media.SolidColorBrush(
+                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
+                    inProgress ? "#55C8D8" : success ? "#7ED6A5" : "#FF8A8A"));
+            DownloadProgress.Visibility = inProgress ? Visibility.Visible : Visibility.Collapsed;
+            DownloadFeedbackPopup.IsOpen = true;
+
+            if (inProgress)
+            {
+                return;
+            }
+
+            await Task.Delay(success ? 3200 : 5000);
+
+            if (generation == _downloadFeedbackGeneration && DownloadFeedbackPopup != null)
+            {
+                DownloadFeedbackPopup.IsOpen = false;
             }
         }
 

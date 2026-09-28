@@ -732,31 +732,6 @@ namespace ImageRotater
             return GameMenuBuilder.Build(args.Games, _menuHandler);
         }
 
-        public override IEnumerable<MainMenuItem> GetMainMenuItems(GetMainMenuItemsArgs args)
-        {
-            return new List<MainMenuItem>
-            {
-                new MainMenuItem
-                {
-                    MenuSection = "@ImageRotater",
-                    Description = Loc.Get("LOCImageRotaterMenuOptimise"),
-                    Action = a => OptimiseStoredImages()
-                },
-                new MainMenuItem
-                {
-                    MenuSection = "@ImageRotater",
-                    Description = Loc.Get("LOCImageRotaterMenuConvertGifs"),
-                    Action = a => ConvertStoredGifs()
-                },
-                new MainMenuItem
-                {
-                    MenuSection = "@ImageRotater",
-                    Description = Loc.Get("LOCImageRotaterMenuRestoreOriginals"),
-                    Action = a => RestoreOriginalBackgrounds()
-                }
-            };
-        }
-
         // Converts every GIF in the plugin's own folders to MP4.
         //
         // Same trade as the download-time conversion, applied to what is
@@ -938,7 +913,7 @@ namespace ImageRotater
         // small permanent quality loss. Preserved originals are affected too,
         // so a user who wants their downloaded art byte-identical should
         // decline.
-        private void OptimiseStoredImages()
+        public void OptimiseStoredImages()
         {
             var confirm = PlayniteApi.Dialogs.ShowMessage(
                 Loc.Get("LOCImageRotaterOptimiseQuestion"),
@@ -957,7 +932,7 @@ namespace ImageRotater
 
         // Undo for write mode. Write mode changes the user's library data, so
         // there has to be a way back that does not involve editing games by hand.
-        private void RestoreOriginalBackgrounds()
+        public void RestoreOriginalBackgrounds()
         {
             int count = _writer.BackedUpCount;
             if (count == 0)
