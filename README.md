@@ -1,163 +1,136 @@
-<p align="center">
-  <img src="assets/banner.png" alt="ImageRotater — rotating artwork for Playnite" width="720">
-</p>
+<div align="center">
 
-<p align="center">
-  Rotating artwork for <a href="https://playnite.link/">Playnite</a>. Give a game more than one cover or background and watch them change.
-</p>
+<img src="assets/banner.png" alt="ImageRotater" width="720">
 
-<p align="center">
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-  <img src="https://img.shields.io/badge/Playnite-10.57%2B-purple" alt="Playnite 10.57+">
-  <img src="https://img.shields.io/github/downloads/aHuddini/ImageRotater/total?label=downloads&color=brightgreen" alt="Downloads">
-  <img src="https://img.shields.io/github/downloads/aHuddini/ImageRotater/latest/total?label=latest%20release&color=blue" alt="Latest release downloads">
-</p>
+### Give each game more than one look.
 
-<p align="center">
-  📥 <a href="#installation">Install</a>
-  &nbsp;&middot;&nbsp;
-  ⚙️ <a href="#settings">Settings</a>
-  &nbsp;&middot;&nbsp;
-  🎨 <a href="docs/THEME_INTEGRATION.md">Theme guide</a>
-  &nbsp;&middot;&nbsp;
-  📝 <a href="CHANGELOG.md">Changelog</a>
-</p>
-
-<p align="center">
-  <a href="https://ko-fi.com/huddini">
-    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="ko-fi">
+<p>
+  <a href="https://github.com/Mike-Aniki/ImageRotater/releases/latest">
+    <img src="https://img.shields.io/github/v/release/Mike-Aniki/ImageRotater?style=for-the-badge&label=Latest%20Release&color=blue" alt="Latest release">
+  </a>
+  <a href="https://github.com/Mike-Aniki/ImageRotater/releases/latest">
+    <img src="https://img.shields.io/github/downloads/Mike-Aniki/ImageRotater/latest/total?style=for-the-badge&label=Latest%20Release%20Downloads&color=blue" alt="Latest release downloads">
+  </a>
+  <a href="https://github.com/Mike-Aniki/ImageRotater/stargazers">
+    <img src="https://img.shields.io/github/stars/Mike-Aniki/ImageRotater?style=for-the-badge&label=Stars&color=blue" alt="GitHub stars">
   </a>
 </p>
 
-A library that never looks the same twice. ImageRotater keeps a collection of covers and
-backgrounds for each game and shows a different one every time you visit — or cycles through them
-while you linger.
+<p>
 
-## Highlights
+ImageRotater is a Playnite extension that lets every game use a collection of covers and backgrounds instead of being limited to a single image.
 
-- **Backgrounds and covers rotate on their own.** A new picture each time you land on a game, or
-  a slideshow that changes every few seconds while you stay.
-- **Four places to find art.** Steam's own store art and trailers, SteamGridDB, web image search,
-  and YouTube — one search dialog with filters and a live preview, one click to download.
-- **Smooth changes.** Crossfade, fade through black, fade through white, or a clean cut, chosen
-  separately for covers and backgrounds. Same look in Desktop and Fullscreen.
-- **Works with every theme.** Nothing to configure, nothing for a theme to add.
-- **Your art is safe.** Whatever a game had before joins the rotation instead of being replaced,
-  and one click puts everything back the way it was.
-- **Only the games you choose.** Nothing happens to a game until you give it artwork.
-- **And, in supporting themes, animated artwork.** GIF and MP4 covers and backgrounds play in
-  place — the selected game, or every tile at once. Playnite cannot play video on its own, so this
-  one needs a theme built for ImageRotater (or for BackgroundChanger); everything above does not.
+Add the artwork you like, choose how you want it to behave, and ImageRotater takes care of switching it inside Playnite.
 
-## Getting started
+The plugin works in both **Desktop** and **Fullscreen** and lets you manage covers and backgrounds independently.
 
-1. Install the extension and open a game's right-click menu.
-2. **ImageRotater → Backgrounds → Search images online…** (or **Covers**).
-3. Pick a few results and download them. That's it — the game rotates from now on.
+</p>
 
-Rotation needs two or more images per game — with one there is nothing to change to, so no
-transition plays. A game's own artwork counts: it joins the rotation on first use, so a game that
-already has a cover needs only one download; a game with none needs two.
+<p align="center">
+  <img src="assets/artwork-manager.png" alt="ImageRotater Artwork Manager" width="47%">
+  <img src="assets/online-search.png" alt="ImageRotater online artwork search" width="47%">
+</p>
 
-| Command | What it does |
-|---|---|
-| Add artwork files… | Use images or video you already have |
-| Search images online… | Steam, SteamGridDB, the web and YouTube, with preview |
-| Download from SteamGridDB (automatic) | Grab the best match without asking |
-| Open folder | See this game's artwork |
-| Remove all | Take this game out of the rotation |
+</div>
 
-## Settings
+<h2 align="center">Project</h2>
 
-### Setup
+<div align="center">
 
-Optional extras. Everything below unlocks a feature; the extension works without any of it.
+### **[Huddini](https://github.com/aHuddini) × [Mike-Aniki](https://github.com/Mike-Aniki)**
 
-| Item | What it unlocks |
-|---|---|
-| SteamGridDB API key | The SteamGridDB tab. Free from steamgriddb.com → Preferences → API. |
-| ffmpeg | Converting GIFs to MP4, repairing videos, and YouTube downloads. |
-| yt-dlp | The YouTube tab. |
-| deno | Needed alongside yt-dlp for YouTube. |
+ImageRotater was originally created by **Huddini** and is now developed collaboratively with **Mike-Aniki**.
 
-Leave a path blank if the tool is already on your system path.
+The project continues to grow through their work, feedback, fixes, and new features.
 
-### General
+<br>
 
-| Setting | Default | What it does |
-|---|---|---|
-| Enable rotation | On | The master switch. |
-| Enable debug logging | Off | Writes a log for bug reports. |
+[Support Huddini on Ko-fi](https://ko-fi.com/huddini)
+·
+[Support Mike Aniki on Ko-fi](https://ko-fi.com/mikeaniki)
 
-### Backgrounds
+</div>
 
-| Setting | Default | What it does |
-|---|---|---|
-| Transition *(Animation page)* | Crossfade | How one background gives way to the next. |
-| Letterbox odd-shaped backgrounds | On | Ultrawide and square art sits on a blurred, screen-shaped canvas of itself instead of being stretched. |
-| Level background sizes | On | Keeps the blur consistent when backgrounds of different sizes swap. |
-| When a game has several | Pick once per session | Or pick again every time you select the game, or always show the same one. |
-| Slideshow | Off | Change the background every N seconds while a game stays selected. |
+---
 
-### Covers
+<h2 align="center">More Than One Artwork per Game</h2>
 
-| Setting | Default | What it does |
-|---|---|---|
-| Rotate cover art | Off | Turn on to rotate box art too. |
-| Play animated covers on every tile | Off | Otherwise only the selected game's cover moves. Best left off for very large video libraries. |
-| Transition *(Animation page)* | Crossfade | How one cover gives way to the next. |
-| When a game has several | Pick once per session | As for backgrounds. |
-| Slideshow | Off | Change the cover every N seconds while a game stays selected. |
+Once a game has several covers or backgrounds, ImageRotater can decide which one Playnite should display.
 
-### Library
+You can keep one artwork for the whole Playnite session, choose a new one each time you focus the game, lock a specific artwork, or use slideshow rotation.
 
-One-click maintenance for everything ImageRotater holds: convert all GIFs to MP4, convert all
-JPEGs to PNG, repair videos that show as black tiles, repair broken artwork links, or reset the
-library to the original art.
+The detailed behavior and all available settings are explained in the User Guide.
 
-### Coming from BackgroundChanger
+<div align="center">
 
-Settings > Library > Migration > **Import artwork from BackgroundChanger** copies every cover and background
-you gave that plugin into ImageRotater, game by game. Nothing of BackgroundChanger's is moved or
-deleted, and running it again only adds what is new. Disable BackgroundChanger afterwards - the
-two cannot run together.
+### **[Read the User Guide](https://github.com/Mike-Aniki/ImageRotater/wiki)**
 
-## Theme authors
+</div>
 
-Rotating stills need nothing from a theme. Animated covers and backgrounds are not something
-Playnite can show by itself: a theme adds one line next to its existing artwork element and the
-extension does the rest. The [theme guide](docs/THEME_INTEGRATION.md) shows exactly where, with a
-worked example.
+---
 
-## Requirements
+<h2 align="center">Works with Regular Playnite Themes</h2>
 
-- Playnite **10.57 or newer**, Desktop or Fullscreen
-- Windows with .NET Framework 4.6.2
-- Optional: [ffmpeg](https://ffmpeg.org/), [yt-dlp](https://github.com/yt-dlp/yt-dlp) and
-  [deno](https://deno.com/) for conversions and YouTube; a free
-  [SteamGridDB API key](https://www.steamgriddb.com/profile/preferences/api) for that source
+- For standard covers and backgrounds, **no special theme support is required**. ImageRotater uses Playnite's native artwork system, so static artwork works with regular themes in both Desktop and Fullscreen.
 
-Use MP4 for video. Cannot run at the same time as BackgroundChanger.
+- For **animated covers or backgrounds**, theme integration is required. If your theme does not support animated artwork, ImageRotater will still work normally with static covers and backgrounds. **Aniki ReMake already includes ImageRotater integration.**
 
-## Installation
+---
 
-Download the `.pext` from [Releases](../../releases) and open it with Playnite, or drag it onto
-the Playnite window.
+<h2 align="center">Coming from BackgroundChanger?</h2>
 
-## Troubleshooting
+ImageRotater includes a migration tool for existing BackgroundChanger users.
 
-Turn on **Enable debug logging** in settings and attach `ImageRotater.log` from
-`%AppData%\Playnite\ExtensionsData\72b7d457-0621-429b-8368-665bc53ff896\` to your report.
+Your current covers and backgrounds can be imported into ImageRotater's own artwork library without deleting the original BackgroundChanger files.
 
-## Building from source
+This makes it possible to move over without rebuilding your collection game by game.
 
-```bash
-dotnet build -c Release
-powershell -ExecutionPolicy Bypass -File scripts/package_extension.ps1
-```
+Migration steps are documented in the User Guide.
 
-Tests: `dotnet test -c Release`. Branding: `scripts/build_branding.ps1`.
+---
 
-## License
+<h2 align="center">For Users</h2>
 
-MIT — see [LICENSE](LICENSE).
+The User Guide contains the complete documentation for using ImageRotater.
+
+Installation, artwork management, rotation modes, online sources, optional tools, BackgroundChanger migration, troubleshooting, and advanced settings are all documented separately so the main project page stays easy to read.
+
+<div align="center">
+
+### **[Open the User Guide](https://github.com/Mike-Aniki/ImageRotater/wiki)**
+
+</div>
+
+---
+
+<h2 align="center">For Theme Authors</h2>
+
+Theme integration has its own documentation.
+
+If you are creating or updating a Playnite theme and want to support ImageRotater's animated covers and backgrounds, use the dedicated guide below.
+
+<div align="center">
+
+### **[Open the Theme Integration Guide](docs/THEME_INTEGRATION.md)**
+
+</div>
+
+---
+
+<h2 align="center">Links</h2>
+
+<div align="center">
+
+[Latest Release](https://github.com/Mike-Aniki/ImageRotater/releases/latest)
+·
+[User Guide](https://github.com/Mike-Aniki/ImageRotater/wiki)
+·
+[Theme Integration](docs/THEME_INTEGRATION.md)
+·
+[Changelog](CHANGELOG.md)
+·
+[Issues](https://github.com/Mike-Aniki/ImageRotater/issues)
+·
+[Playnite](https://playnite.link/)
+
+</div>
