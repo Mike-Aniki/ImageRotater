@@ -5,7 +5,3 @@ Version: 1.0.0
 Module: ImageRotater.dll
 Type: GenericPlugin
 Icon: icon.png
-Description: Rotates game background and cover artwork, including animated GIF and video. Requires Playnite 10.57 or newer for Fullscreen cover rotation.
-Links:
-  - Name: GitHub Repository
-    Url: https://github.com/aHuddini/ImageRotater

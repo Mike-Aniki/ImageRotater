@@ -1,0 +1,8 @@
+AddonId: 'ImageRotater.72b7d457-0621-429b-8368-665bc53ff896'
+Packages:
+  - Version: 1.0.0
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-09-28
+    PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/v1.0.0/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_0_0.pext
+    Changelog:
+      - First public release build
