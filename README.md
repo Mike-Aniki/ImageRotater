@@ -41,8 +41,6 @@ The plugin works in both **Desktop** and **Fullscreen** and lets you manage cove
 
 ImageRotater was originally created by **Huddini** and is now developed collaboratively with **Mike-Aniki**.
 
-The project continues to grow through their work, feedback, fixes, and new features.
-
 <br>
 
 [Support Huddini on Ko-fi](https://ko-fi.com/huddini)
