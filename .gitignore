@@ -1,8 +1,33 @@
+# Build output
 bin/
 obj/
+**/bin/
+**/obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Packaging / generated extension files
 package/
 pext/
-*.user
-.vs/
-.cursor/
+*.pext
+*.nupkg
+*.snupkg
+
+# Test / generated output
+TestResults/
+artifacts/
+
+# Logs
 *.log
+
+# Editor / local tooling
+.cursor/
+
+# OS files
+Thumbs.db
+.DS_Store
