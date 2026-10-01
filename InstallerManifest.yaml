@@ -6,3 +6,30 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/v1.0.0/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_0_0.pext
     Changelog:
       - First public release build
+  - Version: 1.1.0
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-10-01
+    PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/v1.1.0/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_1_0.pext
+    Changelog:
+      - Redesigned the settings interface with cleaner navigation and easier-to-use sub-tabs.
+      - Added new rotation modes for both Covers and Backgrounds.
+      - Added multiple artwork selection methods, Random, Sequential, and Shuffle.
+      - Added per-game overrides for rotation mode and selection method.
+      - Added artwork ordering directly in the Artwork Manager.
+      - Added the option to exclude specific artwork from rotation.
+      - Added useful right-click actions for artwork.
+      - Added transition options for Covers and Backgrounds.
+      - Improved Slideshow behavior and artwork preloading.
+      - Added protection against repeating the same artwork too quickly.
+      - Improved startup performance and reduced unnecessary library scanning.
+      - Improved image loading, decoding cache, and background preloading performance.
+      - Improved Fullscreen background loading and resolution handling.
+      - Added progress windows for longer library operations.
+      - Improved the Artwork Manager interface and ComboBox styling.
+      - Added BackgroundChanger detection with a helpful pop-up message.
+      - Added automatic pausing for Slideshow and animated artwork while a game is running or Playnite is inactive.
+      - Improved debug logging and performance diagnostics.
+      - Improved settings startup speed with lazy asynchronous tool detection.
+      - Added Spanish localization.
+      - Updated English and French localization.
+      - Various UI fixes, performance improvements, and bug fixes.
