@@ -87,7 +87,7 @@ namespace ImageRotater.Services
         //
         // Runs off the UI thread by the caller: this decodes and re-encodes
         // whole images, which on a large library takes seconds.
-        public Result OptimiseAll(IEnumerable<Guid> gameIds, Action<int, int> onProgress = null)
+        public Result OptimiseAll(IEnumerable<Guid> gameIds, Action<int, int> onProgress = null, Func<bool> isCancelled = null)
         {
             var result = new Result();
 
@@ -101,6 +101,11 @@ namespace ImageRotater.Services
 
             foreach (Guid gameId in ids)
             {
+                if (isCancelled?.Invoke() == true)
+                {
+                    break;
+                }
+
                 foreach (ArtworkKind kind in new[] { ArtworkKind.Background, ArtworkKind.Cover })
                 {
                     foreach (string path in SafeList(gameId, kind))

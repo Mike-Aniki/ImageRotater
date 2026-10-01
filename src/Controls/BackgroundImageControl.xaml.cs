@@ -1,7 +1,8 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -59,6 +60,7 @@ namespace ImageRotater.Controls
         private readonly Func<ImageRotaterSettings> _settings;
         private readonly FileLogger _fileLogger;
         private readonly Func<string, string> _resolveFullPath;
+        private readonly Func<IEnumerable<Game>> _filteredGames;
 
         private readonly HashSet<string> _loggedFailures =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -73,12 +75,25 @@ namespace ImageRotater.Controls
         private int _transitionToken;
         private int _currentBucket;
 
-        // Debounce sustained navigation without delaying normal taps.
-        private static readonly TimeSpan RapidSelectionWindow = TimeSpan.FromMilliseconds(220);
-        private static readonly TimeSpan RapidSelectionSettle = TimeSpan.FromMilliseconds(200);
+        // Wait for the selection to remain stable before beginning the
+        // background transition. This prevents slides from starting while the
+        // user is still scrolling through the game list.
+        private static readonly TimeSpan RapidSelectionSettle = TimeSpan.FromMilliseconds(400);
         private readonly DispatcherTimer _rapidSelectionTimer;
-        private long _lastSelectionStamp;
-        private int _rapidSelectionStreak;
+        private readonly DispatcherTimer _initialLayoutTimer;
+        private bool _initialLayoutReady;
+        private int _initialLayoutAttempts;
+
+        // WPF can briefly report ActualWidth=0 while a fullscreen theme is still
+        // measuring this control. WidthBucket intentionally maps width 0 to 480
+        // as a generic safety fallback, but for a fullscreen background that can
+        // cause an unnecessary 480 decode followed by the real 1920/3840 decode.
+        // Prefer the control width when available, otherwise use the host window
+        // (or the WPF primary-screen width as a last resort) for the initial decode.
+        // This keeps Huddini's bucketed decode strategy while avoiding the known
+        // duplicate low-resolution first pass.
+        private const double MinimumInitialLayoutWidth = 640.0;
+        private const int MaximumInitialLayoutAttempts = 8;
         private Guid _deferredGameId = Guid.Empty;
 
         private static readonly object SharedPickLock = new object();
@@ -93,7 +108,8 @@ namespace ImageRotater.Controls
             ImageLoader loader,
             Func<ImageRotaterSettings> settings,
             FileLogger fileLogger = null,
-            Func<string, string> resolveFullPath = null)
+            Func<string, string> resolveFullPath = null,
+            Func<IEnumerable<Game>> filteredGames = null)
         {
             InitializeComponent();
 
@@ -103,6 +119,7 @@ namespace ImageRotater.Controls
             _settings = settings;
             _fileLogger = fileLogger;
             _resolveFullPath = resolveFullPath;
+            _filteredGames = filteredGames;
 
             _slotA = new RenderSlot(SlotA, SlotAImage, SlotAVideo, "A");
             _slotB = new RenderSlot(SlotB, SlotBImage, SlotBVideo, "B");
@@ -113,11 +130,38 @@ namespace ImageRotater.Controls
             };
             _rapidSelectionTimer.Tick += RapidSelectionTimer_Tick;
 
+            // On first load WPF can report a tiny/temporary ActualWidth and
+            // then expand the control to its final width a few frames later.
+            // Decoding at that temporary bucket and immediately decoding the
+            // same 4K PNG again at 1920/3840 was visible in debug traces as a
+            // duplicate 1-2 second load. Wait briefly for layout to settle
+            // before the first still-image decode. Normal game changes after
+            // that are not delayed.
+            _initialLayoutTimer = new DispatcherTimer(DispatcherPriority.Loaded)
+            {
+                Interval = TimeSpan.FromMilliseconds(50)
+            };
+            _initialLayoutTimer.Tick += InitialLayoutTimer_Tick;
+
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
         }
 
         public static event Action<Guid> BackgroundRotated;
+        public static event Action PlaybackPolicyChanged;
+
+        public static void NotifyPlaybackPolicyChanged()
+        {
+            Action handler = PlaybackPolicyChanged;
+            if (handler == null) return;
+            Application app = Application.Current;
+            if (app != null && !app.Dispatcher.CheckAccess())
+            {
+                app.Dispatcher.BeginInvoke(new Action(() => handler()));
+                return;
+            }
+            handler();
+        }
 
         public static void NotifyBackgroundRotated(Guid gameId)
         {
@@ -147,18 +191,24 @@ namespace ImageRotater.Controls
         {
             SizeChanged += OnSizeChanged;
             BackgroundRotated += OnBackgroundRotated;
-            Refresh();
+            PlaybackPolicyChanged += OnPlaybackPolicyChanged;
+
+            _initialLayoutReady = false;
+            _initialLayoutAttempts = 0;
+            ScheduleInitialLayoutRefresh();
         }
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
             SizeChanged -= OnSizeChanged;
             BackgroundRotated -= OnBackgroundRotated;
+            PlaybackPolicyChanged -= OnPlaybackPolicyChanged;
 
             _rapidSelectionTimer.Stop();
+            _initialLayoutTimer.Stop();
+            _initialLayoutReady = false;
+            _initialLayoutAttempts = 0;
             _deferredGameId = Guid.Empty;
-            _lastSelectionStamp = 0;
-            _rapidSelectionStreak = 0;
 
             _requestToken++;
             _transitionToken++;
@@ -167,6 +217,123 @@ namespace ImageRotater.Controls
             ClearSlot(_slotB);
             _activeSlot = null;
             _pendingSlot = null;
+        }
+
+        private void ScheduleInitialLayoutRefresh()
+        {
+            _initialLayoutTimer.Stop();
+            _initialLayoutTimer.Start();
+        }
+
+        private void InitialLayoutTimer_Tick(object sender, EventArgs e)
+        {
+            _initialLayoutTimer.Stop();
+            _initialLayoutAttempts++;
+
+            string widthSource;
+            double effectiveWidth = GetEffectiveDecodeWidth(out widthSource);
+
+            // ActualWidth is the best signal, but in some fullscreen themes the
+            // host window already has its final size while this control still
+            // reports 0. In that case there is no reason to decode at 480 first.
+            if (effectiveWidth >= MinimumInitialLayoutWidth)
+            {
+                CompleteInitialLayout(
+                    ActualWidth >= MinimumInitialLayoutWidth ? "timer-ready" : "host-ready");
+                return;
+            }
+
+            if (_initialLayoutAttempts < MaximumInitialLayoutAttempts)
+            {
+                if (_fileLogger != null && _fileLogger.IsEnabled)
+                {
+                    _fileLogger.Log(
+                        $"BG PERF initial-layout wait width={ActualWidth:0} " +
+                        $"effective={effectiveWidth:0} source={widthSource} " +
+                        $"attempt={_initialLayoutAttempts}/{MaximumInitialLayoutAttempts}");
+                }
+
+                ScheduleInitialLayoutRefresh();
+                return;
+            }
+
+            CompleteInitialLayout("timer-fallback");
+        }
+
+        private double GetEffectiveDecodeWidth(out string source)
+        {
+            double width = ActualWidth;
+            if (!double.IsNaN(width) && !double.IsInfinity(width) && width >= MinimumInitialLayoutWidth)
+            {
+                source = "control";
+                return width;
+            }
+
+            try
+            {
+                Window host = Window.GetWindow(this);
+                if (host != null)
+                {
+                    double hostWidth = host.ActualWidth;
+                    if (!double.IsNaN(hostWidth) && !double.IsInfinity(hostWidth) &&
+                        hostWidth >= MinimumInitialLayoutWidth)
+                    {
+                        source = "window";
+                        return hostWidth;
+                    }
+                }
+            }
+            catch
+            {
+                // Fall through to the WPF screen metric.
+            }
+
+            double screenWidth = SystemParameters.PrimaryScreenWidth;
+            if (!double.IsNaN(screenWidth) && !double.IsInfinity(screenWidth) &&
+                screenWidth >= MinimumInitialLayoutWidth)
+            {
+                source = "screen";
+                return screenWidth;
+            }
+
+            source = "bucket-default";
+            return width;
+        }
+
+        private int GetCurrentDecodeBucket(out double effectiveWidth, out string widthSource)
+        {
+            effectiveWidth = GetEffectiveDecodeWidth(out widthSource);
+            return WidthBucket.ForWidth(effectiveWidth);
+        }
+
+        private void CompleteInitialLayout(string reason)
+        {
+            if (_initialLayoutReady)
+            {
+                return;
+            }
+
+            _initialLayoutTimer.Stop();
+            _initialLayoutReady = true;
+
+            double effectiveWidth;
+            string widthSource;
+            int bucket = GetCurrentDecodeBucket(out effectiveWidth, out widthSource);
+
+            if (_fileLogger != null && _fileLogger.IsEnabled)
+            {
+                _fileLogger.Log(
+                    $"BG PERF initial-layout {reason} width={ActualWidth:0} " +
+                    $"effective={effectiveWidth:0} source={widthSource} " +
+                    $"bucket={bucket} attempts={_initialLayoutAttempts}");
+            }
+
+            Refresh();
+        }
+
+        private void OnPlaybackPolicyChanged()
+        {
+            Refresh();
         }
 
         private void OnBackgroundRotated(Guid gameId)
@@ -196,45 +363,26 @@ namespace ImageRotater.Controls
                 }
             }
 
-            long now = Stopwatch.GetTimestamp();
-            double elapsedMs = _lastSelectionStamp == 0
-                ? double.MaxValue
-                : (now - _lastSelectionStamp) * 1000.0 / Stopwatch.Frequency;
-            _lastSelectionStamp = now;
+            // Delay every selection before starting background work.
+            // If the user keeps scrolling, each new selection simply restarts
+            // this timer. No intermediate background gets a chance to begin a
+            // slide. Only the game that remains selected for the full settle
+            // period is rendered and animated.
+            _requestToken++;
+            NormalizeTransitionState();
 
-            if (elapsedMs <= RapidSelectionWindow.TotalMilliseconds)
-            {
-                _rapidSelectionStreak++;
-            }
-            else
-            {
-                // Require three fast selections before treating input as sustained navigation.
-                _rapidSelectionStreak = 1;
-            }
-
-            if (_rapidSelectionStreak >= 3)
-            {
-                // Skip intermediate media while key-repeat is active.
-                _requestToken++;
-                NormalizeTransitionState();
-
-                _deferredGameId = newContext?.Id ?? Guid.Empty;
-                _rapidSelectionTimer.Stop();
-                _rapidSelectionTimer.Start();
-
-                if (_fileLogger != null && _fileLogger.IsEnabled)
-                {
-                    _fileLogger.Log(
-                        $"BG PERF scroll-debounce game=\"{newContext?.Name}\" " +
-                        $"gap={elapsedMs:0}ms streak={_rapidSelectionStreak} " +
-                        $"settle={RapidSelectionSettle.TotalMilliseconds:0}ms");
-                }
-                return;
-            }
-
+            _deferredGameId = newContext?.Id ?? Guid.Empty;
             _rapidSelectionTimer.Stop();
-            _deferredGameId = Guid.Empty;
-            Refresh();
+            _rapidSelectionTimer.Start();
+
+            if (_fileLogger != null && _fileLogger.IsEnabled)
+            {
+                _fileLogger.Log(
+                    $"BG PERF selection-settle-pending game=\"{newContext?.Name}\" " +
+                    $"settle={RapidSelectionSettle.TotalMilliseconds:0}ms");
+            }
+
+            return;
         }
 
         private void RapidSelectionTimer_Tick(object sender, EventArgs e)
@@ -249,18 +397,37 @@ namespace ImageRotater.Controls
 
             if (_fileLogger != null && _fileLogger.IsEnabled)
             {
-                _fileLogger.Log($"BG PERF scroll-settle game=\"{game.Name}\"");
+                _fileLogger.Log($"BG PERF selection-settle game=\"{game.Name}\"");
             }
 
             _deferredGameId = Guid.Empty;
-            _rapidSelectionStreak = 0;
-            _lastSelectionStamp = 0;
             Refresh();
         }
 
         private void OnSizeChanged(object sender, SizeChangedEventArgs e)
         {
-            int bucket = WidthBucket.ForWidth(ActualWidth);
+            if (!_initialLayoutReady)
+            {
+                // Prefer the control's own measured width, but allow the host
+                // window/screen fallback to make the first fullscreen decode at
+                // the correct bucket even while ActualWidth is still 0.
+                string widthSource;
+                double effectiveWidth = GetEffectiveDecodeWidth(out widthSource);
+                if (effectiveWidth >= MinimumInitialLayoutWidth)
+                {
+                    CompleteInitialLayout(
+                        ActualWidth >= MinimumInitialLayoutWidth ? "size-ready" : "size-host-ready");
+                }
+                else
+                {
+                    ScheduleInitialLayoutRefresh();
+                }
+                return;
+            }
+
+            double resizedEffectiveWidth;
+            string resizedWidthSource;
+            int bucket = GetCurrentDecodeBucket(out resizedEffectiveWidth, out resizedWidthSource);
             if (bucket != _currentBucket)
             {
                 Refresh();
@@ -269,6 +436,12 @@ namespace ImageRotater.Controls
 
         private async void Refresh()
         {
+            if (!_initialLayoutReady)
+            {
+                ScheduleInitialLayoutRefresh();
+                return;
+            }
+
             Stopwatch total = _fileLogger != null && _fileLogger.IsEnabled
                 ? Stopwatch.StartNew()
                 : null;
@@ -279,8 +452,17 @@ namespace ImageRotater.Controls
             try
             {
                 int token = ++_requestToken;
-                int bucket = WidthBucket.ForWidth(ActualWidth);
+                double effectiveWidth;
+                string widthSource;
+                int bucket = GetCurrentDecodeBucket(out effectiveWidth, out widthSource);
                 _currentBucket = bucket;
+
+                if (total != null && ActualWidth < MinimumInitialLayoutWidth)
+                {
+                    _fileLogger.Log(
+                        $"BG PERF decode-width width={ActualWidth:0} effective={effectiveWidth:0} " +
+                        $"source={widthSource} bucket={bucket}");
+                }
 
                 ImageRotaterSettings settings = _settings != null ? _settings() : null;
                 if (settings != null && (!settings.EnableRotation || !settings.RotateBackgrounds))
@@ -291,6 +473,12 @@ namespace ImageRotater.Controls
 
                 Game game = GameContext;
                 if (game == null)
+                {
+                    TransitionToNothing(token);
+                    return;
+                }
+
+                if (game.IsRunning)
                 {
                     TransitionToNothing(token);
                     return;
@@ -312,7 +500,7 @@ namespace ImageRotater.Controls
                 if (candidates != null && candidates.Count > 0 && _selector != null)
                 {
                     SelectionMode mode = settings != null
-                        ? settings.SelectionMode
+                        ? settings.GetSelectionMode(game.Id, ArtworkKind.Background, settings.SelectionMode)
                         : SelectionMode.Session;
 
                     path = SelectPath(game, candidates, mode);
@@ -365,14 +553,14 @@ namespace ImageRotater.Controls
                 if (PosterFrame.IsVideo(path))
                 {
                     PrepareVideo(game, path, token);
-                    ImageDiagnostics.LogApplied(game.Name, path, _settings, bucket, 0);
+                    ImageDiagnostics.LogApplied(game.Name, path, _settings, _fileLogger, bucket, 0);
                     return;
                 }
 
                 if (PosterFrame.IsAnimated(path))
                 {
                     PrepareGif(game, path, token);
-                    ImageDiagnostics.LogApplied(game.Name, path, _settings, bucket, 0);
+                    ImageDiagnostics.LogApplied(game.Name, path, _settings, _fileLogger, bucket, 0);
                     return;
                 }
 
@@ -394,7 +582,11 @@ namespace ImageRotater.Controls
         {
             if (mode != SelectionMode.EverySelection)
             {
-                return _selector.Select(game.Id, candidates, _previousPick, mode);
+                return _selector.Select(
+                    game.Id, candidates, _previousPick, mode,
+                    _settings != null
+                        ? _settings().GetSelectionOrder(game.Id, ArtworkKind.Background, _settings().BackgroundSelectionOrder)
+                        : SelectionOrder.Random);
             }
 
             lock (SharedPickLock)
@@ -422,7 +614,10 @@ namespace ImageRotater.Controls
                 LastEverySelectionPick.TryGetValue(game.Id, out previous);
 
                 SharedPickPath = _selector.Select(
-                    game.Id, candidates, previous, mode);
+                    game.Id, candidates, previous, mode,
+                    _settings != null
+                        ? _settings().GetSelectionOrder(game.Id, ArtworkKind.Background, _settings().BackgroundSelectionOrder)
+                        : SelectionOrder.Random);
 
                 if (!string.IsNullOrEmpty(SharedPickPath))
                 {
@@ -504,9 +699,97 @@ namespace ImageRotater.Controls
 
             BeginTransition(incoming);
 
+            // Session and Fixed are deterministic for the lifetime of the
+            // relevant choice, so once the current background is ready we can
+            // safely warm the two adjacent games in the visible library order.
+            // EverySelection is intentionally excluded: choosing its artwork
+            // before focus would subtly change that mode's semantics.
+            PreloadNeighbourBackgrounds(game, bucket, path);
+
             if (!nativeFallback)
             {
-                ImageDiagnostics.LogApplied(game.Name, path, _settings, bucket, 0);
+                ImageDiagnostics.LogApplied(game.Name, path, _settings, _fileLogger, bucket, 0);
+            }
+        }
+
+        private async void PreloadNeighbourBackgrounds(Game currentGame, int bucket, string currentPath)
+        {
+            try
+            {
+                ImageRotaterSettings settings = _settings != null ? _settings() : null;
+                if (currentGame == null || settings == null || _loader == null || _filteredGames == null ||
+                    settings.GetSelectionMode(currentGame.Id, ArtworkKind.Background, settings.SelectionMode) == SelectionMode.EverySelection)
+                {
+                    return;
+                }
+
+                IEnumerable<Game> sourceGames = _filteredGames();
+                if (sourceGames == null)
+                {
+                    return;
+                }
+
+                List<Game> games = sourceGames.ToList();
+                int index = games.FindIndex(g => g != null && g.Id == currentGame.Id);
+                if (index < 0)
+                {
+                    return;
+                }
+
+                int[] neighbourIndexes = { index - 1, index + 1 };
+                foreach (int neighbourIndex in neighbourIndexes)
+                {
+                    if (neighbourIndex < 0 || neighbourIndex >= games.Count)
+                    {
+                        continue;
+                    }
+
+                    Game neighbour = games[neighbourIndex];
+                    if (neighbour == null)
+                    {
+                        continue;
+                    }
+
+                    string path = null;
+                    IReadOnlyList<string> candidates = _source != null
+                        ? _source.GetImagePaths(neighbour)
+                        : null;
+
+                    if (candidates != null && candidates.Count > 0 && _selector != null)
+                    {
+                        path = _selector.Select(
+                            neighbour.Id, candidates, null,
+                            settings.GetSelectionMode(neighbour.Id, ArtworkKind.Background, settings.SelectionMode),
+                            settings.GetSelectionOrder(neighbour.Id, ArtworkKind.Background, settings.BackgroundSelectionOrder));
+                    }
+                    else
+                    {
+                        path = ResolveNativeBackground(neighbour);
+                    }
+
+                    if (string.IsNullOrEmpty(path) ||
+                        string.Equals(path, currentPath, StringComparison.OrdinalIgnoreCase) ||
+                        PosterFrame.IsVideo(path) || PosterFrame.IsAnimated(path))
+                    {
+                        continue;
+                    }
+
+                    Stopwatch watch = _fileLogger != null && _fileLogger.IsEnabled
+                        ? Stopwatch.StartNew()
+                        : null;
+
+                    BitmapSource warmed = await _loader.LoadAsync(path, bucket);
+                    if (warmed != null && watch != null)
+                    {
+                        _fileLogger.Log(
+                            $"BG PERF preload-neighbour from=\"{currentGame.Name}\" game=\"{neighbour.Name}\" " +
+                            $"{watch.ElapsedMilliseconds}ms bucket={bucket} mode={settings.SelectionMode} path={path}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: neighbour background preload failed");
             }
         }
 
@@ -710,6 +993,17 @@ namespace ImageRotater.Controls
             int transitionToken = ++_transitionToken;
             _pendingSlot = incoming;
 
+            // SlotB is declared after SlotA in XAML, so without an explicit
+            // Z-order it is ALWAYS drawn on top. That means transitions look
+            // correct only every other swap: when SlotA is incoming, its slide
+            // happens behind SlotB. Always put the incoming slot above the
+            // outgoing slot so A->B and B->A render identically.
+            Panel.SetZIndex(incoming.Container, 2);
+            if (outgoing != null)
+            {
+                Panel.SetZIndex(outgoing.Container, 1);
+            }
+
             incoming.Container.BeginAnimation(OpacityProperty, null);
             incoming.Container.Opacity = outgoing == null ? 1.0 : 0.0;
             incoming.Container.Visibility = Visibility.Visible;
@@ -736,13 +1030,19 @@ namespace ImageRotater.Controls
                 return;
             }
 
+            if (style == TransitionStyle.SlideFromRight)
+            {
+                StartSlideTransition(outgoing, incoming, style, transitionToken);
+                return;
+            }
+
             // Fade the incoming slot over an opaque outgoing slot so the native background cannot show through.
             outgoing.Container.BeginAnimation(OpacityProperty, null);
             outgoing.Container.Opacity = 1.0;
             outgoing.Container.Visibility = Visibility.Visible;
 
             var fadeIn = new DoubleAnimation(
-                0.0, 1.0, new Duration(Transition.Duration));
+                0.0, 1.0, new Duration(Transition.BackgroundDuration));
 
             fadeIn.Completed += (s, e) =>
             {
@@ -762,6 +1062,127 @@ namespace ImageRotater.Controls
             LogTransition(outgoing, incoming, style);
         }
 
+        private void StartSlideTransition(
+            RenderSlot outgoing,
+            RenderSlot incoming,
+            TransitionStyle style,
+            int transitionToken)
+        {
+            TransitionDirection dir = TransitionDirection.FromRight;
+
+            // CustomFadeAnim resets translations before rebuilding a slide.
+            // Do the same here so a previous interrupted animation can never
+            // leak its X/Y offset into the next transition.
+            ResetSlotTranslation(incoming);
+            ResetSlotTranslation(outgoing);
+
+            // Theme-hosted fullscreen backgrounds use THIS renderer, not
+            // FadeImageTuner. Keep the slide compact and make the outgoing image
+            // disappear substantially sooner so it doesn't dominate the hand-off.
+            double distance = 54.0;
+            var incomingT = new TranslateTransform();
+            var outgoingT = new TranslateTransform();
+            incoming.Container.RenderTransform = incomingT;
+            outgoing.Container.RenderTransform = outgoingT;
+
+            double inX = 0.0, inY = 0.0, outX = 0.0, outY = 0.0;
+            switch (dir)
+            {
+                case TransitionDirection.FromLeft:
+                    inX = -distance; outX = distance * 0.55; break;
+                case TransitionDirection.FromRight:
+                    inX = distance; outX = -distance * 0.55; break;
+                case TransitionDirection.FromTop:
+                    inY = -distance; outY = distance * 0.55; break;
+                case TransitionDirection.FromBottom:
+                    inY = distance; outY = -distance * 0.55; break;
+            }
+
+            incomingT.X = inX;
+            incomingT.Y = inY;
+            incoming.Container.Opacity = 0.0;
+            outgoing.Container.Opacity = 1.0;
+
+            var easeOut = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var easeIn = new CubicEase { EasingMode = EasingMode.EaseIn };
+
+            // Complete the incoming layer early enough that the outgoing layer
+            // still covers the edges while the new image is translated. This
+            // prevents the theme/native background underneath from becoming
+            // visible as a duplicate strip, without zooming or treating native
+            // artwork differently.
+            TimeSpan incomingFadeDuration = TimeSpan.FromMilliseconds(
+                Math.Max(1.0, Transition.BackgroundDuration.TotalMilliseconds * 0.52));
+            TimeSpan incomingMoveDuration = TimeSpan.FromMilliseconds(
+                Math.Max(1.0, Transition.BackgroundDuration.TotalMilliseconds * 0.60));
+
+            var incomingFade = new DoubleAnimation(0.0, 1.0, new Duration(incomingFadeDuration))
+            {
+                EasingFunction = easeOut
+            };
+            incomingFade.Completed += (s, e) =>
+            {
+                if (transitionToken != _transitionToken) return;
+                incoming.Container.BeginAnimation(OpacityProperty, null);
+                incoming.Container.Opacity = 1.0;
+                ResetSlotTranslation(incoming);
+                ResetSlotTranslation(outgoing);
+                ClearSlot(outgoing);
+                _activeSlot = incoming;
+                _pendingSlot = null;
+            };
+
+            incoming.Container.BeginAnimation(OpacityProperty, incomingFade);
+
+            // Keep the current/background image perfectly still during the
+            // opening part of the hand-off. The incoming image gets roughly
+            // 30% of the transition to establish itself first; only then does
+            // the outgoing image begin to slide/fade away.
+            //
+            // Use keyframes rather than BeginTime so an interrupted transition
+            // always has an explicit visual value during the hold phase.
+            var outgoingFade = new DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.BackgroundDuration)
+            };
+            outgoingFade.KeyFrames.Add(new LinearDoubleKeyFrame(
+                1.0,
+                KeyTime.FromPercent(0.30)));
+            outgoingFade.KeyFrames.Add(new EasingDoubleKeyFrame(
+                0.0,
+                KeyTime.FromPercent(0.72),
+                easeIn));
+
+            outgoing.Container.BeginAnimation(OpacityProperty, outgoingFade);
+
+            if (inX != 0.0)
+            {
+                incomingT.BeginAnimation(
+                    TranslateTransform.XProperty,
+                    new DoubleAnimation(inX, 0.0, new Duration(incomingMoveDuration))
+                    {
+                        EasingFunction = easeOut
+                    });
+            }
+
+            if (inY != 0.0)
+            {
+                incomingT.BeginAnimation(
+                    TranslateTransform.YProperty,
+                    new DoubleAnimation(inY, 0.0, new Duration(incomingMoveDuration))
+                    {
+                        EasingFunction = easeOut
+                    });
+            }
+
+            // Diagnostic variant: keep the previous image physically fixed.
+            // It may still fade out, but it never translates. This lets us
+            // confirm whether the persistent offset bug is caused by the
+            // outgoing slot movement itself.
+
+            LogTransition(outgoing, incoming, style);
+        }
+
         private void StartFlashTransition(
             RenderSlot outgoing,
             RenderSlot incoming,
@@ -774,7 +1195,7 @@ namespace ImageRotater.Controls
             FlashOverlay.Visibility = Visibility.Visible;
 
             var up = new DoubleAnimation(
-                0.0, 1.0, new Duration(Transition.Half));
+                0.0, 1.0, new Duration(Transition.BackgroundHalf));
 
             up.Completed += (s, e) =>
             {
@@ -793,7 +1214,7 @@ namespace ImageRotater.Controls
                 _pendingSlot = null;
 
                 var down = new DoubleAnimation(
-                    1.0, 0.0, new Duration(Transition.Half));
+                    1.0, 0.0, new Duration(Transition.BackgroundHalf));
 
                 down.Completed += (s2, e2) =>
                 {
@@ -845,7 +1266,7 @@ namespace ImageRotater.Controls
                 FlashOverlay.Opacity = 0.0;
                 FlashOverlay.Visibility = Visibility.Visible;
 
-                var up = new DoubleAnimation(0.0, 1.0, new Duration(Transition.Half));
+                var up = new DoubleAnimation(0.0, 1.0, new Duration(Transition.BackgroundHalf));
                 up.Completed += (s, e) =>
                 {
                     if (transitionToken != _transitionToken)
@@ -856,7 +1277,7 @@ namespace ImageRotater.Controls
                     ClearSlot(outgoing);
                     _activeSlot = null;
 
-                    var down = new DoubleAnimation(1.0, 0.0, new Duration(Transition.Half));
+                    var down = new DoubleAnimation(1.0, 0.0, new Duration(Transition.BackgroundHalf));
                     down.Completed += (s2, e2) =>
                     {
                         if (transitionToken == _transitionToken)
@@ -874,7 +1295,7 @@ namespace ImageRotater.Controls
 
             var fade = new DoubleAnimation(
                 outgoing.Container.Opacity, 0.0,
-                new Duration(Transition.Duration));
+                new Duration(Transition.BackgroundDuration));
 
             fade.Completed += (s, e) =>
             {
@@ -886,6 +1307,37 @@ namespace ImageRotater.Controls
             };
 
             outgoing.Container.BeginAnimation(OpacityProperty, fade);
+        }
+
+        private static void ResetSlotTranslation(RenderSlot slot)
+        {
+            if (slot?.Container == null)
+            {
+                return;
+            }
+
+            if (slot.Container.RenderTransform is TranslateTransform translate)
+            {
+                translate.BeginAnimation(TranslateTransform.XProperty, null);
+                translate.BeginAnimation(TranslateTransform.YProperty, null);
+                translate.X = 0.0;
+                translate.Y = 0.0;
+            }
+            else if (slot.Container.RenderTransform is TransformGroup group)
+            {
+                foreach (Transform transform in group.Children)
+                {
+                    if (transform is TranslateTransform tt)
+                    {
+                        tt.BeginAnimation(TranslateTransform.XProperty, null);
+                        tt.BeginAnimation(TranslateTransform.YProperty, null);
+                        tt.X = 0.0;
+                        tt.Y = 0.0;
+                    }
+                }
+            }
+
+            slot.Container.RenderTransform = Transform.Identity;
         }
 
         private void NormalizeTransitionState()
@@ -901,7 +1353,59 @@ namespace ImageRotater.Controls
             StopAnimations();
 
             RenderSlot keep = null;
-            if (a > 0.001 || b > 0.001)
+            Guid currentGameId = GameContext?.Id ?? Guid.Empty;
+
+            // If a slide is interrupted, keep the already-active/outgoing slot
+            // rather than the partially-arrived pending slot. In the V70 slide
+            // the outgoing image is physically fixed, so this gives us a clean
+            // cancellation point with no positional snap. The half-transitioned
+            // incoming slot is discarded and rebuilt only after the 400 ms settle.
+            if (_pendingSlot != null &&
+                _activeSlot != null &&
+                _activeSlot != _pendingSlot &&
+                _activeSlot.Kind != SlotKind.None)
+            {
+                keep = _activeSlot;
+
+                if (_fileLogger != null && _fileLogger.IsEnabled)
+                {
+                    _fileLogger.Log(
+                        $"BG PERF transition-cancel keep={_activeSlot.Name} " +
+                        $"drop={_pendingSlot.Name} game=\"{_activeSlot.GameName}\"");
+                }
+            }
+
+            // During rapid 1-2-1-2 navigation a transition can be interrupted
+            // while the outgoing slot is still more opaque than the incoming
+            // slot. The old logic kept whichever slot happened to be brighter,
+            // which could preserve the PREVIOUS game's background and make it
+            // look permanently wrong. Prefer a valid slot that already belongs
+            // to the current game; only fall back to opacity when neither slot
+            // belongs to the current selection.
+            RenderSlot currentA = _slotA.GameId == currentGameId && _slotA.Kind != SlotKind.None
+                ? _slotA : null;
+            RenderSlot currentB = _slotB.GameId == currentGameId && _slotB.Kind != SlotKind.None
+                ? _slotB : null;
+
+            if (keep == null && (currentA != null || currentB != null))
+            {
+                if (currentA != null && currentB != null)
+                {
+                    if (_pendingSlot == currentA || _pendingSlot == currentB)
+                    {
+                        keep = _pendingSlot;
+                    }
+                    else
+                    {
+                        keep = a >= b ? currentA : currentB;
+                    }
+                }
+                else
+                {
+                    keep = currentA ?? currentB;
+                }
+            }
+            else if (keep == null && (a > 0.001 || b > 0.001))
             {
                 if (Math.Abs(a - b) < 0.001 && _pendingSlot != null)
                 {
@@ -917,8 +1421,10 @@ namespace ImageRotater.Controls
 
             if (keep != null && keep.Kind != SlotKind.None)
             {
+                ResetSlotTranslation(keep);
                 keep.Container.Visibility = Visibility.Visible;
                 keep.Container.Opacity = 1.0;
+                Panel.SetZIndex(keep.Container, 2);
                 _activeSlot = keep;
             }
             else
@@ -959,8 +1465,10 @@ namespace ImageRotater.Controls
             }
 
             slot.Container.BeginAnimation(OpacityProperty, null);
+            ResetSlotTranslation(slot);
             slot.Container.Opacity = 0.0;
             slot.Container.Visibility = Visibility.Collapsed;
+            slot.Container.RenderTransform = Transform.Identity;
 
             try
             {
@@ -1140,7 +1648,7 @@ namespace ImageRotater.Controls
             }
 
             _fileLogger.Log(
-                $"BG PERF transition style={style} " +
+                $"BG PERF transition style={style} duration={Transition.BackgroundDuration.TotalMilliseconds:0}ms " +
                 $"from={(outgoing == null ? "native" : outgoing.Kind + ":" + outgoing.Name)} " +
                 $"to={(incoming == null ? "native" : incoming.Kind + ":" + incoming.Name)} " +
                 $"game=\"{incoming?.GameName ?? GameContext?.Name}\"");

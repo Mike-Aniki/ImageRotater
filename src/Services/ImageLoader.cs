@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
@@ -21,6 +22,9 @@ namespace ImageRotater.Services
     public class ImageLoader
     {
         private readonly ImageCache _cache;
+        private readonly object _inFlightLock = new object();
+        private readonly Dictionary<string, Task<BitmapSource>> _inFlight =
+            new Dictionary<string, Task<BitmapSource>>(StringComparer.OrdinalIgnoreCase);
 
         public ImageLoader(ImageCache cache)
         {
@@ -47,20 +51,59 @@ namespace ImageRotater.Services
                 return null;
             }
 
-            BitmapSource cached = _cache != null ? _cache.Get(path, bucket) : null;
+            // An already-decoded larger bucket can safely satisfy a smaller
+            // request. Reusing it avoids another WIC decode after a resize or
+            // layout change without ever lowering image quality.
+            BitmapSource cached = _cache != null ? _cache.GetAtLeast(path, bucket) : null;
             if (cached != null)
             {
                 return cached;
             }
 
-            BitmapSource decoded = await Task.Run(() => Decode(path, bucket)).ConfigureAwait(false);
+            string key = bucket.ToString() + "|" + path;
+            Task<BitmapSource> decodeTask;
+            bool ownsTask = false;
 
-            if (decoded != null && _cache != null)
+            // Multiple refreshes can reach the same still before the first
+            // decode has populated ImageCache (theme controls, SizeChanged and
+            // selection events can overlap). Share that in-flight decode
+            // instead of making WIC decode the same file twice concurrently.
+            lock (_inFlightLock)
             {
-                _cache.Put(path, bucket, decoded);
+                if (!_inFlight.TryGetValue(key, out decodeTask))
+                {
+                    decodeTask = Task.Run(() => Decode(path, bucket));
+                    _inFlight[key] = decodeTask;
+                    ownsTask = true;
+                }
             }
 
-            return decoded;
+            try
+            {
+                BitmapSource decoded = await decodeTask.ConfigureAwait(false);
+
+                if (decoded != null && _cache != null)
+                {
+                    _cache.Put(path, bucket, decoded);
+                }
+
+                return decoded;
+            }
+            finally
+            {
+                if (ownsTask)
+                {
+                    lock (_inFlightLock)
+                    {
+                        Task<BitmapSource> current;
+                        if (_inFlight.TryGetValue(key, out current) &&
+                            object.ReferenceEquals(current, decodeTask))
+                        {
+                            _inFlight.Remove(key);
+                        }
+                    }
+                }
+            }
         }
 
         private static BitmapSource Decode(string path, int bucket)
@@ -72,7 +115,17 @@ namespace ImageRotater.Services
                     return null;
                 }
 
-                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                // Artwork is read once from start to finish because OnLoad
+                // materialises the bitmap before the stream is closed. Tell
+                // Windows this is sequential I/O and use a larger buffer so
+                // cold large images need fewer small reads.
+                using (var stream = new FileStream(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    64 * 1024,
+                    FileOptions.SequentialScan))
                 {
                     var bitmap = new BitmapImage();
                     bitmap.BeginInit();

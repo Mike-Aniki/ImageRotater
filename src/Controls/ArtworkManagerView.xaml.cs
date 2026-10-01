@@ -26,6 +26,9 @@ namespace ImageRotater.Controls
         private readonly ArtworkKind _kind;
         private readonly Action<Guid> _onImagesChanged;
         private readonly Action _automaticDownload;
+        private readonly Func<ImageRotaterSettings> _settings;
+        private readonly Action _saveSettings;
+        private bool _updatingGameBehavior;
         private SteamGridDbSearchView _searchView;
         private readonly Func<SteamGridDbSearchView> _searchViewFactory;
         private bool _managerLoaded;
@@ -40,7 +43,9 @@ namespace ImageRotater.Controls
             ArtworkKind kind,
             Action<Guid> onImagesChanged,
             Func<SteamGridDbSearchView> searchViewFactory,
-            Action automaticDownload)
+            Action automaticDownload,
+            Func<ImageRotaterSettings> settings,
+            Action saveSettings)
         {
             _api = api;
             _store = store;
@@ -50,8 +55,11 @@ namespace ImageRotater.Controls
             _onImagesChanged = onImagesChanged;
             _automaticDownload = automaticDownload;
             _searchViewFactory = searchViewFactory;
+            _settings = settings;
+            _saveSettings = saveSettings;
 
             InitializeComponent();
+            InitializeGameBehaviorChoices();
 
             // The visible navigation buttons are separate from the hidden TabControl.
             // IsChecked on LocalNavButton is applied while InitializeComponent is still
@@ -212,13 +220,15 @@ namespace ImageRotater.Controls
             _items.Clear();
 
             string fixedArtwork = _store.GetFixedArtworkPath(_game.Id, _kind);
+            int artworkIndex = 0;
             foreach (string path in _store
                 .GetImagePathsRaw(_game.Id, _kind)
                 .Where(GameImageStore.IsSupported))
             {
                 bool isFixed = !string.IsNullOrEmpty(fixedArtwork) &&
                     string.Equals(path, fixedArtwork, StringComparison.OrdinalIgnoreCase);
-                _items.Add(new ArtworkManagerItem(path, isFixed));
+                bool isExcluded = _store.IsArtworkExcluded(_game.Id, _kind, path);
+                _items.Add(new ArtworkManagerItem(path, isFixed, isExcluded, ++artworkIndex));
             }
 
             UpdateCounts();
@@ -235,6 +245,7 @@ namespace ImageRotater.Controls
                 ClearPreviewHint();
                 ItemsList.SelectedItem = null;
                 UpdateDeleteButton();
+                UpdateOrderButtons();
                 return;
             }
 
@@ -256,6 +267,87 @@ namespace ImageRotater.Controls
             UpdateFixedArtworkButton();
         }
 
+        private void InitializeGameBehaviorChoices()
+        {
+            GameModeOverrideCombo.ItemsSource = new[]
+            {
+                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterManagerUseGlobal"), null),
+                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickSession"), SelectionMode.Session),
+                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickEverySelection"), SelectionMode.EverySelection),
+                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickFixed"), SelectionMode.Fixed),
+                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickDaily"), SelectionMode.Daily),
+                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickSlideshow"), SelectionMode.Slideshow)
+            };
+
+            GameOrderOverrideCombo.ItemsSource = new[]
+            {
+                new Choice<SelectionOrder?>(Loc.Get("LOCImageRotaterManagerUseGlobal"), null),
+                new Choice<SelectionOrder?>(Loc.Get("LOCImageRotaterOrderRandom"), SelectionOrder.Random),
+                new Choice<SelectionOrder?>(Loc.Get("LOCImageRotaterOrderSequential"), SelectionOrder.Sequential),
+                new Choice<SelectionOrder?>(Loc.Get("LOCImageRotaterOrderShuffle"), SelectionOrder.Shuffle)
+            };
+
+            RefreshGameBehaviorChoices();
+        }
+
+        private void RefreshGameBehaviorChoices()
+        {
+            ImageRotaterSettings settings = _settings != null ? _settings() : null;
+            if (settings == null)
+            {
+                GameModeOverrideCombo.IsEnabled = false;
+                GameOrderOverrideCombo.IsEnabled = false;
+                return;
+            }
+
+            _updatingGameBehavior = true;
+            try
+            {
+                SelectChoice(GameModeOverrideCombo, settings.GetSelectionModeOverride(_game.Id, _kind));
+                SelectChoice(GameOrderOverrideCombo, settings.GetSelectionOrderOverride(_game.Id, _kind));
+            }
+            finally
+            {
+                _updatingGameBehavior = false;
+            }
+        }
+
+        private static void SelectChoice<T>(ComboBox combo, T value)
+        {
+            foreach (object item in combo.Items)
+            {
+                var choice = item as Choice<T>;
+                if (choice != null && EqualityComparer<T>.Default.Equals(choice.Value, value))
+                {
+                    combo.SelectedItem = choice;
+                    return;
+                }
+            }
+            combo.SelectedIndex = 0;
+        }
+
+        private void GameModeOverrideCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_updatingGameBehavior) return;
+            var choice = GameModeOverrideCombo.SelectedItem as Choice<SelectionMode?>;
+            ImageRotaterSettings settings = _settings != null ? _settings() : null;
+            if (choice == null || settings == null) return;
+            settings.SetSelectionModeOverride(_game.Id, _kind, choice.Value);
+            _saveSettings?.Invoke();
+            NotifyImagesChanged();
+        }
+
+        private void GameOrderOverrideCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_updatingGameBehavior) return;
+            var choice = GameOrderOverrideCombo.SelectedItem as Choice<SelectionOrder?>;
+            ImageRotaterSettings settings = _settings != null ? _settings() : null;
+            if (choice == null || settings == null) return;
+            settings.SetSelectionOrderOverride(_game.Id, _kind, choice.Value);
+            _saveSettings?.Invoke();
+            NotifyImagesChanged();
+        }
+
         private void UpdateCounts()
         {
             string label = _kind == ArtworkKind.Cover
@@ -267,8 +359,15 @@ namespace ImageRotater.Controls
 
         private void UpdateDeleteButton()
         {
-            int count = ItemsList.SelectedItems.Count;
-            DeleteButton.IsEnabled = count > 0;
+            var selected = ItemsList.SelectedItems.Cast<ArtworkManagerItem>().ToList();
+            int count = selected.Count;
+            bool containsNative = selected.Any(item => item.IsNativeOriginal);
+
+            // Preserved Playnite artwork is the game's native/original image.
+            // It participates in rotation, but must never be removable from the
+            // manager. Disabling the whole action for a mixed selection also
+            // avoids a surprising partial delete.
+            DeleteButton.IsEnabled = count > 0 && !containsNative;
             DeleteButton.Content = count > 1
                 ? Loc.Format("LOCImageRotaterManagerDeleteSelectedCount", count)
                 : Loc.Get("LOCImageRotaterManagerDeleteSelected");
@@ -298,6 +397,41 @@ namespace ImageRotater.Controls
             var selected = ItemsList.SelectedItem as ArtworkManagerItem;
             SetFixedArtworkButton.IsEnabled =
                 ItemsList.SelectedItems.Count == 1 && selected != null && !selected.IsFixed;
+        }
+
+        private void UpdateOrderButtons()
+        {
+            if (MoveUpButton == null || MoveDownButton == null || ItemsList == null)
+            {
+                return;
+            }
+
+            var selected = ItemsList.SelectedItem as ArtworkManagerItem;
+            int index = selected != null ? _items.IndexOf(selected) : -1;
+            bool single = ItemsList.SelectedItems.Count == 1 && index >= 0;
+            MoveUpButton.IsEnabled = single && index > 0;
+            MoveDownButton.IsEnabled = single && index < _items.Count - 1;
+        }
+
+        private void MoveArtworkButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (ItemsList.SelectedItems.Count != 1)
+            {
+                return;
+            }
+
+            var selected = ItemsList.SelectedItem as ArtworkManagerItem;
+            if (selected == null)
+            {
+                return;
+            }
+
+            int delta = ReferenceEquals(sender, MoveUpButton) ? -1 : 1;
+            if (_store.MoveArtwork(_game.Id, _kind, selected.Path, delta))
+            {
+                NotifyImagesChanged();
+                ReloadItems(selected.Path);
+            }
         }
 
         private void SetFixedArtworkButton_Click(object sender, RoutedEventArgs e)
@@ -332,6 +466,101 @@ namespace ImageRotater.Controls
         {
             _sessionCache?.Forget(_game.Id);
             _onImagesChanged?.Invoke(_game.Id);
+        }
+
+        private ArtworkManagerItem SelectedArtwork()
+        {
+            return ItemsList.SelectedItem as ArtworkManagerItem;
+        }
+
+        private void ItemsList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            DependencyObject source = e.OriginalSource as DependencyObject;
+            while (source != null && !(source is ListViewItem))
+            {
+                source = VisualTreeHelper.GetParent(source);
+            }
+            var item = source as ListViewItem;
+            if (item != null)
+            {
+                ItemsList.SelectedItems.Clear();
+                item.IsSelected = true;
+                item.Focus();
+            }
+        }
+
+        private void ArtworkContextMenu_Opened(object sender, RoutedEventArgs e)
+        {
+            ArtworkManagerItem item = SelectedArtwork();
+            ToggleExcludeMenuItem.Header = item != null && item.IsExcluded
+                ? Loc.Get("LOCImageRotaterManagerIncludeRotation")
+                : Loc.Get("LOCImageRotaterManagerExcludeRotation");
+
+            if (DeleteArtworkMenuItem != null)
+            {
+                DeleteArtworkMenuItem.IsEnabled = item != null && !item.IsNativeOriginal;
+            }
+        }
+
+        private void ContextSetFixed_Click(object sender, RoutedEventArgs e)
+        {
+            SetFixedArtworkButton_Click(sender, e);
+        }
+
+        private void ContextToggleExclude_Click(object sender, RoutedEventArgs e)
+        {
+            ArtworkManagerItem item = SelectedArtwork();
+            if (item == null) return;
+            if (_store.SetArtworkExcluded(_game.Id, _kind, item.Path, !item.IsExcluded))
+            {
+                NotifyImagesChanged();
+                ReloadItems(item.Path);
+            }
+        }
+
+        private void ContextMoveUp_Click(object sender, RoutedEventArgs e) => MoveSelectedBy(-1);
+        private void ContextMoveDown_Click(object sender, RoutedEventArgs e) => MoveSelectedBy(1);
+        private void ContextMoveTop_Click(object sender, RoutedEventArgs e) => MoveSelectedTo(0);
+        private void ContextMoveBottom_Click(object sender, RoutedEventArgs e) => MoveSelectedTo(Math.Max(0, _items.Count - 1));
+
+        private void MoveSelectedBy(int delta)
+        {
+            ArtworkManagerItem item = SelectedArtwork();
+            if (item == null) return;
+            if (_store.MoveArtwork(_game.Id, _kind, item.Path, delta))
+            {
+                NotifyImagesChanged();
+                ReloadItems(item.Path);
+            }
+        }
+
+        private void MoveSelectedTo(int index)
+        {
+            ArtworkManagerItem item = SelectedArtwork();
+            if (item == null) return;
+            if (_store.MoveArtworkToIndex(_game.Id, _kind, item.Path, index))
+            {
+                NotifyImagesChanged();
+                ReloadItems(item.Path);
+            }
+        }
+
+        private void ContextOpenFileLocation_Click(object sender, RoutedEventArgs e)
+        {
+            ArtworkManagerItem item = SelectedArtwork();
+            if (item == null) return;
+            try
+            {
+                Process.Start("explorer.exe", "/select,\"" + item.Path + "\"");
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private void ContextDelete_Click(object sender, RoutedEventArgs e)
+        {
+            DeleteButton_Click(sender, e);
         }
 
         private void AddButton_Click(object sender, RoutedEventArgs e)
@@ -389,6 +618,13 @@ namespace ImageRotater.Controls
                 return;
             }
 
+            // Native Playnite artwork is preserved as original_* internally and
+            // is deliberately read-only in the manager.
+            if (selected.Any(item => item.IsNativeOriginal))
+            {
+                return;
+            }
+
             MessageBoxResult confirm = _api.Dialogs.ShowMessage(
                 Loc.Format("LOCImageRotaterManagerDeleteQuestion", selected.Count),
                 "ImageRotater",
@@ -443,6 +679,7 @@ namespace ImageRotater.Controls
         {
             UpdateDeleteButton();
             UpdateFixedArtworkButton();
+            UpdateOrderButtons();
 
             ArtworkManagerItem item = ItemsList.SelectedItem as ArtworkManagerItem;
             if (item == null)
@@ -585,14 +822,39 @@ namespace ImageRotater.Controls
                 units[unit]);
         }
 
+        private sealed class Choice<T>
+        {
+            public Choice(string label, T value)
+            {
+                Label = label;
+                Value = value;
+            }
+            public string Label { get; }
+            public T Value { get; }
+
+            public override string ToString()
+            {
+                return Label ?? string.Empty;
+            }
+        }
+
         private sealed class ArtworkManagerItem
         {
-            public ArtworkManagerItem(string path, bool isFixed)
+            public ArtworkManagerItem(string path, bool isFixed, bool isExcluded, int orderIndex)
             {
                 Path = path;
                 IsFixed = isFixed;
+                IsExcluded = isExcluded;
+                IsNativeOriginal = GameImageStore.IsPreservedOriginal(path);
+                OrderLabel = "#" + orderIndex.ToString(CultureInfo.InvariantCulture);
                 FixedBadgeVisibility = isFixed ? Visibility.Visible : Visibility.Collapsed;
-                Name = System.IO.Path.GetFileName(path);
+                ExcludedBadgeVisibility = isExcluded ? Visibility.Visible : Visibility.Collapsed;
+
+                // Keep the original_* filename on disk for reliable detection,
+                // but present it cleanly to the user.
+                Name = IsNativeOriginal
+                    ? "Original"
+                    : System.IO.Path.GetFileName(path);
 
                 string ext = System.IO.Path.GetExtension(path) ?? string.Empty;
                 IsVideo = string.Equals(ext, ".mp4", StringComparison.OrdinalIgnoreCase)
@@ -628,7 +890,11 @@ namespace ImageRotater.Controls
 
             public string Path { get; }
             public bool IsFixed { get; }
+            public bool IsExcluded { get; }
+            public bool IsNativeOriginal { get; }
+            public string OrderLabel { get; }
             public Visibility FixedBadgeVisibility { get; }
+            public Visibility ExcludedBadgeVisibility { get; }
             public string Name { get; }
             public bool IsVideo { get; }
             public bool IsGif { get; }

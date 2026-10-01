@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text;
 
@@ -52,8 +52,9 @@ namespace ImageRotater.Services
 
         public string Path_ => _path;
 
-        // Starts a fresh file per session. A log that grows across every
-        // restart buries the run being investigated.
+        // Appends a new session to the existing debug log so a restart does
+        // not erase the previous investigation. The active file is rotated
+        // only when it grows beyond 10 MiB.
         public void StartSession(string version, string mode, ImageRotaterSettings settings = null)
         {
             if (!IsEnabled)
@@ -65,9 +66,12 @@ namespace ImageRotater.Services
             {
                 lock (_lock)
                 {
-                    File.WriteAllText(
+                    RotateIfNeeded();
+                    bool hasExisting = File.Exists(_path) && new FileInfo(_path).Length > 0;
+                    string prefix = hasExisting ? Environment.NewLine : string.Empty;
+                    File.AppendAllText(
                         _path,
-                        $"=== ImageRotater {version} - {mode} - {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==={Environment.NewLine}",
+                        prefix + $"=== ImageRotater {version} - {mode} - {DateTime.Now:yyyy-MM-dd HH:mm:ss} ==={Environment.NewLine}",
                         Encoding.UTF8);
                 }
             }
@@ -96,6 +100,9 @@ namespace ImageRotater.Services
             Log($"RotateCovers     = {settings.RotateCovers}");
             Log($"RotateBackgrounds = {settings.RotateBackgrounds}");
             Log($"BackgroundMode    = {settings.SelectionMode}");
+            Log($"BackgroundOrder   = {settings.BackgroundSelectionOrder}");
+            Log($"CoverMode         = {settings.CoverSelectionMode}");
+            Log($"CoverOrder        = {settings.CoverSelectionOrder}");
             Log($"Letterbox         = {settings.LetterboxBackgrounds}");
             Log($"Normalise         = {settings.NormaliseBackgroundSize}");
             Log($"EnableCoverImage = {settings.EnableCoverImage}");
@@ -122,6 +129,28 @@ namespace ImageRotater.Services
             }
             catch (Exception)
             {
+            }
+        }
+
+        private void RotateIfNeeded()
+        {
+            const long MaxBytes = 10L * 1024L * 1024L;
+            try
+            {
+                if (!File.Exists(_path) || new FileInfo(_path).Length < MaxBytes)
+                {
+                    return;
+                }
+
+                string directory = Path.GetDirectoryName(_path) ?? string.Empty;
+                string archive = Path.Combine(
+                    directory,
+                    $"ImageRotater.{DateTime.Now:yyyyMMdd-HHmmss}.log");
+                File.Move(_path, archive);
+            }
+            catch (Exception)
+            {
+                // Rotation is best-effort. Never sacrifice logging/plugin stability.
             }
         }
     }

@@ -1,4 +1,4 @@
-<c:PluginUserControl x:Class="ImageRotater.Controls.CoverImageControl"
+﻿<c:PluginUserControl x:Class="ImageRotater.Controls.CoverImageControl"
                      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                      xmlns:c="clr-namespace:Playnite.SDK.Controls;assembly=Playnite.SDK">
@@ -61,7 +61,8 @@
                    Visibility="Collapsed"
                    IsHitTestVisible="False"/>
 
-        <!-- Video artwork, a renderer the Image cannot be: WPF's imaging stack
+        <!-- Two lightweight shutters used by the Black bars transition. -->
+<!-- Video artwork, a renderer the Image cannot be: WPF's imaging stack
              does not decode containers. Only one of the two draws at a time.
 
              LoadedBehavior=Manual so Play/Stop can be driven from code-behind -

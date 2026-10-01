@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using Playnite.SDK;
@@ -78,12 +78,26 @@ namespace ImageRotater.Services
         // every game in the library, not just the ones the user set up.
         public int SeedEveryGame(IEnumerable<Game> games)
         {
+            return SeedEveryGame(games, null);
+        }
+
+        // Accepts the startup index built by the plugin so Session-cover priming
+        // and safety seeding share one filesystem scan instead of doing the same
+        // discovery work twice during startup.
+        public int SeedEveryGame(IEnumerable<Game> games, HashSet<string> artworkIndex)
+        {
             if (games == null || _store == null)
             {
                 return 0;
             }
 
             int seeded = 0;
+            int indexed = 0;
+
+            if (artworkIndex == null)
+            {
+                artworkIndex = _store.GetStartupArtworkIndex();
+            }
 
             foreach (Game game in games)
             {
@@ -91,7 +105,24 @@ namespace ImageRotater.Services
                 {
                     try
                     {
-                        // Only the first candidate and first video are needed here.
+                        string published = PublishedPathFor(game.Id, kind);
+                        bool hasCandidates = artworkIndex.Contains(GameImageStore.StartupIndexKey(game.Id, kind));
+
+                        if (!hasCandidates)
+                        {
+                            // Themes still need a real path for every game, but an
+                            // existing placeholder means there is nothing else to do.
+                            if (!File.Exists(published) && _store.EnsurePublishedPlaceholder(game.Id, kind))
+                            {
+                                seeded++;
+                            }
+                            continue;
+                        }
+
+                        indexed++;
+
+                        // Only configured games pay for candidate enumeration and the
+                        // one-time legacy background migration check.
                         string firstCandidate;
                         string firstVideo;
                         _store.GetSeedCandidates(game.Id, kind, out firstCandidate, out firstVideo);
@@ -99,27 +130,15 @@ namespace ImageRotater.Services
                         // Seed a video separately from the still, because they
                         // publish to different files and a theme's MediaElement
                         // has nothing to show until the video one exists.
-                        //
-                        // Without this, a freshly started Playnite shows no
-                        // animation on any tile until rotation happens to pick
-                        // that game's video - which for a game with several
-                        // covers can take a while and looks like the feature is
-                        // broken.
                         SeedVideo(game.Id, kind, firstVideo);
 
-                        if (File.Exists(PublishedPathFor(game.Id, kind)))
+                        if (File.Exists(published))
                         {
                             continue;
                         }
 
                         bool wrote = firstCandidate != null
                             ? _store.PublishCurrent(game.Id, firstCandidate, kind)
-                            // A 70-byte transparent placeholder, NOT a copy of
-                            // the game's artwork. The file only has to EXIST:
-                            // 1x1 transparent renders as nothing and the
-                            // theme's own artwork shows through. Copying real
-                            // images would duplicate the whole library (~600 MB
-                            // on a 300-game library) for no visual difference.
                             : _store.EnsurePublishedPlaceholder(game.Id, kind);
 
                         if (wrote)
@@ -132,6 +151,11 @@ namespace ImageRotater.Services
                         // One unreadable game must not stop the rest seeding.
                     }
                 }
+            }
+
+            if (_fileLogger != null && _fileLogger.IsEnabled)
+            {
+                _fileLogger.Log($"startup artwork-index configuredKinds={indexed}");
             }
 
             if (seeded > 0)

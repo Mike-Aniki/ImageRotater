@@ -24,6 +24,7 @@ namespace ImageRotater.Services
         private readonly ISteamGridDbClient _steamGridDb;
         private readonly ArtworkDownloader _downloader;
         private readonly Func<ImageRotaterSettings> _settings;
+        private readonly Action _saveSettings;
 
         // Called when a game's candidate images have changed. Write mode
         // rotates a game only once per selection, so without this the game
@@ -39,7 +40,8 @@ namespace ImageRotater.Services
             ISteamGridDbClient steamGridDb,
             ArtworkDownloader downloader,
             Func<ImageRotaterSettings> settings = null,
-            Action<Guid> onImagesChanged = null)
+            Action<Guid> onImagesChanged = null,
+            Action saveSettings = null)
         {
             _api = api;
             _store = store;
@@ -52,6 +54,7 @@ namespace ImageRotater.Services
             // search dialog using an ffmpeg path the user has since corrected.
             _settings = settings;
             _onImagesChanged = onImagesChanged;
+            _saveSettings = saveSettings;
         }
 
         // Opens the browse-and-pick dialog for one game. The auto-download path
@@ -419,7 +422,9 @@ namespace ImageRotater.Services
                     kind,
                     NotifyImagesChanged,
                     searchViewFactory,
-                    () => DownloadFromSteamGridDb(new[] { game }, kind));
+                    () => DownloadFromSteamGridDb(new[] { game }, kind),
+                    _settings,
+                    _saveSettings);
                 window.ShowDialog();
             }
             catch (Exception ex)

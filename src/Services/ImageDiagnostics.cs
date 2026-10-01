@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Windows.Media.Imaging;
 using Playnite.SDK;
@@ -15,8 +15,6 @@ namespace ImageRotater.Services
     // normal use.
     public static class ImageDiagnostics
     {
-        private static readonly ILogger Logger = LogManager.GetLogger();
-
         // decodedAtBucket / decodedWidth are only meaningful in the control
         // display mode, where ImageRotater does its own decoding. In write mode
         // Playnite renders the file itself and they are left at 0.
@@ -24,12 +22,13 @@ namespace ImageRotater.Services
             string gameName,
             string path,
             Func<ImageRotaterSettings> settings,
+            FileLogger fileLogger,
             int decodedAtBucket = 0,
             int decodedWidth = 0,
             ArtworkKind kind = ArtworkKind.Background)
         {
             ImageRotaterSettings current = settings != null ? settings() : null;
-            if (current == null || !current.EnableDebugLogging)
+            if (current == null || !current.EnableDebugLogging || fileLogger == null || !fileLogger.IsEnabled)
             {
                 return;
             }
@@ -38,11 +37,24 @@ namespace ImageRotater.Services
             {
                 if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 {
-                    Logger.Info($"ImageRotater: applied MISSING file to \"{gameName}\": {path}");
+                    fileLogger.Log($"applied MISSING file to \"{gameName}\": {path}");
                     return;
                 }
 
                 var info = new FileInfo(path);
+                string ext = Path.GetExtension(path);
+
+                // Videos are intentionally handled by MediaElement, not by the
+                // bitmap decoder below. Trying to inspect an MP4/WebM as an
+                // image produced scary-looking "UNREADABLE" debug entries
+                // even when video playback opened successfully.
+                if (PosterFrame.IsVideo(path))
+                {
+                    fileLogger.Log(
+                        $"applied video to \"{gameName}\": " +
+                        $"{Path.GetFileName(path)} {info.Length / 1024} KB, {ext}");
+                    return;
+                }
 
                 // Reads only the header, not the pixels - enough for dimensions
                 // without decoding the whole image.
@@ -65,7 +77,7 @@ namespace ImageRotater.Services
                 {
                     // A file we cannot even read the header of is itself the
                     // finding - say so rather than staying silent.
-                    Logger.Warn($"ImageRotater: applied UNREADABLE file to \"{gameName}\": {path} ({ex.Message})");
+                    fileLogger.Log($"applied UNREADABLE file to \"{gameName}\": {path} ({ex.Message})");
                     return;
                 }
 
@@ -79,7 +91,6 @@ namespace ImageRotater.Services
 
                 // WPF has no native WebP decoder and shows only a GIF's first
                 // frame, so either can render unlike the original file.
-                string ext = Path.GetExtension(path);
                 if (ext.Equals(".webp", StringComparison.OrdinalIgnoreCase) ||
                     ext.Equals(".gif", StringComparison.OrdinalIgnoreCase))
                 {
@@ -93,14 +104,14 @@ namespace ImageRotater.Services
                 // The kind is named because backgrounds and covers are applied
                 // moments apart for the same game, and without it a 600x900
                 // cover reads as a suspiciously small background.
-                Logger.Info(
-                    $"ImageRotater: applied {kind.ToString().ToLowerInvariant()} to \"{gameName}\": " +
-                    $"{Path.GetFileName(path)} " +
-                    $"{width}x{height}, {info.Length / 1024} KB, {ext}{decode}{note}");
+                fileLogger.Log(
+                    $"applied {kind.ToString().ToLowerInvariant()} to \"{gameName}\": " +
+                    $"{Path.GetFileName(path)} {width}x{height}, {info.Length / 1024} KB, " +
+                    $"{ext}{decode}{note}");
             }
             catch (Exception ex)
             {
-                Logger.Warn(ex, "ImageRotater: could not report the applied image");
+                fileLogger.Log($"could not report applied image for \"{gameName}\": {ex.Message}");
             }
         }
     }

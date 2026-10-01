@@ -34,6 +34,8 @@ namespace ImageRotater.Services
 
         private static readonly string[] Empty = new string[0];
         private const string FixedArtworkFileName = ".imagerotater-fixed";
+        private const string ArtworkOrderFileName = ".imagerotater-order";
+        private const string ExcludedArtworkFileName = ".imagerotater-excluded";
 
         // Whether a file would be listed at all, by extension. For callers
         // that copy files in from elsewhere and want to skip what would only
@@ -89,6 +91,83 @@ namespace ImageRotater.Services
         // rotate onto a copy of itself - which worked only because ".tile" was
         // not a listed extension, and had to be patched again the moment video
         // began publishing as ".mp4".
+
+        // Lightweight startup index: which game/kind pairs actually have at least one
+        // usable ImageRotater candidate. Published placeholder folders are ignored.
+        // This deliberately avoids CandidateFolderFor so startup does not trigger the
+        // legacy-layout scan for every game in the Playnite database.
+        public HashSet<string> GetStartupArtworkIndex()
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                if (!Directory.Exists(_imagesRoot))
+                {
+                    return result;
+                }
+
+                foreach (string gameRoot in Directory.EnumerateDirectories(_imagesRoot))
+                {
+                    Guid gameId;
+                    if (!Guid.TryParse(Path.GetFileName(gameRoot), out gameId))
+                    {
+                        continue;
+                    }
+
+                    string backgrounds = Path.Combine(gameRoot, SubfolderFor(ArtworkKind.Background));
+                    if (HasStartupCandidate(backgrounds))
+                    {
+                        result.Add(StartupIndexKey(gameId, ArtworkKind.Background));
+                    }
+
+                    string covers = Path.Combine(gameRoot, SubfolderFor(ArtworkKind.Cover));
+                    if (HasStartupCandidate(covers))
+                    {
+                        result.Add(StartupIndexKey(gameId, ArtworkKind.Cover));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: could not build startup artwork index");
+            }
+
+            return result;
+        }
+
+        private static bool HasStartupCandidate(string folder)
+        {
+            if (!Directory.Exists(folder))
+            {
+                return false;
+            }
+
+            try
+            {
+                foreach (string file in Directory.EnumerateFiles(folder))
+                {
+                    if (SupportedExtensions.Contains(Path.GetExtension(file)) &&
+                        !IsPublishedCopy(file))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                // Startup indexing is only an optimisation. If one folder is
+                // unreadable, normal per-game discovery can still handle it later.
+            }
+
+            return false;
+        }
+
+        public static string StartupIndexKey(Guid gameId, ArtworkKind kind)
+        {
+            return gameId.ToString("N") + "|" + (int)kind;
+        }
+
         public string GetPublishedFolder(Guid gameId, ArtworkKind kind)
         {
             return Path.Combine(
@@ -184,9 +263,8 @@ namespace ImageRotater.Services
                     }
                 }
 
-                IReadOnlyList<string> listed = DeduplicateByContent(ListCandidateFiles(folder));
-
-                listed = PreferChosenOverPreserved(listed);
+                IReadOnlyList<string> listed = DeduplicateByContent(ListCandidateFiles(folder, false));
+                listed = FilterExcluded(folder, listed);
 
                 lock (_listCacheLock)
                 {
@@ -223,7 +301,7 @@ namespace ImageRotater.Services
                     return Empty;
                 }
 
-                return ListCandidateFiles(folder);
+                return ListCandidateFiles(folder, false);
             }
             catch (Exception ex)
             {
@@ -328,13 +406,20 @@ namespace ImageRotater.Services
             return Directory.Exists(folder) ? folder : null;
         }
 
-        private static List<string> ListCandidateFiles(string folder)
+        private static List<string> ListCandidateFiles(string folder, bool promoteFixed = true)
         {
             var files = Directory.GetFiles(folder)
                 .Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
                 .Where(f => !IsPublishedCopy(f))
                 .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            ApplyCustomOrder(folder, files);
+
+            if (!promoteFixed)
+            {
+                return files;
+            }
 
             // Fixed artwork is a single explicit choice, not a manual playlist.
             // Promote it to index 0 so SelectionMode.Fixed can keep using the
@@ -367,6 +452,222 @@ namespace ImageRotater.Services
             catch
             {
                 return files;
+            }
+        }
+
+        public bool MoveArtwork(Guid gameId, ArtworkKind kind, string artworkPath, int delta)
+        {
+            if (string.IsNullOrEmpty(artworkPath) || delta == 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                string folder = CandidateFolderFor(gameId, kind);
+                if (folder == null)
+                {
+                    return false;
+                }
+
+                List<string> files = ListCandidateFiles(folder, false);
+                int index = files.FindIndex(f =>
+                    string.Equals(f, artworkPath, StringComparison.OrdinalIgnoreCase));
+                if (index < 0)
+                {
+                    return false;
+                }
+
+                return MoveArtworkToIndex(gameId, kind, artworkPath, index + delta);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, $"ImageRotater: could not reorder artwork for game {gameId}");
+                return false;
+            }
+        }
+
+        public bool MoveArtworkToIndex(Guid gameId, ArtworkKind kind, string artworkPath, int targetIndex)
+        {
+            try
+            {
+                string folder = CandidateFolderFor(gameId, kind);
+                if (folder == null)
+                {
+                    return false;
+                }
+
+                List<string> files = ListCandidateFiles(folder, false);
+                int index = files.FindIndex(f => string.Equals(f, artworkPath, StringComparison.OrdinalIgnoreCase));
+                if (index < 0 || files.Count < 2)
+                {
+                    return false;
+                }
+
+                int target = Math.Max(0, Math.Min(files.Count - 1, targetIndex));
+                if (target == index)
+                {
+                    return false;
+                }
+
+                string moved = files[index];
+                files.RemoveAt(index);
+                files.Insert(target, moved);
+                File.WriteAllLines(Path.Combine(folder, ArtworkOrderFileName), files.Select(Path.GetFileName));
+                InvalidateListCache(gameId, kind);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, $"ImageRotater: could not reorder artwork for game {gameId}");
+                return false;
+            }
+        }
+
+        public bool IsArtworkExcluded(Guid gameId, ArtworkKind kind, string artworkPath)
+        {
+            if (string.IsNullOrEmpty(artworkPath))
+            {
+                return false;
+            }
+
+            try
+            {
+                string folder = CandidateFolderFor(gameId, kind);
+                if (folder == null)
+                {
+                    return false;
+                }
+
+                return ReadExcludedNames(folder).Contains(Path.GetFileName(artworkPath));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public bool SetArtworkExcluded(Guid gameId, ArtworkKind kind, string artworkPath, bool excluded)
+        {
+            try
+            {
+                string folder = CandidateFolderFor(gameId, kind);
+                if (folder == null || string.IsNullOrEmpty(artworkPath))
+                {
+                    return false;
+                }
+
+                string name = Path.GetFileName(artworkPath);
+                var names = ReadExcludedNames(folder);
+                bool changed = excluded ? names.Add(name) : names.Remove(name);
+                if (!changed)
+                {
+                    return true;
+                }
+
+                string marker = Path.Combine(folder, ExcludedArtworkFileName);
+                if (names.Count == 0)
+                {
+                    if (File.Exists(marker)) File.Delete(marker);
+                }
+                else
+                {
+                    File.WriteAllLines(marker, names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase));
+                }
+
+                InvalidateListCache(gameId, kind);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, $"ImageRotater: could not update excluded artwork for game {gameId}");
+                return false;
+            }
+        }
+
+        private static HashSet<string> ReadExcludedNames(string folder)
+        {
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string marker = Path.Combine(folder, ExcludedArtworkFileName);
+            if (!File.Exists(marker))
+            {
+                return result;
+            }
+
+            try
+            {
+                foreach (string line in File.ReadAllLines(marker))
+                {
+                    string name = (line ?? string.Empty).Trim();
+                    if (!string.IsNullOrEmpty(name)) result.Add(name);
+                }
+            }
+            catch
+            {
+            }
+            return result;
+        }
+
+        private static IReadOnlyList<string> FilterExcluded(string folder, IReadOnlyList<string> paths)
+        {
+            if (paths == null || paths.Count == 0) return paths;
+            HashSet<string> excluded = ReadExcludedNames(folder);
+            if (excluded.Count == 0) return paths;
+            return paths.Where(p => !excluded.Contains(Path.GetFileName(p))).ToList();
+        }
+
+        private void InvalidateListCache(Guid gameId, ArtworkKind kind)
+        {
+            lock (_listCacheLock)
+            {
+                _listCache.Remove(gameId.ToString("N") + "|" + (int)kind);
+            }
+        }
+
+        private static void ApplyCustomOrder(string folder, List<string> files)
+        {
+            if (files == null || files.Count < 2)
+            {
+                return;
+            }
+
+            string marker = Path.Combine(folder, ArtworkOrderFileName);
+            if (!File.Exists(marker))
+            {
+                return;
+            }
+
+            try
+            {
+                string[] orderedNames = File.ReadAllLines(marker);
+                var byName = files.ToDictionary(Path.GetFileName, StringComparer.OrdinalIgnoreCase);
+                var ordered = new List<string>(files.Count);
+                var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                for (int i = 0; i < orderedNames.Length; i++)
+                {
+                    string name = (orderedNames[i] ?? string.Empty).Trim();
+                    string path;
+                    if (!string.IsNullOrEmpty(name) && byName.TryGetValue(name, out path) && used.Add(path))
+                    {
+                        ordered.Add(path);
+                    }
+                }
+
+                for (int i = 0; i < files.Count; i++)
+                {
+                    if (used.Add(files[i]))
+                    {
+                        ordered.Add(files[i]);
+                    }
+                }
+
+                files.Clear();
+                files.AddRange(ordered);
+            }
+            catch
+            {
+                // Invalid order metadata is cosmetic; fall back to filename order.
             }
         }
 
@@ -421,13 +722,8 @@ namespace ImageRotater.Services
                 }
 
                 File.WriteAllText(Path.Combine(folder, FixedArtworkFileName), Path.GetFileName(fullArtwork));
-
-                string key = gameId.ToString("N") + "|" + (int)kind;
-                lock (_listCacheLock)
-                {
-                    _listCache.Remove(key);
-                }
-
+                SetArtworkExcluded(gameId, kind, fullArtwork, false);
+                InvalidateListCache(gameId, kind);
                 return true;
             }
             catch (Exception ex)
@@ -470,45 +766,12 @@ namespace ImageRotater.Services
                 : PublishedVideoBaseName + ext.ToLowerInvariant();
         }
 
-        // Artwork the user chose wins over artwork that merely happened to be
-        // there.
+        // Preserved native Playnite artwork is a normal rotation candidate.
+        // If a game has one native cover/background plus ten ImageRotater files,
+        // all eleven belong to the pool unless one is explicitly excluded.
         //
-        // A preserved original is whatever Playnite already had for the game -
-        // a Steam grid, a metadata provider's cover - copied in the first time
-        // the plugin rotated it. That copy has to exist: once Game.CoverImage
-        // points at a plugin file the original is unreferenced, Playnite's
-        // library cleanup can reclaim it, and "Restore original backgrounds"
-        // then holds an id that resolves to nothing.
-        //
-        // But existing for safety is not the same as competing for screen time.
-        // Rotating a deliberately-added animated cover against the still that
-        // came with the game reads as the animation breaking every few seconds,
-        // and the still is not even the same picture.
-        //
-        // So preserved art rotates only when it is ALL the game has. Add
-        // anything of your own and it steps aside, still on disk, still
-        // restorable.
-        private static IReadOnlyList<string> PreferChosenOverPreserved(IReadOnlyList<string> paths)
-        {
-            if (paths.Count < 2)
-            {
-                return paths;
-            }
-
-            var chosen = new List<string>(paths.Count);
-
-            for (int i = 0; i < paths.Count; i++)
-            {
-                if (!IsPreservedOriginal(paths[i]))
-                {
-                    chosen.Add(paths[i]);
-                }
-            }
-
-            // Nothing but preserved art - it is the whole rotation, as it
-            // should be for a game the user has not set up.
-            return chosen.Count > 0 ? chosen : paths;
-        }
+        // Content deduplication still removes byte-identical copies so the
+        // rotation cannot fade from an image to an identical preserved copy.
 
         // Matches the prefix OriginalArtPreserver writes. Kept here rather than
         // referenced from that class so the listing has no dependency on it.
@@ -1022,6 +1285,14 @@ namespace ImageRotater.Services
 
         public bool RemoveImage(string path)
         {
+            // original_* is the preserved native Playnite artwork. It is a
+            // rotation candidate, not user-added artwork, and must never be
+            // deleted through the manager/remove API.
+            if (IsPreservedOriginal(path))
+            {
+                return false;
+            }
+
             try
             {
                 if (!string.IsNullOrEmpty(path) && File.Exists(path))

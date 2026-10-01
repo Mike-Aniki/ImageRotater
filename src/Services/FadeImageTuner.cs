@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -72,7 +73,11 @@ namespace ImageRotater.Services
         private sealed class Tune
         {
             public TransitionStyle Style;
+            public TimeSpan Duration;
             public Rectangle Veil;
+            public bool VeilRising;
+            public bool LowerPending;
+            public int VeilGeneration;
             public DispatcherTimer Backstop;
             public Image Image1;
             public Image Image2;
@@ -81,6 +86,7 @@ namespace ImageRotater.Services
             public EventHandler OnSourceChanged;
             public EventHandler OnSwap;
             public RoutedEventHandler OnUnloaded;
+            public TransitionDirection Direction;
         }
 
         private static readonly ConditionalWeakTable<UserControl, Tune> Patched =
@@ -249,31 +255,51 @@ namespace ImageRotater.Services
 
             bool known = Patched.TryGetValue(fadeImage, out Tune tune);
 
-            if (known && tune.Style == Transition.BackgroundStyle)
+            bool isSlide = Transition.BackgroundStyle == TransitionStyle.SlideFromRight;
+
+            TimeSpan requestedDuration =
+                Transition.BackgroundStyle == TransitionStyle.Cut
+                    ? TimeSpan.Zero
+                    : Transition.BackgroundDuration;
+
+            TransitionDirection requestedDirection = TransitionDirection.FromRight;
+
+            // Duration is part of the tuning state too. Previously changing the
+            // duration while keeping the same style was ignored, because an
+            // already-patched FadeImage was considered finished solely by its
+            // style. That made the duration slider look broken until Playnite
+            // rebuilt the view/control.
+            if (known && tune.Style == Transition.BackgroundStyle &&
+                tune.Duration == requestedDuration &&
+                (!isSlide || tune.Direction == requestedDirection))
             {
                 return false;
             }
 
             try
             {
-                // A cut is the same four storyboards at zero length: the
-                // value snaps and Completed still fires, so the outgoing
-                // layer is released exactly as it is after a fade.
-                //
-                // A flash cuts too. The veil is the whole transition - up,
-                // swap, down - and a crossfade running underneath it would
-                // still be mid-dissolve, outgoing layer on top, when the veil
-                // came down: the OLD picture showing through, then the new
-                // one arriving in the open.
-                TimeSpan duration = Transition.BackgroundStyle == TransitionStyle.Crossfade
-                    ? Transition.Duration
-                    : TimeSpan.Zero;
-
-                bool ok =
-                    Ease(fadeImage, "Image1FadeIn", EasingMode.EaseOut, duration) &
-                    Ease(fadeImage, "Image2FadeIn", EasingMode.EaseOut, duration) &
-                    Ease(fadeImage, "Image1FadeOut", EasingMode.EaseIn, duration) &
-                    Ease(fadeImage, "Image2FadeOut", EasingMode.EaseIn, duration);
+                // Slide transitions must replace Playnite's private fade
+                // storyboards, not merely retime the public resource copies.
+                // This is the same extension point used by CustomFadeAnim and
+                // is why the first implementation appeared to do nothing in
+                // Desktop mode: only ImageRotater-hosted controls knew how to
+                // slide, while Playnite's native FadeImage still ran its stock
+                // crossfade.
+                bool ok;
+                if (isSlide)
+                {
+                    ok = ApplySlideStoryboards(fadeImage, requestedDirection, Transition.BackgroundDuration);
+                }
+                else
+                {
+                    // Cut and flash hide the native dissolve. The overlay is the visible transition in flash modes.
+                    TimeSpan duration = requestedDuration;
+                    ok =
+                        Ease(fadeImage, "Image1FadeIn", EasingMode.EaseOut, duration) &
+                        Ease(fadeImage, "Image2FadeIn", EasingMode.EaseOut, duration) &
+                        Ease(fadeImage, "Image1FadeOut", EasingMode.EaseIn, duration) &
+                        Ease(fadeImage, "Image2FadeOut", EasingMode.EaseIn, duration);
+                }
 
                 if (!ok)
                 {
@@ -297,6 +323,8 @@ namespace ImageRotater.Services
                 }
 
                 tune.Style = Transition.BackgroundStyle;
+                tune.Duration = requestedDuration;
+                tune.Direction = requestedDirection;
 
                 if (Transition.IsFlash(Transition.BackgroundStyle))
                 {
@@ -317,6 +345,116 @@ namespace ImageRotater.Services
                 Logger.Warn(ex, "ImageRotater: FadeImage retime skipped");
                 return false;
             }
+        }
+
+        private static bool ApplySlideStoryboards(
+            UserControl fadeImage,
+            TransitionDirection direction,
+            TimeSpan duration)
+        {
+            try
+            {
+                Type type = fadeImage.GetType();
+                Image image1 = fadeImage.FindName("Image1") as Image;
+                Image image2 = fadeImage.FindName("Image2") as Image;
+                if (image1 == null || image2 == null)
+                {
+                    return false;
+                }
+
+                EnsureSlideTransform(image1);
+                EnsureSlideTransform(image2);
+
+                Storyboard in1 = BuildSlideStoryboard(image1, true, direction, duration);
+                Storyboard in2 = BuildSlideStoryboard(image2, true, direction, duration);
+                Storyboard out1 = BuildSlideStoryboard(image1, false, direction, duration);
+                Storyboard out2 = BuildSlideStoryboard(image2, false, direction, duration);
+
+                FieldInfo fIn1 = type.GetField("Image1FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fIn2 = type.GetField("Image2FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut1 = type.GetField("Image1FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut2 = type.GetField("Image2FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (fIn1 == null || fIn2 == null || fOut1 == null || fOut2 == null)
+                {
+                    return false;
+                }
+
+                fIn1.SetValue(fadeImage, in1);
+                fIn2.SetValue(fadeImage, in2);
+                fOut1.SetValue(fadeImage, out1);
+                fOut2.SetValue(fadeImage, out2);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: could not install background slide storyboards");
+                return false;
+            }
+        }
+
+        private static void EnsureSlideTransform(Image image)
+        {
+            if (image == null)
+            {
+                return;
+            }
+
+            // FadeImage backgrounds do not normally carry a RenderTransform.
+            // Keep a stable TransformGroup so the private storyboards can move
+            // only the translation component and never disturb layout/blur.
+            if (image.RenderTransform is TransformGroup group &&
+                group.Children.Count >= 2 && group.Children[1] is TranslateTransform)
+            {
+                return;
+            }
+
+            var transforms = new TransformGroup();
+            transforms.Children.Add(new ScaleTransform(1.0, 1.0));
+            transforms.Children.Add(new TranslateTransform(0.0, 0.0));
+            image.RenderTransform = transforms;
+            image.RenderTransformOrigin = new Point(0.5, 0.5);
+        }
+
+        private static Storyboard BuildSlideStoryboard(
+            Image image,
+            bool incoming,
+            TransitionDirection direction,
+            TimeSpan duration)
+        {
+            var storyboard = new Storyboard();
+            double distance = Math.Max(90.0, Math.Min(220.0, image.ActualWidth * 0.10));
+            bool horizontal = direction == TransitionDirection.FromLeft || direction == TransitionDirection.FromRight;
+            double sign = direction == TransitionDirection.FromLeft || direction == TransitionDirection.FromTop ? -1.0 : 1.0;
+
+            var opacity = incoming
+                ? new DoubleAnimation(0.15, 1.0, new Duration(duration))
+                : new DoubleAnimation(1.0, 0.0, new Duration(duration));
+            opacity.EasingFunction = new CubicEase
+            {
+                EasingMode = incoming ? EasingMode.EaseOut : EasingMode.EaseIn
+            };
+            Storyboard.SetTarget(opacity, image);
+            Storyboard.SetTargetProperty(opacity, new PropertyPath(UIElement.OpacityProperty));
+            storyboard.Children.Add(opacity);
+
+            double from = incoming ? sign * distance : 0.0;
+            double to = incoming ? 0.0 : -sign * distance * 0.45;
+            var move = new DoubleAnimation(from, to, new Duration(duration))
+            {
+                EasingFunction = new CubicEase
+                {
+                    EasingMode = incoming ? EasingMode.EaseOut : EasingMode.EaseIn
+                },
+                FillBehavior = FillBehavior.Stop
+            };
+            Storyboard.SetTarget(move, image);
+            Storyboard.SetTargetProperty(
+                move,
+                new PropertyPath(horizontal
+                    ? "(UIElement.RenderTransform).(TransformGroup.Children)[1].(TranslateTransform.X)"
+                    : "(UIElement.RenderTransform).(TransformGroup.Children)[1].(TranslateTransform.Y)"));
+            storyboard.Children.Add(move);
+            return storyboard;
         }
 
         private static bool Ease(UserControl fadeImage, string key, EasingMode mode, TimeSpan duration)
@@ -453,22 +591,75 @@ namespace ImageRotater.Services
 
             tune.Veil = null;
             tune.Backstop = null;
+            tune.VeilRising = false;
+            tune.LowerPending = false;
         }
 
         private static void Raise(Tune tune)
         {
-            tune.Veil?.BeginAnimation(UIElement.OpacityProperty,
-                new DoubleAnimation(1.0, new Duration(Transition.Half)));
+            if (tune?.Veil == null)
+            {
+                return;
+            }
 
-            tune.Backstop?.Stop();
-            tune.Backstop?.Start();
+            int generation = ++tune.VeilGeneration;
+            tune.VeilRising = true;
+            tune.LowerPending = false;
+
+            var up = new DoubleAnimation(1.0, new Duration(Transition.BackgroundHalf));
+            up.Completed += (s, e) =>
+            {
+                if (generation != tune.VeilGeneration)
+                {
+                    return;
+                }
+
+                tune.VeilRising = false;
+                if (tune.LowerPending)
+                {
+                    tune.LowerPending = false;
+                    Lower(tune);
+                }
+            };
+
+            tune.Veil.BeginAnimation(UIElement.OpacityProperty, up);
+
+            if (tune.Backstop != null)
+            {
+                tune.Backstop.Stop();
+                // Do not tear down a deliberately slow transition too early.
+                // The backstop is only a safety net for a source that never
+                // produces a frame, not part of the normal animation timing.
+                double ms = Math.Max(2000.0, Transition.BackgroundDuration.TotalMilliseconds + 1000.0);
+                tune.Backstop.Interval = TimeSpan.FromMilliseconds(ms);
+                tune.Backstop.Start();
+            }
         }
 
         private static void Lower(Tune tune)
         {
+            if (tune?.Veil == null)
+            {
+                return;
+            }
+
             tune.Backstop?.Stop();
-            tune.Veil?.BeginAnimation(UIElement.OpacityProperty,
-                new DoubleAnimation(0.0, new Duration(Transition.Half)));
+
+            // A cached background can arrive before the colour veil has even
+            // finished rising. Lowering immediately in that case made the
+            // black/white transition reverse halfway up and often look like a
+            // tiny flicker (or no transition at all). Finish the first half,
+            // then lower it over the new image.
+            if (tune.VeilRising)
+            {
+                tune.LowerPending = true;
+                return;
+            }
+
+            ++tune.VeilGeneration;
+            tune.LowerPending = false;
+            tune.Veil.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(0.0, new Duration(Transition.BackgroundHalf)));
         }
     }
 }

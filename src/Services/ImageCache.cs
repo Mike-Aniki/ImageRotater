@@ -68,6 +68,46 @@ namespace ImageRotater.Services
             }
         }
 
+        // Returns an exact cached decode when available. If not, a larger
+        // decoded bucket for the same file is also safe to reuse: WPF only has
+        // to scale it down, so quality is never reduced. This mainly avoids a
+        // second decode after layout/resolution changes.
+        public BitmapSource GetAtLeast(string path, int bucket)
+        {
+            BitmapSource exact = Get(path, bucket);
+            if (exact != null)
+            {
+                return exact;
+            }
+
+            if (string.IsNullOrEmpty(path))
+            {
+                return null;
+            }
+
+            lock (_lock)
+            {
+                for (int i = 0; i < Models.WidthBucket.Buckets.Length; i++)
+                {
+                    int candidateBucket = Models.WidthBucket.Buckets[i];
+                    if (candidateBucket <= bucket)
+                    {
+                        continue;
+                    }
+
+                    string key = MakeKey(path, candidateBucket);
+                    Entry entry;
+                    if (_entries.TryGetValue(key, out entry))
+                    {
+                        Touch(key);
+                        return entry.Image;
+                    }
+                }
+            }
+
+            return null;
+        }
+
         public void Put(string path, int bucket, BitmapSource image)
         {
             // Frozen is required, not merely expected: Format/PixelWidth are

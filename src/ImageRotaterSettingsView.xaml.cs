@@ -1,4 +1,4 @@
-using System.Windows.Controls;
+﻿using System.Windows.Controls;
 
 namespace ImageRotater
 {
@@ -9,6 +9,20 @@ namespace ImageRotater
         public ImageRotaterSettingsView()
         {
             InitializeComponent();
+        }
+
+
+        private void MainSettingsTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // Nested strip TabControls also raise SelectionChanged and bubble it
+            // upward. Only react to the main left-side navigation.
+            if (!ReferenceEquals(e.Source, MainSettingsTabs)
+                || !ReferenceEquals(MainSettingsTabs.SelectedItem, ToolsTab))
+            {
+                return;
+            }
+
+            (DataContext as ImageRotaterSettingsViewModel)?.EnsureToolStatusLoaded();
         }
 
         private void OpenBackgrounds_Click(object sender, System.Windows.RoutedEventArgs e)

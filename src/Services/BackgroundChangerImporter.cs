@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -30,6 +30,7 @@ namespace ImageRotater.Services
         private static readonly ILogger Logger = LogManager.GetLogger();
 
         public const string PluginId = "3afdd02b-db6c-4b60-8faa-2971d6dfad2a";
+        public const string AddonId = "playnite-backgroundchanger-plugin";
 
         public class Result
         {
@@ -95,7 +96,7 @@ namespace ImageRotater.Services
 
         // Safe to run again: a file already in the game's folder - by stem, so
         // a WebP the user has since converted to MP4 counts - is skipped.
-        public static Result Import(string bcRoot, ISet<Guid> knownGames, GameImageStore store)
+        public static Result Import(string bcRoot, ISet<Guid> knownGames, GameImageStore store, Action<int, int, string> onProgress = null, Func<bool> isCancelled = null)
         {
             var result = new Result { SourcePath = bcRoot };
 
@@ -105,12 +106,22 @@ namespace ImageRotater.Services
                 return result;
             }
 
-            foreach (string file in Directory.GetFiles(records, "*.json"))
+            List<string> recordFiles = Directory.GetFiles(records, "*.json").ToList();
+            onProgress?.Invoke(0, recordFiles.Count, null);
+            int done = 0;
+
+            foreach (string file in recordFiles)
             {
+                if (isCancelled?.Invoke() == true)
+                {
+                    break;
+                }
+
                 Guid gameId;
                 if (!Guid.TryParse(Path.GetFileNameWithoutExtension(file), out gameId)
                     || !knownGames.Contains(gameId))
                 {
+                    onProgress?.Invoke(++done, recordFiles.Count, file);
                     continue;
                 }
 
@@ -123,11 +134,13 @@ namespace ImageRotater.Services
                 {
                     Logger.Warn(ex, $"ImageRotater: could not read BackgroundChanger record {file}");
                     result.Failed++;
+                    onProgress?.Invoke(++done, recordFiles.Count, file);
                     continue;
                 }
 
                 if (items == null)
                 {
+                    onProgress?.Invoke(++done, recordFiles.Count, file);
                     continue;
                 }
 
@@ -190,6 +203,8 @@ namespace ImageRotater.Services
                 {
                     result.Games++;
                 }
+
+                onProgress?.Invoke(++done, recordFiles.Count, file);
             }
 
             return result;

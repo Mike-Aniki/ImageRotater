@@ -4,7 +4,7 @@
     <sys:String x:Key="LOCImageRotaterSetup" xml:space="preserve">Configuration</sys:String>
     <sys:String x:Key="LOCImageRotaterTools" xml:space="preserve">Outils</sys:String>
     <sys:String x:Key="LOCImageRotaterAdvanced" xml:space="preserve">Avancé</sys:String>
-    <sys:String x:Key="LOCImageRotaterAdvancedIntro" xml:space="preserve">Outils de diagnostic, de réparation et options expertes pour dépanner ImageRotater. Vous n’en avez normalement pas besoin au quotidien.</sys:String>
+    <sys:String x:Key="LOCImageRotaterAdvancedIntro" xml:space="preserve">Options de diagnostic et de débogage pour dépanner ImageRotater. Vous n’en avez normalement pas besoin au quotidien.</sys:String>
     <sys:String x:Key="LOCImageRotaterDiagnostics" xml:space="preserve">DIAGNOSTIC</sys:String>
     <sys:String x:Key="LOCImageRotaterDebugRecommendation" xml:space="preserve">Recommandé : laissez les logs de débogage désactivés en usage normal. Activez-les uniquement pour reproduire un problème, puis désactivez-les une fois le journal récupéré.</sys:String>
     <sys:String x:Key="LOCImageRotaterGeneral" xml:space="preserve">Général</sys:String>
@@ -12,7 +12,7 @@
     <sys:String x:Key="LOCImageRotaterAnimationFilter" xml:space="preserve">Animation</sys:String>
     <sys:String x:Key="LOCImageRotaterCovers" xml:space="preserve">Jaquettes</sys:String>
     <sys:String x:Key="LOCImageRotaterLibrary" xml:space="preserve">Bibliothèque</sys:String>
-    <sys:String x:Key="LOCImageRotaterMaintenance" xml:space="preserve">Maintenance</sys:String>
+    <sys:String x:Key="LOCImageRotaterMaintenance" xml:space="preserve">Outils de bibliothèque</sys:String>
     <sys:String x:Key="LOCImageRotaterMigration" xml:space="preserve">Migration</sys:String>
     <sys:String x:Key="LOCImageRotaterSetupIntro" xml:space="preserve">Intégrations facultatives pour la recherche d’illustrations et les vidéos. ImageRotater fonctionne sans elles : configurez uniquement les fonctions dont vous avez besoin.</sys:String>
     <sys:String x:Key="LOCImageRotaterSteamGridDB" xml:space="preserve">SteamGridDB</sys:String>
@@ -25,6 +25,7 @@
     <sys:String x:Key="LOCImageRotaterYtDlpHelp" xml:space="preserve">Facultatif. Permet de télécharger des vidéos depuis YouTube et les sites compatibles. Nécessite ffmpeg et un moteur JavaScript comme Deno.</sys:String>
     <sys:String x:Key="LOCImageRotaterDeno" xml:space="preserve">deno</sys:String>
     <sys:String x:Key="LOCImageRotaterDenoHelp" xml:space="preserve">Nécessaire uniquement pour YouTube via yt-dlp. Indiquez le chemin vers deno.exe, ou placez-le à côté de yt-dlp.exe pour qu’il soit détecté automatiquement.</sys:String>
+    <sys:String x:Key="LOCImageRotaterCheckingTools" xml:space="preserve">Vérification des outils...</sys:String>
     <sys:String x:Key="LOCImageRotaterToolPathHint" xml:space="preserve">Laissez le chemin vide si l’outil est déjà disponible dans le PATH Windows. Sinon, sélectionnez directement son exécutable.</sys:String>
     <sys:String x:Key="LOCImageRotaterBrowse" xml:space="preserve">Parcourir…</sys:String>
     <sys:String x:Key="LOCImageRotaterGeneralIntro" xml:space="preserve">Configurez ici l’essentiel. Choisissez ce qu’ImageRotater doit gérer, puis affinez les arrière-plans et les jaquettes dans leurs pages dédiées.</sys:String>
@@ -44,31 +45,42 @@
     <sys:String x:Key="LOCImageRotaterToolsCalloutNote" xml:space="preserve">Si vous utilisez seulement des images locales, Steam ou des images web classiques, vous pouvez laisser ces outils non configurés.</sys:String>
     <sys:String x:Key="LOCImageRotaterOpenTools" xml:space="preserve">Ouvrir les outils</sys:String>
     <sys:String x:Key="LOCImageRotaterRotation" xml:space="preserve">ROTATION</sys:String>
+    <sys:String x:Key="LOCImageRotaterTabRotation" xml:space="preserve">Rotation</sys:String>
+    <sys:String x:Key="LOCImageRotaterTabAnimation" xml:space="preserve">Affichage &amp; animation</sys:String>
+    <sys:String x:Key="LOCImageRotaterTabOnlineSources" xml:space="preserve">Sources en ligne</sys:String>
+    <sys:String x:Key="LOCImageRotaterTabVideoTools" xml:space="preserve">Outils vidéo</sys:String>
+    <sys:String x:Key="LOCImageRotaterTabPerformance" xml:space="preserve">Performance</sys:String>
+    <sys:String x:Key="LOCImageRotaterTabDebug" xml:space="preserve">Débogage</sys:String>
     <sys:String x:Key="LOCImageRotaterEnableRotation" xml:space="preserve">ImageRotater</sys:String>
     <sys:String x:Key="LOCImageRotaterEnableRotationHint" xml:space="preserve">Interrupteur principal. Le désactiver arrête toute rotation et tout contenu animé sans supprimer vos fichiers ni vos réglages.</sys:String>
     <sys:String x:Key="LOCImageRotaterTroubleshooting" xml:space="preserve">DÉPANNAGE</sys:String>
     <sys:String x:Key="LOCImageRotaterExpertTools" xml:space="preserve">OUTILS EXPERTS</sys:String>
     <sys:String x:Key="LOCImageRotaterEnableDebug" xml:space="preserve">Activer les logs de débogage</sys:String>
     <sys:String x:Key="LOCImageRotaterEnableDebugHint" xml:space="preserve">Crée un journal ImageRotater.log détaillé pour le diagnostic. Laissez cette option désactivée en usage normal.</sys:String>
+    <sys:String x:Key="LOCImageRotaterOpenDebugLogFolder" xml:space="preserve">Ouvrir le dossier du journal de débogage</sys:String>
     <sys:String x:Key="LOCImageRotaterBackgroundIntro" xml:space="preserve">Choisissez quand les arrière-plans changent, comment les formats inhabituels sont affichés et quelle transition est utilisée.</sys:String>
     <sys:String x:Key="LOCImageRotaterEnableBackgrounds" xml:space="preserve">Activer la rotation des arrière-plans</sys:String>
     <sys:String x:Key="LOCImageRotaterEnableBackgroundsHint" xml:space="preserve">Contrôle uniquement les arrière-plans. Les réglages des jaquettes ne sont pas modifiés.</sys:String>
     <sys:String x:Key="LOCImageRotaterShape" xml:space="preserve">FORMAT</sys:String>
     <sys:String x:Key="LOCImageRotaterLetterbox" xml:space="preserve">Adapter les formats inhabituels au lieu de les recadrer</sys:String>
-    <sys:String x:Key="LOCImageRotaterLetterboxHint" xml:space="preserve">Utile pour les images ultra-larges, carrées ou de type bannière. L’image d’origine reste intacte et est posée sur un remplissage flouté pour s’adapter à l’écran.</sys:String>
+    <sys:String x:Key="LOCImageRotaterLetterboxHint" xml:space="preserve">Utile pour les images ultra-larges, carrées ou de type bannière. L’image d’origine reste intacte et est posée sur un remplissage flouté pour s’adapter à l’écran. Ce traitement supplémentaire peut demander plus de ressources lors des changements d’arrière-plan ; laissez l’option désactivée si vous n’en avez pas besoin.</sys:String>
     <sys:String x:Key="LOCImageRotaterLevelBackgrounds" xml:space="preserve">Garder un flou cohérent entre les arrière-plans</sys:String>
-    <sys:String x:Key="LOCImageRotaterLevelBackgroundsHint" xml:space="preserve">Uniformise la largeur publiée des arrière-plans afin que Playnite applique un flou similaire entre des images de résolutions différentes. Les fichiers d’origine ne sont pas modifiés.</sys:String>
+    <sys:String x:Key="LOCImageRotaterLevelBackgroundsHint" xml:space="preserve">Uniformise la largeur publiée des arrière-plans afin que Playnite applique un flou similaire entre des images de résolutions différentes. Les fichiers d’origine ne sont pas modifiés. Ce traitement supplémentaire peut demander plus de ressources lors des changements d’arrière-plan ; laissez l’option désactivée si vous n’en avez pas besoin.</sys:String>
     <sys:String x:Key="LOCImageRotaterWhenSeveral" xml:space="preserve">QUAND UN JEU EN POSSÈDE PLUSIEURS</sys:String>
     <sys:String x:Key="LOCImageRotaterBackgroundSeveralHint" xml:space="preserve">Choisissez ce qui se passe lorsqu’un jeu possède plusieurs arrière-plans. Les jeux avec une seule image ne changent pas.</sys:String>
-    <sys:String x:Key="LOCImageRotaterPickSession" xml:space="preserve">Choisir une fois par lancement de Playnite</sys:String>
-    <sys:String x:Key="LOCImageRotaterBackgroundPickSessionHint" xml:space="preserve">Recommandé pour un affichage stable. Un arrière-plan est choisi lors de la première visite du jeu et reste identique jusqu’au redémarrage de Playnite.</sys:String>
+    <sys:String x:Key="LOCImageRotaterPickSession" xml:space="preserve">Session</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackgroundPickSessionHint" xml:space="preserve">Garde le même arrière-plan pendant toute la session Playnite. Au prochain lancement, un arrière-plan différent est choisi lorsque c’est possible.</sys:String>
     <sys:String x:Key="LOCImageRotaterPickEverySelection" xml:space="preserve">Choisir une nouvelle image à chaque sélection du jeu</sys:String>
     <sys:String x:Key="LOCImageRotaterBackgroundPickEveryHint" xml:space="preserve">Change l’arrière-plan chaque fois que vous revenez sur le jeu.</sys:String>
     <sys:String x:Key="LOCImageRotaterPickFixed" xml:space="preserve">Illustration fixe</sys:String>
-    <sys:String x:Key="LOCImageRotaterPickFixedHint" xml:space="preserve">Utilise toujours l’illustration marquée comme Illustration fixe dans le gestionnaire. Si aucune n’est choisie, la première par ordre alphabétique est utilisée.</sys:String>
+    <sys:String x:Key="LOCImageRotaterPickFixedHint" xml:space="preserve">Utilise toujours l’illustration marquée comme Illustration fixe dans le gestionnaire. Si aucune n’est choisie, la première dans l’ordre du gestionnaire est utilisée.</sys:String>
+    <sys:String x:Key="LOCImageRotaterPickSlideshow" xml:space="preserve">Diaporama</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackgroundPickSlideshowHint" xml:space="preserve">Fait défiler automatiquement les arrière-plans du jeu tant que vous restez dessus.</sys:String>
+    <sys:String x:Key="LOCImageRotaterCoverPickSlideshowHint" xml:space="preserve">Fait défiler automatiquement les jaquettes du jeu sélectionné tant que vous restez dessus.</sys:String>
+    <sys:String x:Key="LOCImageRotaterSlideshowInterval" xml:space="preserve">Intervalle du diaporama</sys:String>
     <sys:String x:Key="LOCImageRotaterSlideshow" xml:space="preserve">DIAPORAMA</sys:String>
     <sys:String x:Key="LOCImageRotaterChangeEvery" xml:space="preserve">Changer toutes les</sys:String>
-    <sys:String x:Key="LOCImageRotaterBackgroundSlideshowHint" xml:space="preserve">Change l’arrière-plan tant que vous restez sur le même jeu. Réglez sur 0 pour désactiver. Les valeurs inférieures à 5 secondes sont considérées comme désactivées.</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackgroundSlideshowHint" xml:space="preserve">Durée d’affichage de chaque arrière-plan avant de passer au suivant. Disponible uniquement avec le mode Diaporama.</sys:String>
     <sys:String x:Key="LOCImageRotaterBackgroundAnimation" xml:space="preserve">Animation des arrière-plans</sys:String>
     <sys:String x:Key="LOCImageRotaterBackgroundAnimationIntro" xml:space="preserve">Définit comment un arrière-plan fixe laisse place au suivant. Les vidéos et GIF conservent leurs propres fondus.</sys:String>
     <sys:String x:Key="LOCImageRotaterTransition" xml:space="preserve">TRANSITION</sys:String>
@@ -76,6 +88,7 @@
     <sys:String x:Key="LOCImageRotaterCrossfade" xml:space="preserve">Fondu enchaîné</sys:String>
     <sys:String x:Key="LOCImageRotaterFadeBlack" xml:space="preserve">Fondu par le noir</sys:String>
     <sys:String x:Key="LOCImageRotaterFadeWhite" xml:space="preserve">Fondu par le blanc</sys:String>
+    <sys:String x:Key="LOCImageRotaterSlideRight" xml:space="preserve">Glissement depuis la droite</sys:String>
     <sys:String x:Key="LOCImageRotaterCut" xml:space="preserve">Coupe directe (sans animation)</sys:String>
     <sys:String x:Key="LOCImageRotaterCoverIntro" xml:space="preserve">Réglez la rotation des jaquettes dans la grille et les vues détaillées, y compris le comportement des jaquettes animées et des vidéos.</sys:String>
     <sys:String x:Key="LOCImageRotaterEnableCovers" xml:space="preserve">Activer la rotation des jaquettes</sys:String>
@@ -88,16 +101,16 @@
     <sys:String x:Key="LOCImageRotaterVideoStartRandom" xml:space="preserve">Démarrer les vidéos de jaquette à une position aléatoire</sys:String>
     <sys:String x:Key="LOCImageRotaterVideoStartRandomHint" xml:space="preserve">Rend les jaquettes animées moins répétitives, mais chaque vidéo doit se repositionner après son ouverture et peut provoquer un petit à-coup.</sys:String>
     <sys:String x:Key="LOCImageRotaterCoverSeveralHint" xml:space="preserve">Choisissez ce qui se passe lorsqu’un jeu possède plusieurs jaquettes.</sys:String>
-    <sys:String x:Key="LOCImageRotaterCoverPickSessionHint" xml:space="preserve">Recommandé pour garder une grille stable. Une seule jaquette est choisie pour toute la session Playnite.</sys:String>
+    <sys:String x:Key="LOCImageRotaterCoverPickSessionHint" xml:space="preserve">Garde la même jaquette pendant toute la session Playnite. Au prochain lancement, une jaquette différente est choisie lorsque c’est possible.</sys:String>
     <sys:String x:Key="LOCImageRotaterCoverPickEveryHint" xml:space="preserve">Change la tuile chaque fois que vous revenez sur le jeu. Plus dynamique, mais la grille se réorganise pendant la navigation.</sys:String>
-    <sys:String x:Key="LOCImageRotaterCoverSlideshowHint" xml:space="preserve">Change la jaquette du jeu sélectionné tant que vous restez dessus. Réglez sur 0 pour désactiver. Les valeurs inférieures à 5 secondes sont considérées comme désactivées.</sys:String>
+    <sys:String x:Key="LOCImageRotaterCoverSlideshowHint" xml:space="preserve">Durée d’affichage de chaque jaquette avant de passer à la suivante. Disponible uniquement avec le mode Diaporama.</sys:String>
     <sys:String x:Key="LOCImageRotaterCoverAnimation" xml:space="preserve">Animation des jaquettes</sys:String>
     <sys:String x:Key="LOCImageRotaterCoverAnimationIntro" xml:space="preserve">Définit comment une jaquette fixe laisse place à la suivante, dans une grille ou dans la vue détaillée. Les vidéos et GIF conservent leurs propres fondus.</sys:String>
     <sys:String x:Key="LOCImageRotaterCoverTransitionHint" xml:space="preserve">Transition utilisée entre deux jaquettes fixes. Les jaquettes animées et vidéos conservent leur propre lecture. Il faut au moins deux jaquettes.</sys:String>
     <sys:String x:Key="LOCImageRotaterLibraryIntro" xml:space="preserve">Importez, optimisez, convertissez et restaurez les illustrations stockées par ImageRotater. Ces actions agissent directement sur la bibliothèque du plugin.</sys:String>
     <sys:String x:Key="LOCImageRotaterConvert" xml:space="preserve">CONVERTIR</sys:String>
     <sys:String x:Key="LOCImageRotaterOptimiseImages" xml:space="preserve">Optimiser les images stockées</sys:String>
-    <sys:String x:Key="LOCImageRotaterOptimiseImagesHint" xml:space="preserve">Réencode les grandes images stockées afin de réduire l’espace disque utilisé. Les images avec transparence et les fichiers qui ne gagneraient presque rien sont laissés tels quels. Les fichiers sont remplacés et cette opération ne peut pas être annulée.</sys:String>
+    <sys:String x:Key="LOCImageRotaterOptimiseImagesHint" xml:space="preserve">Réencode les grandes images opaques compatibles en JPEG haute qualité lorsqu’un gain d’au moins 10 % d’espace disque est obtenu. Les images avec transparence et les fichiers qui ne gagneraient presque rien sont laissés tels quels. Les fichiers sont remplacés et cette opération ne peut pas être annulée.</sys:String>
     <sys:String x:Key="LOCImageRotaterOptimiseImagesButton" xml:space="preserve">Optimiser les images stockées</sys:String>
     <sys:String x:Key="LOCImageRotaterConvertGifs" xml:space="preserve">Convertir tous les GIF en MP4</sys:String>
     <sys:String x:Key="LOCImageRotaterConvertGifsHint" xml:space="preserve">Recommandé si vous utilisez des GIF animés. Les MP4 sont généralement beaucoup plus légers et plus efficaces à lire. Nécessite ffmpeg.</sys:String>
@@ -121,7 +134,7 @@
     <sys:String x:Key="LOCImageRotaterBackgroundChanger" xml:space="preserve">BACKGROUNDCHANGER</sys:String>
     <sys:String x:Key="LOCImageRotaterImportBackgroundChanger" xml:space="preserve">Importer les illustrations de BackgroundChanger</sys:String>
     <sys:String x:Key="LOCImageRotaterImportBackgroundChangerHint" xml:space="preserve">Copie les jaquettes et arrière-plans existants de BackgroundChanger vers ImageRotater, jeu par jeu. Désactivez BackgroundChanger après l’import pour éviter que les deux plugins contrôlent les mêmes illustrations.</sys:String>
-    <sys:String x:Key="LOCImageRotaterImportWebPHint" xml:space="preserve">Les fichiers WebP sont copiés tels quels. Playnite ne peut pas les afficher nativement ; convertissez ensuite les formats animés depuis Bibliothèque &gt; Maintenance si nécessaire (ffmpeg requis).</sys:String>
+    <sys:String x:Key="LOCImageRotaterImportWebPHint" xml:space="preserve">Les fichiers WebP sont copiés tels quels. Playnite ne peut pas les afficher nativement ; utilisez les outils de conversion dans Bibliothèque &gt; Outils de bibliothèque si nécessaire.</sys:String>
     <sys:String x:Key="LOCImageRotaterSteam" xml:space="preserve">Steam</sys:String>
     <sys:String x:Key="LOCImageRotaterWebSearch" xml:space="preserve">Recherche web</sys:String>
     <sys:String x:Key="LOCImageRotaterYouTube" xml:space="preserve">YouTube</sys:String>
@@ -165,9 +178,9 @@
     <sys:String x:Key="LOCImageRotaterMenuAddArtwork" xml:space="preserve">Ajouter des fichiers d’illustration...</sys:String>
     <sys:String x:Key="LOCImageRotaterMenuSearchOnline" xml:space="preserve">Rechercher des images en ligne...</sys:String>
     <sys:String x:Key="LOCImageRotaterMenuDownloadSgdb" xml:space="preserve">Télécharger depuis SteamGridDB (automatique)</sys:String>
-    <sys:String x:Key="LOCImageRotaterMenuManageBackgrounds" xml:space="preserve">Parcourir les arrière-plans...</sys:String>
-    <sys:String x:Key="LOCImageRotaterMenuManageCovers" xml:space="preserve">Parcourir les jaquettes...</sys:String>
-    <sys:String x:Key="LOCImageRotaterManagerWindowTitle" xml:space="preserve">Parcourir et gérer les {0} - {1}</sys:String>
+    <sys:String x:Key="LOCImageRotaterMenuManageBackgrounds" xml:space="preserve">Artwork Manager...</sys:String>
+    <sys:String x:Key="LOCImageRotaterMenuManageCovers" xml:space="preserve">Artwork Manager...</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerWindowTitle" xml:space="preserve">Artwork Manager — {0} — {1}</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerOpenFailed" xml:space="preserve">Impossible d’ouvrir le gestionnaire d’illustrations.</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerHeadingBackgrounds" xml:space="preserve">Arrière-plans</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerHeadingCovers" xml:space="preserve">Jaquettes</sys:String>
@@ -177,6 +190,7 @@
     <sys:String x:Key="LOCImageRotaterManagerAddFiles" xml:space="preserve">Ajouter des fichiers...</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerDeleteSelected" xml:space="preserve">Supprimer la sélection</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerRefresh" xml:space="preserve">Actualiser</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerRightClickHint" xml:space="preserve">Clic droit sur un artwork pour plus d’options.</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerName" xml:space="preserve">Nom</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerType" xml:space="preserve">Type</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerSize" xml:space="preserve">Taille</sys:String>
@@ -194,8 +208,8 @@ Cette action est irréversible.</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerStill" xml:space="preserve">Image</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerAnimatedGif" xml:space="preserve">GIF</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerVideo" xml:space="preserve">Vidéo</sys:String>
-    <sys:String x:Key="LOCImageRotaterMenuBrowseBackgrounds" xml:space="preserve">Parcourir et gérer...</sys:String>
-    <sys:String x:Key="LOCImageRotaterMenuBrowseCovers" xml:space="preserve">Parcourir et gérer...</sys:String>
+    <sys:String x:Key="LOCImageRotaterMenuBrowseBackgrounds" xml:space="preserve">Artwork Manager...</sys:String>
+    <sys:String x:Key="LOCImageRotaterMenuBrowseCovers" xml:space="preserve">Artwork Manager...</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerAutomatic" xml:space="preserve">Téléchargement auto</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerHelp" xml:space="preserve">Gérez vos illustrations locales ou recherchez-en de nouvelles en ligne. Sélectionnez un élément pour le prévisualiser avant toute modification.</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerStoredBackgrounds" xml:space="preserve">Arrière-plans enregistrés</sys:String>
@@ -238,6 +252,16 @@ Les illustrations appliquées par ImageRotater seront remplacées par celles que
 
 Le MP4 est beaucoup plus léger et bénéficie du décodage vidéo matériel. Chaque GIF n’est supprimé qu’après la création du MP4.</sys:String>
     <sys:String x:Key="LOCImageRotaterConvertingArtwork" xml:space="preserve">Conversion des illustrations...</sys:String>
+    <sys:String x:Key="LOCImageRotaterProgressItems" xml:space="preserve">{0} / {1}</sys:String>
+    <sys:String x:Key="LOCImageRotaterProgressFile" xml:space="preserve">{0} / {1} — {2}</sys:String>
+    <sys:String x:Key="LOCImageRotaterRepairingVideosProgress" xml:space="preserve">Réparation des vidéos...</sys:String>
+    <sys:String x:Key="LOCImageRotaterRestoringOriginalsProgress" xml:space="preserve">Restauration des illustrations d’origine...</sys:String>
+    <sys:String x:Key="LOCImageRotaterRepairArtworkProgress" xml:space="preserve">Réparation de la bibliothèque d’illustrations...</sys:String>
+    <sys:String x:Key="LOCImageRotaterRepairReferencesProgress" xml:space="preserve">Vérification des références d’illustrations...</sys:String>
+    <sys:String x:Key="LOCImageRotaterCleaningPublishedProgress" xml:space="preserve">Nettoyage des illustrations publiées...</sys:String>
+    <sys:String x:Key="LOCImageRotaterResetProgress" xml:space="preserve">Réinitialisation de la bibliothèque ImageRotater...</sys:String>
+    <sys:String x:Key="LOCImageRotaterResetRestoringProgress" xml:space="preserve">Restauration des illustrations d’origine...</sys:String>
+    <sys:String x:Key="LOCImageRotaterResetDeletingProgress" xml:space="preserve">Suppression des illustrations ImageRotater...</sys:String>
     <sys:String x:Key="LOCImageRotaterRepairAllVideosQuestion" xml:space="preserve">Vérifier toutes les vidéos de la bibliothèque ImageRotater et réparer celles qui sont défectueuses ?
 
 Les vidéos téléchargées dans un format fragmenté peuvent apparaître entièrement noires. La réparation ne réécrit que le conteneur : aucune perte de qualité et les vidéos saines restent intactes.</sys:String>
@@ -400,4 +424,37 @@ Les fichiers seront supprimés.</sys:String>
     <sys:String x:Key="LOCImageRotaterDownloadingProgress" xml:space="preserve">Téléchargement {0} sur {1}…</sys:String>
     <sys:String x:Key="LOCImageRotaterDownloadComplete" xml:space="preserve">{0} {1} téléchargé(s).</sys:String>
     <sys:String x:Key="LOCImageRotaterDownloadFailed" xml:space="preserve">Échec du téléchargement. Consultez le journal Playnite pour plus de détails.</sys:String>
+
+    <sys:String x:Key="LOCImageRotaterPickDaily" xml:space="preserve">Quotidien</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackgroundPickDailyHint" xml:space="preserve">Utilise un arrière-plan pour toute la journée, puis passe à un autre le jour suivant.</sys:String>
+    <sys:String x:Key="LOCImageRotaterCoverPickDailyHint" xml:space="preserve">Utilise une jaquette pour toute la journée, puis passe à une autre le jour suivant.</sys:String>
+    <sys:String x:Key="LOCImageRotaterSelectionOrder" xml:space="preserve">Méthode de sélection des images</sys:String>
+    <sys:String x:Key="LOCImageRotaterSelectionOrderHint" xml:space="preserve">Détermine comment ImageRotater choisit l’image suivante. Le mode Image fixe ignore ce réglage.</sys:String>
+    <sys:String x:Key="LOCImageRotaterOrderRandom" xml:space="preserve">Aléatoire</sys:String>
+    <sys:String x:Key="LOCImageRotaterOrderRandomHint" xml:space="preserve">Choisit au hasard en évitant d’afficher deux fois de suite la même image.</sys:String>
+    <sys:String x:Key="LOCImageRotaterOrderSequential" xml:space="preserve">Séquentiel</sys:String>
+    <sys:String x:Key="LOCImageRotaterOrderSequentialHint" xml:space="preserve">Suit l’ordre défini dans l’Artwork Manager : 1 → 2 → 3 → 4 → 1.</sys:String>
+    <sys:String x:Key="LOCImageRotaterOrderShuffle" xml:space="preserve">Cycle mélangé</sys:String>
+    <sys:String x:Key="LOCImageRotaterOrderShuffleHint" xml:space="preserve">Utilise chaque image une fois dans un ordre mélangé avant de recommencer le cycle.</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerMoveUp" xml:space="preserve">↑ Monter</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerMoveDown" xml:space="preserve">↓ Descendre</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerMoveOrderHelp" xml:space="preserve">Modifie l’ordre utilisé par la sélection Séquentielle.</sys:String>
+
+    <sys:String x:Key="LOCImageRotaterPlaybackBehavior" xml:space="preserve">Comportement de lecture</sys:String>
+    <sys:String x:Key="LOCImageRotaterPauseWhenGameRunning" xml:space="preserve">Mettre en pause les animations et diaporamas pendant un jeu</sys:String>
+    <sys:String x:Key="LOCImageRotaterPauseWhenGameRunningHint" xml:space="preserve">Arrête les images animées et les changements de diaporama pendant qu’un jeu est lancé, puis reprend au retour dans Playnite.</sys:String>
+    <sys:String x:Key="LOCImageRotaterPauseWhenUnfocused" xml:space="preserve">Mettre les diaporamas en pause quand Playnite n’a pas le focus</sys:String>
+    <sys:String x:Key="LOCImageRotaterPauseWhenUnfocusedHint" xml:space="preserve">Évite du travail inutile lorsque Playnite est réduit ou qu’une autre application est active.</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerUseGlobal" xml:space="preserve">Utiliser les réglages globaux</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerGameRotationMode" xml:space="preserve">Mode de rotation du jeu</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerGameSelectionMethod" xml:space="preserve">Méthode de sélection</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerGameBehaviorHint" xml:space="preserve">Remplace les réglages uniquement pour ce jeu et ce type d’image.</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerExcludeRotation" xml:space="preserve">Exclure de la rotation</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerIncludeRotation" xml:space="preserve">Inclure dans la rotation</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerExcluded" xml:space="preserve">EXCLUE</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerMoveTop" xml:space="preserve">Placer en premier</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerMoveBottom" xml:space="preserve">Placer en dernier</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerOpenFileLocation" xml:space="preserve">Ouvrir l’emplacement du fichier</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerDeleteArtwork" xml:space="preserve">Supprimer l’image</sys:String>
+
 </ResourceDictionary>

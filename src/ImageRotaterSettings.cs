@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using System.Windows;
 using ImageRotater.Services;
+using ImageRotater.Models;
 using Newtonsoft.Json;
 using Playnite.SDK;
 
@@ -12,7 +14,18 @@ namespace ImageRotater
     {
         Session,        // Pick once per Playnite session; stays put while browsing
         EverySelection, // Re-pick each time the game is selected
-        Fixed           // Always the first image, alphabetically
+        Fixed,          // Always the fixed artwork
+        Slideshow,      // Keep rotating while the game remains selected
+        Daily,          // One artwork per calendar day
+        ViewRefresh     // Re-pick when the library view/filter is rebuilt
+    }
+
+    // How the next artwork is chosen whenever a rotation mode needs a new one.
+    public enum SelectionOrder
+    {
+        Random,      // Uniform random, avoiding the immediate previous artwork
+        Sequential,  // Follow the order configured in the Artwork Manager
+        Shuffle      // Random-looking cycle that uses every artwork before repeating
     }
 
     public enum VideoStartMode
@@ -21,11 +34,19 @@ namespace ImageRotater
         Random
     }
 
+    public class GameArtworkOverride
+    {
+        public SelectionMode? Mode { get; set; }
+        public SelectionOrder? Order { get; set; }
+    }
+
     public class ImageRotaterSettings : ObservableObject
     {
         private bool enableRotation = true;     // Master switch for the whole feature
         private bool enableDebugLogging = false; // Verbose log to ImageRotater.log
+        private DateTime? debugLoggingEnabledAtUtc;
         private SelectionMode selectionMode = SelectionMode.Session;
+        private SelectionOrder backgroundSelectionOrder = SelectionOrder.Random;
         private bool rotateBackgrounds = true;
         private bool rotateCovers = false;
         private VideoStartMode coverVideoStartMode = VideoStartMode.Beginning;
@@ -77,6 +98,7 @@ namespace ImageRotater
         // behaviour users asked for by name, and constant cover reshuffling
         // makes a grid read as noise.
         private SelectionMode coverSelectionMode = SelectionMode.Session;
+        private SelectionOrder coverSelectionOrder = SelectionOrder.Random;
 
         // Off by default. Every animated tile decodes frames continuously on
         // the UI thread, and Playnite is a 32-bit process - a screenful of them
@@ -84,22 +106,43 @@ namespace ImageRotater
         // element in every tile.
         private bool animateUnfocusedCovers = false;
 
-        // On by default: it only activates for picks that would otherwise
-        // trigger the visible re-fit, and the fill is a soft wash of the image
-        // itself rather than bars. Acquiring screen-shaped art in the first
-        // place is still the better path - the shape bias steers rotation
-        // there whenever a game has any.
-        private bool letterboxBackgrounds = true;
+        // Pause invisible work while a launched game owns the screen.
+        private bool pauseAnimationsWhenGameRunning = true;
+        private bool pauseSlideshowWhenUnfocused = true;
 
-        // On by default: it only changes anything for a game whose backgrounds
-        // differ in resolution, and there it removes a visible glitch.
-        //
-        // Playnite blurs the window background with a fixed-radius effect
-        // applied after the image is scaled, and decodes every background to
-        // the screen width - so sources of different resolutions end up blurred
-        // by visibly different amounts. Levelling the width makes consecutive
-        // picks blur identically.
-        private bool normaliseBackgroundSize = true;
+        // Legacy serialized values: older published versions exposed duration
+        // sliders. Keep these fields/properties so existing settings deserialize,
+        // but the runtime now ignores them and uses fixed per-style timing.
+        private int backgroundTransitionDurationMs = 400;
+        private int coverTransitionDurationMs = 400;
+
+        // Optional per-game behaviour. Keys are "{gameId:N}|{kind}". Missing
+        // values mean "use global settings" and therefore keep old installs small.
+        private Dictionary<string, GameArtworkOverride> gameArtworkOverrides =
+            new Dictionary<string, GameArtworkOverride>(StringComparer.OrdinalIgnoreCase);
+
+        // Off by default: letterboxing creates an additional processed background.
+        // It remains available for users who want unusual aspect ratios fitted
+        // instead of cropped, but the default path should stay as lightweight
+        // and close to Playnite native behaviour as possible.
+        private bool letterboxBackgrounds = false;
+
+        // Off by default: levelling background widths is optional visual polish for
+        // Playnite's native blur, and it requires maintaining processed copies.
+        // Users who want identical blur strength across mixed-resolution
+        // backgrounds can opt in; ordinary rotation should have no preprocessing
+        // cost by default.
+        private bool normaliseBackgroundSize = false;
+
+        // One-shot settings migration marker. Version 1 changes the historical
+        // defaults for the two optional background preprocessing features to
+        // OFF for existing installations as well. Once written, we never force
+        // them again, so a user can explicitly turn either option back on.
+        private int performanceDefaultsMigrationVersion = 0;
+
+        // One-shot migration for the dedicated Slideshow selection mode. Older
+        // versions stored slideshow timing separately from the selection mode.
+        private int slideshowModeMigrationVersion = 0;
 
         private string steamGridDbApiKey = string.Empty;
 
@@ -128,6 +171,21 @@ namespace ImageRotater
         {
             get => normaliseBackgroundSize;
             set { normaliseBackgroundSize = value; OnPropertyChanged(); }
+        }
+
+        // Internal migration state persisted with the normal settings. This is
+        // intentionally public for Newtonsoft/Playnite serialization, but it is
+        // not exposed in the settings UI.
+        public int PerformanceDefaultsMigrationVersion
+        {
+            get => performanceDefaultsMigrationVersion;
+            set => performanceDefaultsMigrationVersion = value;
+        }
+
+        public int SlideshowModeMigrationVersion
+        {
+            get => slideshowModeMigrationVersion;
+            set => slideshowModeMigrationVersion = value;
         }
 
         // Read by themes as {PluginSettings Plugin=ImageRotater, Path=EnableCoverImage}
@@ -275,17 +333,17 @@ namespace ImageRotater
             set { imagesRoot = value; OnPropertyChanged(); }
         }
 
-        // Change the selected game's background every N seconds while it stays
-        // selected. 0 = off. Backgrounds crossfade for free: Playnite's own
-        // background element animates source changes.
+        // Interval used by the dedicated Slideshow mode. The mode itself is
+        // what enables rotation; keeping the interval separate lets the user
+        // switch away and back without losing their preferred timing.
         public int BackgroundSlideshowSeconds
         {
             get => backgroundSlideshowSeconds;
             set { backgroundSlideshowSeconds = value; OnPropertyChanged(); }
         }
 
-        // Same, for the selected game's cover tile. Native tiles hard-swap -
-        // only a theme-hosted ImageRotater_Cover element can fade.
+        // Same for cover Slideshow mode. Native tiles hard-swap; a
+        // theme-hosted ImageRotater_Cover element can animate the transition.
         public int CoverSlideshowSeconds
         {
             get => coverSlideshowSeconds;
@@ -302,7 +360,121 @@ namespace ImageRotater
         public SelectionMode CoverSelectionMode
         {
             get => coverSelectionMode;
-            set { coverSelectionMode = value; OnPropertyChanged(); }
+            set
+            {
+                coverSelectionMode = value;
+                OnPropertyChanged();
+
+                if (value == SelectionMode.Slideshow && coverSlideshowSeconds < 1)
+                {
+                    coverSlideshowSeconds = 10;
+                    OnPropertyChanged(nameof(CoverSlideshowSeconds));
+                }
+            }
+        }
+
+
+        public SelectionOrder BackgroundSelectionOrder
+        {
+            get => backgroundSelectionOrder;
+            set { backgroundSelectionOrder = value; OnPropertyChanged(); }
+        }
+
+        public SelectionOrder CoverSelectionOrder
+        {
+            get => coverSelectionOrder;
+            set { coverSelectionOrder = value; OnPropertyChanged(); }
+        }
+
+        public bool PauseAnimationsWhenGameRunning
+        {
+            get => pauseAnimationsWhenGameRunning;
+            set { pauseAnimationsWhenGameRunning = value; OnPropertyChanged(); }
+        }
+
+        public bool PauseSlideshowWhenUnfocused
+        {
+            get => pauseSlideshowWhenUnfocused;
+            set { pauseSlideshowWhenUnfocused = value; OnPropertyChanged(); }
+        }
+
+        public int BackgroundTransitionDurationMs
+        {
+            get => backgroundTransitionDurationMs;
+            set { backgroundTransitionDurationMs = Math.Max(100, Math.Min(2000, value)); OnPropertyChanged(); }
+        }
+
+        public int CoverTransitionDurationMs
+        {
+            get => coverTransitionDurationMs;
+            set { coverTransitionDurationMs = Math.Max(100, Math.Min(2000, value)); OnPropertyChanged(); }
+        }
+
+        public Dictionary<string, GameArtworkOverride> GameArtworkOverrides
+        {
+            get => gameArtworkOverrides ?? (gameArtworkOverrides = new Dictionary<string, GameArtworkOverride>(StringComparer.OrdinalIgnoreCase));
+            set => gameArtworkOverrides = value ?? new Dictionary<string, GameArtworkOverride>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static string OverrideKey(Guid gameId, ArtworkKind kind)
+        {
+            return gameId.ToString("N") + "|" + (int)kind;
+        }
+
+        public SelectionMode GetSelectionMode(Guid gameId, ArtworkKind kind, SelectionMode fallback)
+        {
+            GameArtworkOverride value;
+            SelectionMode mode = GameArtworkOverrides.TryGetValue(OverrideKey(gameId, kind), out value) && value != null && value.Mode.HasValue
+                ? value.Mode.Value
+                : fallback;
+
+            // Experimental ViewRefresh was retired. Keep the enum value only so
+            // settings written by the test build can still be loaded safely.
+            return mode == SelectionMode.ViewRefresh ? SelectionMode.Session : mode;
+        }
+
+        public SelectionOrder GetSelectionOrder(Guid gameId, ArtworkKind kind, SelectionOrder fallback)
+        {
+            GameArtworkOverride value;
+            return GameArtworkOverrides.TryGetValue(OverrideKey(gameId, kind), out value) && value != null && value.Order.HasValue
+                ? value.Order.Value
+                : fallback;
+        }
+
+        public SelectionMode? GetSelectionModeOverride(Guid gameId, ArtworkKind kind)
+        {
+            GameArtworkOverride value;
+            return GameArtworkOverrides.TryGetValue(OverrideKey(gameId, kind), out value) && value != null ? value.Mode : null;
+        }
+
+        public SelectionOrder? GetSelectionOrderOverride(Guid gameId, ArtworkKind kind)
+        {
+            GameArtworkOverride value;
+            return GameArtworkOverrides.TryGetValue(OverrideKey(gameId, kind), out value) && value != null ? value.Order : null;
+        }
+
+        public void SetSelectionModeOverride(Guid gameId, ArtworkKind kind, SelectionMode? value)
+        {
+            SetGameOverride(gameId, kind, value, GetSelectionOrderOverride(gameId, kind));
+        }
+
+        public void SetSelectionOrderOverride(Guid gameId, ArtworkKind kind, SelectionOrder? value)
+        {
+            SetGameOverride(gameId, kind, GetSelectionModeOverride(gameId, kind), value);
+        }
+
+        private void SetGameOverride(Guid gameId, ArtworkKind kind, SelectionMode? mode, SelectionOrder? order)
+        {
+            string key = OverrideKey(gameId, kind);
+            if (!mode.HasValue && !order.HasValue)
+            {
+                GameArtworkOverrides.Remove(key);
+            }
+            else
+            {
+                GameArtworkOverrides[key] = new GameArtworkOverride { Mode = mode, Order = order };
+            }
+            OnPropertyChanged(nameof(GameArtworkOverrides));
         }
 
         public VideoStartMode CoverVideoStartMode
@@ -393,7 +565,17 @@ namespace ImageRotater
         public SelectionMode SelectionMode
         {
             get => selectionMode;
-            set { selectionMode = value; OnPropertyChanged(); }
+            set
+            {
+                selectionMode = value;
+                OnPropertyChanged();
+
+                if (value == SelectionMode.Slideshow && backgroundSlideshowSeconds < 1)
+                {
+                    backgroundSlideshowSeconds = 10;
+                    OnPropertyChanged(nameof(BackgroundSlideshowSeconds));
+                }
+            }
         }
 
         // How one still replaces another, Desktop and Fullscreen alike. Read
@@ -415,10 +597,34 @@ namespace ImageRotater
             set { backgroundTransition = value; OnPropertyChanged(); }
         }
 
+        public DateTime? DebugLoggingEnabledAtUtc
+        {
+            get => debugLoggingEnabledAtUtc;
+            set => debugLoggingEnabledAtUtc = value;
+        }
+
         public bool EnableDebugLogging
         {
             get => enableDebugLogging;
-            set { enableDebugLogging = value; OnPropertyChanged(); }
+            set
+            {
+                if (enableDebugLogging == value)
+                {
+                    return;
+                }
+
+                enableDebugLogging = value;
+                if (value && !debugLoggingEnabledAtUtc.HasValue)
+                {
+                    debugLoggingEnabledAtUtc = DateTime.UtcNow;
+                }
+                else if (!value)
+                {
+                    debugLoggingEnabledAtUtc = null;
+                }
+
+                OnPropertyChanged();
+            }
         }
     }
 
@@ -462,16 +668,18 @@ namespace ImageRotater
                 return;
             }
 
-            // A path can be typed as well as browsed, and a typed one would
-            // otherwise keep the status from whatever was in the box when the
-            // page opened. Cheap to re-probe: ToolProbe caches by path and
-            // mtime, so this only shells out when the path actually resolves
-            // somewhere new.
+            // Tool validation launches the external executables, so never do it
+            // synchronously on the UI thread. Paths only live on the Tools page;
+            // once that page has been opened, refresh in the background as they
+            // change.
             if (e.PropertyName == nameof(ImageRotaterSettings.FfmpegPath)
                 || e.PropertyName == nameof(ImageRotaterSettings.YtDlpPath)
                 || e.PropertyName == nameof(ImageRotaterSettings.DenoPath))
             {
-                UpdateToolStatus();
+                if (_toolStatusLoaded)
+                {
+                    RefreshToolStatusAsync();
+                }
             }
         }
 
@@ -481,6 +689,104 @@ namespace ImageRotater
 
             var saved = plugin.LoadPluginSettings<ImageRotaterSettings>();
             Settings = saved ?? new ImageRotaterSettings();
+
+            bool settingsChangedByMigration = false;
+
+            // Retire the experimental ViewRefresh mode cleanly. Session is the
+            // closest stable behaviour to what the mode was meant to provide.
+            if (Settings.SelectionMode == SelectionMode.ViewRefresh)
+            {
+                Settings.SelectionMode = SelectionMode.Session;
+                settingsChangedByMigration = true;
+            }
+
+            if (Settings.CoverSelectionMode == SelectionMode.ViewRefresh)
+            {
+                Settings.CoverSelectionMode = SelectionMode.Session;
+                settingsChangedByMigration = true;
+            }
+
+            foreach (var entry in Settings.GameArtworkOverrides.Values)
+            {
+                if (entry != null && entry.Mode == SelectionMode.ViewRefresh)
+                {
+                    entry.Mode = SelectionMode.Session;
+                    settingsChangedByMigration = true;
+                }
+            }
+
+            // Performance defaults migration v1. Older releases enabled both
+            // background preprocessing features by default, so existing users
+            // who never touched the settings would otherwise keep paying their
+            // cost after updating. Force them OFF once during the update. The
+            // marker is persisted immediately; after that, an explicit user
+            // choice to turn either feature back ON is respected forever.
+            if (Settings.PerformanceDefaultsMigrationVersion < 1)
+            {
+                Settings.LetterboxBackgrounds = false;
+                Settings.NormaliseBackgroundSize = false;
+                Settings.PerformanceDefaultsMigrationVersion = 1;
+                settingsChangedByMigration = true;
+            }
+
+            // Slideshow mode migration v1. Previously the timer was an
+            // independent option layered over Session / Every Selection /
+            // Fixed. If an existing user had a real slideshow interval active,
+            // preserve that intent by moving that artwork kind to the new
+            // dedicated Slideshow mode.
+            if (Settings.SlideshowModeMigrationVersion < 1)
+            {
+                if (Settings.BackgroundSlideshowSeconds >= 1)
+                {
+                    Settings.SelectionMode = SelectionMode.Slideshow;
+                }
+
+                if (Settings.CoverSlideshowSeconds >= 1)
+                {
+                    Settings.CoverSelectionMode = SelectionMode.Slideshow;
+                }
+
+                Settings.SlideshowModeMigrationVersion = 1;
+                settingsChangedByMigration = true;
+            }
+
+            // Older settings files predate the timestamp. Give an already
+            // enabled diagnostic session a fresh 24-hour window instead of
+            // disabling it immediately during migration.
+            if (Settings.EnableDebugLogging && !Settings.DebugLoggingEnabledAtUtc.HasValue)
+            {
+                Settings.DebugLoggingEnabledAtUtc = DateTime.UtcNow;
+                settingsChangedByMigration = true;
+            }
+
+            if (settingsChangedByMigration)
+            {
+                plugin.SavePluginSettings(Settings);
+            }
+        }
+
+        public void ExpireDebugLoggingIfNeeded()
+        {
+            if (Settings == null || !Settings.EnableDebugLogging)
+            {
+                return;
+            }
+
+            DateTime enabledAt = Settings.DebugLoggingEnabledAtUtc ?? DateTime.UtcNow;
+            if (!Settings.DebugLoggingEnabledAtUtc.HasValue)
+            {
+                Settings.DebugLoggingEnabledAtUtc = enabledAt;
+                plugin.SavePluginSettings(Settings);
+                return;
+            }
+
+            if (DateTime.UtcNow - enabledAt < TimeSpan.FromHours(24))
+            {
+                return;
+            }
+
+            Settings.EnableDebugLogging = false;
+            plugin.SavePluginSettings(Settings);
         }
 
         // External tool status, following the pattern FullVid and UniPlaySong
@@ -492,6 +798,22 @@ namespace ImageRotater
         private SetupStatus _ytDlpStatus = SetupStatus.Neutral(string.Empty);
         private SetupStatus _denoStatus = SetupStatus.Neutral(string.Empty);
         private SetupStatus _apiKeyStatus = SetupStatus.Neutral(string.Empty);
+        private bool _toolStatusLoaded;
+        private int _toolProbeGeneration;
+        private readonly object _toolProbeLock = new object();
+
+        private sealed class ToolProbeSnapshot
+        {
+            public string FfmpegConfigured;
+            public string FfmpegResolved;
+            public string FfmpegResult;
+            public string YtDlpConfigured;
+            public string YtDlpResolved;
+            public string YtDlpResult;
+            public string DenoConfigured;
+            public string DenoResolved;
+            public string DenoResult;
+        }
 
         public SetupStatus FfmpegStatus
         {
@@ -633,6 +955,11 @@ namespace ImageRotater
             }
         }
 
+        public RelayCommand<object> OpenDebugLogFolder => new RelayCommand<object>(a =>
+        {
+            plugin?.OpenDebugLogFolder();
+        });
+
         public RelayCommand<object> BrowseFfmpeg => new RelayCommand<object>(a =>
         {
             string path = plugin?.PlayniteApi?.Dialogs?.SelectFile(
@@ -641,7 +968,6 @@ namespace ImageRotater
             if (!string.IsNullOrWhiteSpace(path))
             {
                 Settings.FfmpegPath = path;
-                UpdateToolStatus();
             }
         });
 
@@ -653,7 +979,6 @@ namespace ImageRotater
             if (!string.IsNullOrWhiteSpace(path))
             {
                 Settings.DenoPath = path;
-                UpdateToolStatus();
             }
         });
 
@@ -665,7 +990,6 @@ namespace ImageRotater
             if (!string.IsNullOrWhiteSpace(path))
             {
                 Settings.YtDlpPath = path;
-                UpdateToolStatus();
             }
         });
 
@@ -678,57 +1002,99 @@ namespace ImageRotater
         // explicit when it is not - and a user who later moves the tool would
         // then have a stale path pinned rather than a search that follows it.
 
-        // Re-probes both tools. Cheap to call - ToolProbe caches by path and
-        // mtime, so reopening Settings does not re-shell.
-        //
-        // Probing RUNS each tool rather than checking the file exists: a
-        // corrupt download or a wrong-architecture build passes File.Exists and
-        // then fails at the moment the user wanted the feature.
-        public void UpdateToolStatus()
+        // Tool probing launches ffmpeg / yt-dlp / deno. Keep it lazy (only
+        // when Tools is actually opened) and off the UI thread so opening the
+        // settings window stays instant.
+        public void EnsureToolStatusLoaded()
         {
-            // An empty box means "search PATH", so status reflects what would
-            // actually be used rather than what was typed.
-            string ffmpeg = Services.ExternalTool.Resolve(
-                Settings.FfmpegPath, Services.ExternalTool.FfmpegExe);
+            if (_toolStatusLoaded)
+            {
+                return;
+            }
 
-            string ytDlp = Services.ExternalTool.Resolve(
-                Settings.YtDlpPath, Services.ExternalTool.YtDlpExe);
-
-            FfmpegStatus = DescribeTool(
-                ffmpeg, Settings?.FfmpegPath, Services.ToolProbe.FfmpegVersionFlag, "ffmpeg");
-
-            YtDlpStatus = DescribeTool(
-                ytDlp, Settings?.YtDlpPath, Services.ToolProbe.YtDlpVersionFlag, "yt-dlp");
-
-            string deno = Services.ExternalTool.Resolve(
-                Settings?.DenoPath, Services.ExternalTool.DenoExe);
-
-            DenoStatus = DescribeDeno(deno, Settings?.DenoPath, ytDlp);
+            _toolStatusLoaded = true;
+            RefreshToolStatusAsync();
         }
 
-        // deno gets its own wording because its absence only matters once
-        // yt-dlp is present: on its own it is a JS runtime the plugin never
-        // calls. Saying "not found" next to an unconfigured yt-dlp would be
-        // pointing at the second problem while the first is still open.
-        private SetupStatus DescribeDeno(string resolved, string configured, string ytDlp)
+        public async void RefreshToolStatusAsync()
         {
-            const string Flag = Services.ToolProbe.YtDlpVersionFlag;
+            int generation = ++_toolProbeGeneration;
 
-            if (_probe.Works(resolved, Flag))
+            string ffmpegConfigured = Settings?.FfmpegPath;
+            string ytDlpConfigured = Settings?.YtDlpPath;
+            string denoConfigured = Settings?.DenoPath;
+
+            SetupStatus checking = SetupStatus.Neutral(Loc.Get("LOCImageRotaterCheckingTools"));
+            FfmpegStatus = checking;
+            YtDlpStatus = checking;
+            DenoStatus = checking;
+
+            ToolProbeSnapshot snapshot;
+
+            try
+            {
+                snapshot = await Task.Run(() =>
+                {
+                    lock (_toolProbeLock)
+                    {
+                        string ffmpeg = Services.ExternalTool.Resolve(
+                            ffmpegConfigured, Services.ExternalTool.FfmpegExe);
+                        string ytDlp = Services.ExternalTool.Resolve(
+                            ytDlpConfigured, Services.ExternalTool.YtDlpExe);
+                        string deno = Services.ExternalTool.Resolve(
+                            denoConfigured, Services.ExternalTool.DenoExe);
+
+                        return new ToolProbeSnapshot
+                        {
+                            FfmpegConfigured = ffmpegConfigured,
+                            FfmpegResolved = ffmpeg,
+                            FfmpegResult = _probe.Probe(ffmpeg, Services.ToolProbe.FfmpegVersionFlag),
+                            YtDlpConfigured = ytDlpConfigured,
+                            YtDlpResolved = ytDlp,
+                            YtDlpResult = _probe.Probe(ytDlp, Services.ToolProbe.YtDlpVersionFlag),
+                            DenoConfigured = denoConfigured,
+                            DenoResolved = deno,
+                            DenoResult = _probe.Probe(deno, Services.ToolProbe.YtDlpVersionFlag)
+                        };
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                LogManager.GetLogger().Warn(ex, "ImageRotater: external tool status probe failed");
+                return;
+            }
+
+            // A path may have changed while a previous probe was still running.
+            // Only the newest request is allowed to update the UI.
+            if (generation != _toolProbeGeneration)
+            {
+                return;
+            }
+
+            FfmpegStatus = DescribeToolResult(
+                snapshot.FfmpegResult, snapshot.FfmpegConfigured, "ffmpeg");
+            YtDlpStatus = DescribeToolResult(
+                snapshot.YtDlpResult, snapshot.YtDlpConfigured, "yt-dlp");
+            DenoStatus = DescribeDenoResult(
+                snapshot.DenoResult, snapshot.DenoConfigured, snapshot.YtDlpResult);
+        }
+
+        private SetupStatus DescribeDenoResult(string result, string configured, string ytDlpResult)
+        {
+            if (ToolProbeWorked(result))
             {
                 bool onPath = string.IsNullOrWhiteSpace(configured);
-                string version = _probe.Probe(resolved, Flag);
-
-                return SetupStatus.Ok(onPath ? Loc.Format("LOCImageRotaterOnPath", version) : version);
+                return SetupStatus.Ok(onPath ? Loc.Format("LOCImageRotaterOnPath", result) : result);
             }
 
             if (!string.IsNullOrWhiteSpace(configured))
             {
                 return SetupStatus.Problem(
-                    Loc.Format("LOCImageRotaterBadToolPath", _probe.Probe(resolved, Flag), "deno"));
+                    Loc.Format("LOCImageRotaterBadToolPath", result, "deno"));
             }
 
-            if (!_probe.Works(ytDlp, Services.ToolProbe.YtDlpVersionFlag))
+            if (!ToolProbeWorked(ytDlpResult))
             {
                 return SetupStatus.Neutral(Loc.Get("LOCImageRotaterDenoOnlyNeeded"));
             }
@@ -736,40 +1102,40 @@ namespace ImageRotater
             return SetupStatus.Neutral(Loc.Get("LOCImageRotaterDenoNotFound"));
         }
 
-        // Turns a probe result into the line under the box.
-        //
-        // Three outcomes, not two. A tool that is simply absent gets no cross:
-        // both are optional, and a red mark against a user who never wanted
-        // YouTube import reads as something being broken. The cross is kept
-        // for a path that was SET and does not work, which is a real mistake.
-        private SetupStatus DescribeTool(
-            string resolved, string configured, string versionFlag, string name)
+        private SetupStatus DescribeToolResult(string result, string configured, string name)
         {
-            string result = _probe.Probe(resolved, versionFlag);
-
-            if (_probe.Works(resolved, versionFlag))
+            if (ToolProbeWorked(result))
             {
                 bool onPath = string.IsNullOrWhiteSpace(configured);
-
                 return SetupStatus.Ok(onPath ? Loc.Format("LOCImageRotaterOnPath", result) : result);
             }
 
             if (string.IsNullOrWhiteSpace(configured))
             {
-                return SetupStatus.Neutral(
-                    Loc.Format("LOCImageRotaterToolNotFound", name));
+                return SetupStatus.Neutral(Loc.Format("LOCImageRotaterToolNotFound", name));
             }
 
             return SetupStatus.Problem(Loc.Format("LOCImageRotaterBadToolPath", result, name));
+        }
+
+        private static bool ToolProbeWorked(string result)
+        {
+            return !string.IsNullOrEmpty(result)
+                && result.StartsWith("Found", StringComparison.Ordinal);
         }
 
         // Snapshot for cancel. Deep clone via JSON so every property is covered
         // automatically as settings are added.
         public void BeginEdit()
         {
-            // Probed on open, so the page tells the user what is available
-            // before they go looking for a feature that is not.
-            UpdateToolStatus();
+            // Do not launch external tools here. Most users never open Tools,
+            // and blocking BeginEdit was making ImageRotater settings visibly
+            // slower to open than other plugins.
+            _toolStatusLoaded = false;
+            ++_toolProbeGeneration;
+            FfmpegStatus = SetupStatus.Neutral(string.Empty);
+            YtDlpStatus = SetupStatus.Neutral(string.Empty);
+            DenoStatus = SetupStatus.Neutral(string.Empty);
 
             editingClone = JsonConvert.DeserializeObject<ImageRotaterSettings>(
                 JsonConvert.SerializeObject(Settings));
@@ -782,6 +1148,8 @@ namespace ImageRotater
 
         public void EndEdit()
         {
+            bool debugWasEnabled = editingClone?.EnableDebugLogging == true;
+
             plugin.SavePluginSettings(Settings);
 
             // The converter reads a static path rather than the settings
@@ -795,6 +1163,7 @@ namespace ImageRotater
             // Toggled settings apply on the next selection, not whenever each
             // game happens to rotate again.
             plugin?.NotifySettingsSaved();
+            plugin?.NotifyDebugLoggingSaved(debugWasEnabled);
         }
 
         // Playnite calls this on Save. Returning false keeps the window open

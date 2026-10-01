@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using Playnite.SDK;
@@ -136,7 +136,6 @@ namespace ImageRotater.Services
                 }
 
                 File.Copy(sourcePath, target);
-                Logger.Info($"ImageRotater: preserved original {kind} for \"{game.Name}\" as {Path.GetFileName(target)}");
 
                 return target;
             }

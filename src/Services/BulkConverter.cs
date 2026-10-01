@@ -66,7 +66,7 @@ namespace ImageRotater.Services
         }
 
         // Every GIF in the library, converted to MP4.
-        public static Result GifsToMp4(GameImageStore store)
+        public static Result GifsToMp4(GameImageStore store, Action<int, int, string> onProgress = null, Func<bool> isCancelled = null)
         {
             var result = new Result();
 
@@ -76,11 +76,18 @@ namespace ImageRotater.Services
                 return result;
             }
 
-            foreach (string file in EveryArtworkFile(store))
+            List<string> files = EveryArtworkFile(store)
+                .Where(file => file.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            onProgress?.Invoke(0, files.Count, null);
+            int done = 0;
+
+            foreach (string file in files)
             {
-                if (!file.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+                if (isCancelled?.Invoke() == true)
                 {
-                    continue;
+                    break;
                 }
 
                 // A single-frame GIF is a still, and turning it into a video
@@ -88,10 +95,13 @@ namespace ImageRotater.Services
                 if (!GifConverter.IsConvertible(file))
                 {
                     result.Skipped++;
-                    continue;
+                }
+                else
+                {
+                    Convert(file, result, () => GifConverter.Convert(file));
                 }
 
-                Convert(file, result, () => GifConverter.Convert(file));
+                onProgress?.Invoke(++done, files.Count, file);
             }
 
             return result;
@@ -104,7 +114,7 @@ namespace ImageRotater.Services
         // playing while rendering solid black, and desktop players refuse it
         // outright. A stream copy fixes the container without touching the
         // video.
-        public static Result RepairVideos(GameImageStore store)
+        public static Result RepairVideos(GameImageStore store, Action<int, int, string> onProgress = null, Func<bool> isCancelled = null)
         {
             var result = new Result();
 
@@ -120,15 +130,24 @@ namespace ImageRotater.Services
             // rotation, and a fragmented current.mp4 is what the theme is
             // showing as black RIGHT NOW. Repairing it in place fixes the tile
             // without waiting.
-            foreach (string file in EveryArtworkFile(store)
-                .Concat(EveryPublishedVideo(store)))
+            List<string> files = EveryArtworkFile(store)
+                .Concat(EveryPublishedVideo(store))
+                .Where(file => file.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            onProgress?.Invoke(0, files.Count, null);
+            int done = 0;
+
+            foreach (string file in files)
             {
-                if (!file.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
+                if (isCancelled?.Invoke() == true)
                 {
-                    continue;
+                    break;
                 }
 
                 RemuxInto(file, result);
+                onProgress?.Invoke(++done, files.Count, file);
             }
 
             return result;

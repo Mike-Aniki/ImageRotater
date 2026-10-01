@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using Playnite.SDK;
 
@@ -43,7 +43,7 @@ namespace ImageRotater.Services
             _store = store;
         }
 
-        public Result Run()
+        public Result Run(Action<string, int, int> onProgress = null)
         {
             var result = new Result();
 
@@ -52,7 +52,8 @@ namespace ImageRotater.Services
                 // Restore FIRST, while the preserved originals still exist.
                 if (_writer != null)
                 {
-                    result.GamesRestored = _writer.RestoreAll();
+                    result.GamesRestored = _writer.RestoreAll((done, total) =>
+                        onProgress?.Invoke(Loc.Get("LOCImageRotaterResetRestoringProgress"), done, total));
                 }
             }
             catch (Exception ex)
@@ -96,7 +97,11 @@ namespace ImageRotater.Services
             // call. One locked file - a video the UI still has open - would
             // otherwise abort the whole delete partway through, leaving an
             // arbitrary half of the library cleared.
-            foreach (string folder in SafeGetDirectories(root))
+            string[] folders = SafeGetDirectories(root);
+            onProgress?.Invoke(Loc.Get("LOCImageRotaterResetDeletingProgress"), 0, folders.Length);
+            int foldersDone = 0;
+
+            foreach (string folder in folders)
             {
                 try
                 {
@@ -108,6 +113,8 @@ namespace ImageRotater.Services
                     result.FoldersFailed++;
                     Logger.Warn(ex, "ImageRotater: could not delete " + folder);
                 }
+
+                onProgress?.Invoke(Loc.Get("LOCImageRotaterResetDeletingProgress"), ++foldersDone, folders.Length);
             }
 
             return result;

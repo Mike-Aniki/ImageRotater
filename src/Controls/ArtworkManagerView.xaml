@@ -89,6 +89,121 @@
             <Setter Property="Foreground" Value="#F2A0A0"/>
         </Style>
 
+        <Style x:Key="ManagerComboItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="#F3F6F8"/>
+            <Setter Property="Background" Value="#172127"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemRoot" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemRoot" Property="Background" Value="#24414A"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemRoot" Property="Background" Value="#1D5360"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ManagerComboStyle" TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Background" Value="#172127"/>
+            <Setter Property="Foreground" Value="#F3F6F8"/>
+            <Setter Property="BorderBrush" Value="#43515A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource ManagerComboItemStyle}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="DropDownToggle"
+                                          Focusable="False"
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          ClickMode="Press">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="ComboRoot"
+                                                Background="{Binding Background, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                BorderBrush="{Binding BorderBrush, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                BorderThickness="{Binding BorderThickness, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                CornerRadius="7">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="30"/>
+                                                </Grid.ColumnDefinitions>
+                                                <ContentPresenter Grid.Column="0"
+                                                                  Margin="10,0,4,0"
+                                                                  HorizontalAlignment="Left"
+                                                                  VerticalAlignment="Center"
+                                                                  Content="{Binding SelectionBoxItem, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                                  ContentTemplate="{Binding SelectionBoxItemTemplate, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                                  TextElement.Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ComboBox}}"/>
+                                                <Path Grid.Column="1"
+                                                      Data="M 0 0 L 4 4 L 8 0 Z"
+                                                      Fill="#AAB5BC"
+                                                      Width="8" Height="4"
+                                                      Stretch="Fill"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="ComboRoot" Property="Background" Value="#1D2B32"/>
+                                                <Setter TargetName="ComboRoot" Property="BorderBrush" Value="#55707A"/>
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="ComboRoot" Property="BorderBrush" Value="#39C6D4"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <Popup x:Name="PART_Popup"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   Placement="Top"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   PopupAnimation="Fade">
+                                <Border Background="#172127"
+                                        BorderBrush="#43515A"
+                                        BorderThickness="1"
+                                        CornerRadius="7"
+                                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                        Margin="0,0,0,3">
+                                    <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter Property="BorderBrush" Value="#39C6D4"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- The TabControl is kept only as an internal page host. Its native tab strip is
              intentionally not rendered because Playnite themes can alter/crop TabItem chrome. -->
         <Style x:Key="ManagerTabControlStyle" TargetType="TabControl">
@@ -243,6 +358,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Grid Grid.Row="0">
                         <Grid.ColumnDefinitions>
@@ -285,7 +401,22 @@
                                               ItemContainerStyle="{StaticResource ArtworkListItemStyle}"
                                               SelectionChanged="ItemsList_SelectionChanged"
                                               MouseDoubleClick="ItemsList_MouseDoubleClick"
+                                              PreviewMouseRightButtonDown="ItemsList_PreviewMouseRightButtonDown"
                                               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                        <ListView.ContextMenu>
+                                            <ContextMenu Opened="ArtworkContextMenu_Opened">
+                                                <MenuItem Header="{DynamicResource LOCImageRotaterManagerSetFixedArtwork}" Click="ContextSetFixed_Click"/>
+                                                <MenuItem x:Name="ToggleExcludeMenuItem" Header="{DynamicResource LOCImageRotaterManagerExcludeRotation}" Click="ContextToggleExclude_Click"/>
+                                                <Separator/>
+                                                <MenuItem Header="{DynamicResource LOCImageRotaterManagerMoveUp}" Click="ContextMoveUp_Click"/>
+                                                <MenuItem Header="{DynamicResource LOCImageRotaterManagerMoveDown}" Click="ContextMoveDown_Click"/>
+                                                <MenuItem Header="{DynamicResource LOCImageRotaterManagerMoveTop}" Click="ContextMoveTop_Click"/>
+                                                <MenuItem Header="{DynamicResource LOCImageRotaterManagerMoveBottom}" Click="ContextMoveBottom_Click"/>
+                                                <Separator/>
+                                                <MenuItem Header="{DynamicResource LOCImageRotaterManagerOpenFileLocation}" Click="ContextOpenFileLocation_Click"/>
+                                                <MenuItem x:Name="DeleteArtworkMenuItem" Header="{DynamicResource LOCImageRotaterManagerDeleteArtwork}" Click="ContextDelete_Click"/>
+                                            </ContextMenu>
+                                        </ListView.ContextMenu>
                                         <ListView.ItemTemplate>
                                             <DataTemplate>
                                                 <Grid>
@@ -328,26 +459,18 @@
                                                                 <ColumnDefinition Width="Auto"/>
                                                                 <ColumnDefinition Width="*"/>
                                                             </Grid.ColumnDefinitions>
-                                                            <Border Grid.Column="0"
-                                                                    Visibility="{Binding FixedBadgeVisibility}"
-                                                                    Background="#173640"
-                                                                    BorderBrush="{StaticResource ManagerAccentBrush}"
-                                                                    BorderThickness="1"
-                                                                    CornerRadius="4"
-                                                                    Padding="5,1"
-                                                                    Margin="0,0,8,0"
-                                                                    VerticalAlignment="Center">
-                                                                <TextBlock Text="{DynamicResource LOCImageRotaterFixedArtwork}"
-                                                                           Foreground="{StaticResource ManagerAccentBrush}"
-                                                                           FontSize="9"
-                                                                           FontWeight="Bold"/>
-                                                            </Border>
-                                                            <TextBlock Grid.Column="1"
-                                                                       Text="{Binding Name}"
-                                                                       Foreground="White"
-                                                                       FontWeight="SemiBold"
-                                                                       TextTrimming="CharacterEllipsis"
-                                                                       ToolTip="{Binding Name}"/>
+                                                            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                                                <Border Background="#202C33" BorderBrush="#52616A" BorderThickness="1" CornerRadius="4" Padding="5,1" Margin="0,0,6,0">
+                                                                    <TextBlock Text="{Binding OrderLabel}" Foreground="#CAD4D9" FontSize="9" FontWeight="Bold"/>
+                                                                </Border>
+                                                                <Border Visibility="{Binding FixedBadgeVisibility}" Background="#173640" BorderBrush="{StaticResource ManagerAccentBrush}" BorderThickness="1" CornerRadius="4" Padding="5,1" Margin="0,0,6,0">
+                                                                    <TextBlock Text="{DynamicResource LOCImageRotaterFixedArtwork}" Foreground="{StaticResource ManagerAccentBrush}" FontSize="9" FontWeight="Bold"/>
+                                                                </Border>
+                                                                <Border Visibility="{Binding ExcludedBadgeVisibility}" Background="#382326" BorderBrush="#B96B72" BorderThickness="1" CornerRadius="4" Padding="5,1" Margin="0,0,8,0">
+                                                                    <TextBlock Text="{DynamicResource LOCImageRotaterManagerExcluded}" Foreground="#F0A0A7" FontSize="9" FontWeight="Bold"/>
+                                                                </Border>
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="White" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
                                                         </Grid>
                                                         <TextBlock Text="{Binding DetailsLabel}"
                                                                    Foreground="{StaticResource ManagerMutedBrush}"
@@ -468,49 +591,100 @@
                         </Border>
                     </Grid>
 
-                    <!-- One predictable action bar: no split navigation and no duplicate Search action. -->
-                    <StackPanel x:Name="LocalActionsPanel"
-                                Grid.Row="1"
-                                Margin="0,14,0,0"
-                                Orientation="Horizontal"
-                                HorizontalAlignment="Left">
-                        <Button x:Name="AddButton"
-                                Content="{DynamicResource LOCImageRotaterManagerAddArtwork}"
-                                Style="{StaticResource ManagerSecondaryButtonStyle}"
-                                MinWidth="125"
-                                Margin="0,0,8,0"
-                                Click="AddButton_Click"/>
-                        <Button x:Name="AutomaticButton"
-                                Content="{DynamicResource LOCImageRotaterManagerAutoFind}"
-                                Style="{StaticResource ManagerSecondaryButtonStyle}"
-                                MinWidth="165"
-                                Margin="0,0,16,0"
-                                Click="AutomaticButton_Click"/>
-                        <Button x:Name="SetFixedArtworkButton"
-                                Content="{DynamicResource LOCImageRotaterManagerSetFixedArtwork}"
-                                ToolTip="{DynamicResource LOCImageRotaterManagerSetFixedArtworkHelp}"
-                                Style="{StaticResource ManagerSecondaryButtonStyle}"
-                                MinWidth="150"
-                                Margin="0,0,16,0"
-                                Click="SetFixedArtworkButton_Click"/>
-                        <Button x:Name="OpenFolderButton"
-                                Content="{DynamicResource LOCImageRotaterMenuOpenFolder}"
-                                Style="{StaticResource ManagerSecondaryButtonStyle}"
-                                MinWidth="105"
-                                Margin="0,0,8,0"
-                                Click="OpenFolderButton_Click"/>
-                        <Button x:Name="RefreshButton"
-                                Content="{DynamicResource LOCImageRotaterManagerRefresh}"
-                                Style="{StaticResource ManagerSecondaryButtonStyle}"
-                                MinWidth="90"
-                                Margin="0,0,16,0"
-                                Click="RefreshButton_Click"/>
-                        <Button x:Name="DeleteButton"
-                                Content="{DynamicResource LOCImageRotaterManagerDeleteSelected}"
-                                Style="{StaticResource ManagerDangerButtonStyle}"
-                                MinWidth="130"
-                                Click="DeleteButton_Click"/>
-                    </StackPanel>
+                    <Border Grid.Row="1" Style="{StaticResource ManagerCardStyle}" Padding="12" Margin="0,14,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="220"/>
+                                <ColumnDefinition Width="28"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="220"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{DynamicResource LOCImageRotaterManagerGameRotationMode}" Foreground="{StaticResource ManagerMutedBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ComboBox x:Name="GameModeOverrideCombo" Grid.Column="1" Style="{StaticResource ManagerComboStyle}" DisplayMemberPath="Label" SelectionChanged="GameModeOverrideCombo_SelectionChanged"/>
+                            <TextBlock Grid.Column="3" Text="{DynamicResource LOCImageRotaterManagerGameSelectionMethod}" Foreground="{StaticResource ManagerMutedBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ComboBox x:Name="GameOrderOverrideCombo" Grid.Column="4" Style="{StaticResource ManagerComboStyle}" DisplayMemberPath="Label" SelectionChanged="GameOrderOverrideCombo_SelectionChanged"/>
+                            <TextBlock Grid.Column="5" Text="{DynamicResource LOCImageRotaterManagerGameBehaviorHint}" Foreground="#7F929C" VerticalAlignment="Center" Margin="18,0,0,0" TextWrapping="Wrap"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Bottom action bar: common actions on the left, contextual hint on the right. -->
+                    <Grid Grid.Row="2" Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel x:Name="LocalActionsPanel"
+                                    Grid.Column="0"
+                                    Orientation="Horizontal"
+                                    HorizontalAlignment="Left">
+                            <Button x:Name="AddButton"
+                                    Content="{DynamicResource LOCImageRotaterManagerAddArtwork}"
+                                    Style="{StaticResource ManagerSecondaryButtonStyle}"
+                                    MinWidth="125"
+                                    Margin="0,0,8,0"
+                                    Click="AddButton_Click"/>
+                            <Button x:Name="AutomaticButton"
+                                    Content="{DynamicResource LOCImageRotaterManagerAutoFind}"
+                                    Style="{StaticResource ManagerSecondaryButtonStyle}"
+                                    MinWidth="165"
+                                    Margin="0,0,8,0"
+                                    Click="AutomaticButton_Click"/>
+                            <Button x:Name="SetFixedArtworkButton"
+                                    Visibility="Collapsed"
+                                    Content="{DynamicResource LOCImageRotaterManagerSetFixedArtwork}"
+                                    ToolTip="{DynamicResource LOCImageRotaterManagerSetFixedArtworkHelp}"
+                                    Style="{StaticResource ManagerSecondaryButtonStyle}"
+                                    MinWidth="150"
+                                    Margin="0,0,16,0"
+                                    Click="SetFixedArtworkButton_Click"/>
+                            <Button x:Name="MoveUpButton"
+                                    Visibility="Collapsed"
+                                    Content="{DynamicResource LOCImageRotaterManagerMoveUp}"
+                                    ToolTip="{DynamicResource LOCImageRotaterManagerMoveOrderHelp}"
+                                    Style="{StaticResource ManagerSecondaryButtonStyle}"
+                                    MinWidth="82"
+                                    Margin="0,0,8,0"
+                                    Click="MoveArtworkButton_Click"/>
+                            <Button x:Name="MoveDownButton"
+                                    Visibility="Collapsed"
+                                    Content="{DynamicResource LOCImageRotaterManagerMoveDown}"
+                                    ToolTip="{DynamicResource LOCImageRotaterManagerMoveOrderHelp}"
+                                    Style="{StaticResource ManagerSecondaryButtonStyle}"
+                                    MinWidth="82"
+                                    Margin="0,0,16,0"
+                                    Click="MoveArtworkButton_Click"/>
+                            <Button x:Name="OpenFolderButton"
+                                    Visibility="Collapsed"
+                                    Content="{DynamicResource LOCImageRotaterMenuOpenFolder}"
+                                    Style="{StaticResource ManagerSecondaryButtonStyle}"
+                                    MinWidth="105"
+                                    Margin="0,0,8,0"
+                                    Click="OpenFolderButton_Click"/>
+                            <Button x:Name="RefreshButton"
+                                    Content="{DynamicResource LOCImageRotaterManagerRefresh}"
+                                    Style="{StaticResource ManagerSecondaryButtonStyle}"
+                                    MinWidth="90"
+                                    Margin="0"
+                                    Click="RefreshButton_Click"/>
+                            <Button x:Name="DeleteButton"
+                                    Visibility="Collapsed"
+                                    Content="{DynamicResource LOCImageRotaterManagerDeleteSelected}"
+                                    Style="{StaticResource ManagerDangerButtonStyle}"
+                                    MinWidth="130"
+                                    Click="DeleteButton_Click"/>
+                        </StackPanel>
+
+                        <TextBlock Grid.Column="1"
+                                   Text="{DynamicResource LOCImageRotaterManagerRightClickHint}"
+                                   Foreground="#71858F"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Right"
+                                   Margin="20,0,8,0"/>
+                    </Grid>
                 </Grid>
             </TabItem>
 

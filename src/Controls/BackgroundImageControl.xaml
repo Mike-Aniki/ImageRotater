@@ -1,4 +1,4 @@
-<c:PluginUserControl x:Class="ImageRotater.Controls.BackgroundImageControl"
+﻿<c:PluginUserControl x:Class="ImageRotater.Controls.BackgroundImageControl"
                      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                      xmlns:c="clr-namespace:Playnite.SDK.Controls;assembly=Playnite.SDK">
@@ -45,7 +45,9 @@
                           MediaFailed="SlotVideo_MediaFailed"/>
         </Grid>
 
-        <!-- Used only for the FadeThroughBlack / FadeThroughWhite settings. -->
+        <!-- Used by the Black bars transition. Two shutters close over the
+             current background, the source swaps while hidden, then they open. -->
+<!-- Used only for the FadeThroughBlack / FadeThroughWhite settings. -->
         <Border x:Name="FlashOverlay"
                 Visibility="Collapsed"
                 Opacity="0"/>

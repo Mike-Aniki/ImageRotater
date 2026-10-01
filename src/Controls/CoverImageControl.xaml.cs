@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows;
 using Playnite.SDK;
@@ -90,6 +90,7 @@ namespace ImageRotater.Controls
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
             ArtworkRotated += OnArtworkRotated;
+            PlaybackPolicyChanged += OnPlaybackPolicyChanged;
 
             // Viewport tracking is attached lazily only for video covers.
             Refresh();
@@ -98,6 +99,7 @@ namespace ImageRotater.Controls
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
             ArtworkRotated -= OnArtworkRotated;
+            PlaybackPolicyChanged -= OnPlaybackPolicyChanged;
             DetachViewportTracking();
 
             // Keep the bound path across Fullscreen unload/reload cycles; release only GIF playback here.
@@ -149,6 +151,20 @@ namespace ImageRotater.Controls
         // MediaElement keeps PLAYING the previous pick, so the slideshow would
         // appear to do nothing at all while the file underneath it changed.
         public static event Action<Guid> ArtworkRotated;
+        public static event Action PlaybackPolicyChanged;
+
+        public static void NotifyPlaybackPolicyChanged()
+        {
+            Action handler = PlaybackPolicyChanged;
+            if (handler == null) return;
+            Application app = Application.Current;
+            if (app != null && !app.Dispatcher.CheckAccess())
+            {
+                app.Dispatcher.BeginInvoke(new Action(() => handler()));
+                return;
+            }
+            handler();
+        }
 
         // Whether any theme is hosting this control right now.
         //
@@ -444,6 +460,11 @@ namespace ImageRotater.Controls
             Refresh();
         }
 
+        private void OnPlaybackPolicyChanged()
+        {
+            Refresh();
+        }
+
         private void Refresh()
         {
             try
@@ -458,6 +479,12 @@ namespace ImageRotater.Controls
 
                 Game game = GameContext;
                 if (game == null || _source == null || _selector == null)
+                {
+                    ShowNothing();
+                    return;
+                }
+
+                if (game.IsRunning)
                 {
                     ShowNothing();
                     return;
@@ -506,8 +533,13 @@ namespace ImageRotater.Controls
                 // Choosing here is then the only way it shows anything.
                 if (string.IsNullOrEmpty(path))
                 {
+                    SelectionMode effectiveMode = settings.GetSelectionMode(
+                        game.Id, ArtworkKind.Cover, settings.CoverSelectionMode);
+                    SelectionOrder effectiveOrder = settings.GetSelectionOrder(
+                        game.Id, ArtworkKind.Cover, settings.CoverSelectionOrder);
                     path = _selector.Select(
-                        CoverSelectionKey(game.Id), candidates, _previousPick, settings.CoverSelectionMode);
+                        CoverSelectionKey(game.Id), candidates, _previousPick,
+                        effectiveMode, effectiveOrder);
                 }
 
                 // Recorded before use, so a pick that turns out to be unusable
@@ -699,6 +731,11 @@ namespace ImageRotater.Controls
         {
             try
             {
+                // Cancel visual state left by a transition interrupted by fast navigation.
+                DisplayImage.BeginAnimation(OpacityProperty, null);
+                DisplayImage.Opacity = 1.0;
+                DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
+                PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
                 if (_cutNextStage)
                 {
                     _cutNextStage = false;
@@ -742,7 +779,7 @@ namespace ImageRotater.Controls
                     _veilLowerPending = false;
 
                     var up = new System.Windows.Media.Animation.DoubleAnimation(
-                        1.0, new Duration(Transition.Half));
+                        1.0, new Duration(Transition.CoverHalf));
 
                     // Completed fires for a replaced animation too, so a raise
                     // superseded by a newer one must not report that one done.
@@ -835,7 +872,12 @@ namespace ImageRotater.Controls
             // it: the tile looked like it had not rotated at all.
             var backstop = new System.Windows.Threading.DispatcherTimer
             {
-                Interval = TimeSpan.FromMilliseconds(600)
+                // Large local covers can occasionally need longer than 600 ms
+                // to finish their asynchronous decode. Releasing the old layer
+                // too early exposes an unready image and looks like a hard
+                // flash instead of a transition. This remains only a safety
+                // fallback; normally DownloadCompleted fires first.
+                Interval = TimeSpan.FromMilliseconds(1500)
             };
 
             backstop.Tick += (s, e) =>
@@ -933,8 +975,16 @@ namespace ImageRotater.Controls
 
                 _replacingVideo = false;
 
+                TransitionStyle style = Transition.CoverStyle;
+
+                if (style == TransitionStyle.SlideFromRight)
+                {
+                    StartSlideCoverTransition(style);
+                    return;
+                }
+
                 var fade = new System.Windows.Media.Animation.DoubleAnimation(
-                    1.0, 0.0, new Duration(Transition.Duration));
+                    1.0, 0.0, new Duration(Transition.CoverDuration));
 
                 // Completed fires even for a REPLACED animation, so without a
                 // generation an older fade tears down the layer a newer one is
@@ -956,6 +1006,60 @@ namespace ImageRotater.Controls
                 ClearPreviousCover();
                 Logger.Warn(ex, "ImageRotater: could not crossfade the cover");
             }
+        }
+
+        private void StartSlideCoverTransition(TransitionStyle style)
+        {
+            int generation = ++_fadeGeneration;
+            TransitionDirection dir = TransitionDirection.FromRight;
+
+            double distance = 40.0;
+            double inX = 0.0, inY = 0.0, outX = 0.0, outY = 0.0;
+            switch (dir)
+            {
+                case TransitionDirection.FromLeft:
+                    inX = -distance; outX = distance * 0.5; break;
+                case TransitionDirection.FromRight:
+                    inX = distance; outX = -distance * 0.5; break;
+                case TransitionDirection.FromTop:
+                    inY = -distance; outY = distance * 0.5; break;
+                case TransitionDirection.FromBottom:
+                    inY = distance; outY = -distance * 0.5; break;
+            }
+
+            var incomingT = new System.Windows.Media.TranslateTransform(inX, inY);
+            var outgoingT = new System.Windows.Media.TranslateTransform();
+            DisplayImage.RenderTransform = incomingT;
+            PreviousImage.RenderTransform = outgoingT;
+            DisplayImage.BeginAnimation(OpacityProperty, null);
+            PreviousImage.BeginAnimation(OpacityProperty, null);
+            DisplayImage.Opacity = 0.15;
+            PreviousImage.Opacity = 1.0;
+
+            var ease = new System.Windows.Media.Animation.CubicEase
+            {
+                EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
+            };
+            var incomingFade = new System.Windows.Media.Animation.DoubleAnimation(
+                1.0, new Duration(Transition.CoverDuration)) { EasingFunction = ease };
+            incomingFade.Completed += (s, e) =>
+            {
+                if (generation != _fadeGeneration) return;
+                DisplayImage.BeginAnimation(OpacityProperty, null);
+                DisplayImage.Opacity = 1.0;
+                DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
+                PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
+                ClearPreviousCover();
+            };
+
+            DisplayImage.BeginAnimation(OpacityProperty, incomingFade);
+            PreviousImage.BeginAnimation(OpacityProperty,
+                new System.Windows.Media.Animation.DoubleAnimation(0.0, new Duration(Transition.CoverDuration)) { EasingFunction = ease });
+
+            if (inX != 0.0) incomingT.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, new System.Windows.Media.Animation.DoubleAnimation(0.0, new Duration(Transition.CoverDuration)) { EasingFunction = ease });
+            if (inY != 0.0) incomingT.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, new System.Windows.Media.Animation.DoubleAnimation(0.0, new Duration(Transition.CoverDuration)) { EasingFunction = ease });
+            if (outX != 0.0) outgoingT.BeginAnimation(System.Windows.Media.TranslateTransform.XProperty, new System.Windows.Media.Animation.DoubleAnimation(outX, new Duration(Transition.CoverDuration)) { EasingFunction = ease });
+            if (outY != 0.0) outgoingT.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, new System.Windows.Media.Animation.DoubleAnimation(outY, new Duration(Transition.CoverDuration)) { EasingFunction = ease });
         }
 
         private void FadeOutVideoOverReadyImage()
@@ -983,7 +1087,7 @@ namespace ImageRotater.Controls
             int videoGeneration = _videoGeneration;
 
             var fade = new System.Windows.Media.Animation.DoubleAnimation(
-                1.0, 0.0, new Duration(Transition.Duration));
+                1.0, 0.0, new Duration(Transition.CoverDuration));
 
             fade.Completed += (s, e) =>
             {
@@ -1005,6 +1109,8 @@ namespace ImageRotater.Controls
         {
             PreviousImage.BeginAnimation(OpacityProperty, null);
             PreviousImage.Opacity = 1.0;
+            PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
+            DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
             PreviousImage.Visibility = Visibility.Collapsed;
             PreviousImage.Source = null;
         }
@@ -1017,7 +1123,7 @@ namespace ImageRotater.Controls
 
             int veilGeneration = ++_fadeGeneration;
             var lower = new System.Windows.Media.Animation.DoubleAnimation(
-                0.0, new Duration(Transition.Half));
+                0.0, new Duration(Transition.CoverHalf));
 
             lower.Completed += (s, e) =>
             {
@@ -1359,7 +1465,7 @@ namespace ImageRotater.Controls
 
             int generation = _videoGeneration;
             var reveal = new System.Windows.Media.Animation.DoubleAnimation(
-                0.0, 1.0, new Duration(Transition.Duration));
+                0.0, 1.0, new Duration(Transition.CoverDuration));
 
             reveal.Completed += (s, completedArgs) =>
             {

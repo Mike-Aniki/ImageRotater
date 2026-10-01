@@ -67,7 +67,7 @@
         <Setter Property="Foreground" Value="{StaticResource IrTextMuted}"/>
         
         <Setter Property="TextWrapping" Value="Wrap"/>
-        <Setter Property="Margin" Value="0,0,0,20"/>
+        <Setter Property="Margin" Value="0,0,0,8"/>
     </Style>
 
     <!-- Section heading with a left accent bar, so groups of settings read as bands rather than
@@ -78,7 +78,7 @@
         <Setter Property="BorderThickness" Value="0,0,0,1"/>
         <Setter Property="CornerRadius" Value="10,10,0,0"/>
         <Setter Property="Padding" Value="12,10,12,11"/>
-        <Setter Property="Margin" Value="0,18,0,10"/>
+        <Setter Property="Margin" Value="0,10,0,8"/>
     </Style>
 
     <Style x:Key="IrSectionTitle" TargetType="TextBlock">

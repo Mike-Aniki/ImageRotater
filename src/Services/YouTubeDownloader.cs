@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -222,7 +222,6 @@ namespace ImageRotater.Services
                 {
                     if (GifConverter.Remux(targetPath))
                     {
-                        Logger.Info("ImageRotater: remuxed a fragmented YouTube download");
                     }
                     else
                     {

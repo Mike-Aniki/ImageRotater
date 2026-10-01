@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -46,6 +46,7 @@ namespace ImageRotater.Services
         // never matches any candidate and would quietly disable
         // repeat-avoidance for exactly the games that letterbox.
         private readonly Dictionary<string, string> _lastPicked = new Dictionary<string, string>();
+        private readonly Dictionary<string, string> _preparedNext = new Dictionary<string, string>();
 
         // Last media published for theme-side background rendering, separate from the database fallback.
         private readonly Dictionary<string, PublishedFingerprint> _lastPublished =
@@ -170,10 +171,9 @@ namespace ImageRotater.Services
         // be overridden. EverySelection semantics give the avoid-previous
         // behaviour a slideshow wants.
         //
-        // Ceiling: in the theme-element display mode with Session selection, a
-        // theme-hosted control keeps its own remembered pick and will not
-        // follow slideshow swaps. The write path - which is what nearly every
-        // setup renders - follows them everywhere.
+        // Slideshow is now a dedicated selection mode. The exact pick chosen
+        // here is also written into the remembered-current slot so native
+        // Playnite artwork and theme-hosted controls advance together.
         public void ApplyNext(Game game, ArtworkKind kind)
         {
             if (game == null)
@@ -199,8 +199,98 @@ namespace ImageRotater.Services
 
             _lastApplied[kind] = game.Id;
 
+            string prepared = TakePreparedNext(game.Id, kind);
             Apply(game, kind, kind == ArtworkKind.Cover ? _coverSource : _source, settings,
-                SelectionMode.EverySelection);
+                SelectionMode.EverySelection, prepared);
+        }
+
+        // Reserve the exact next slideshow pick without applying it yet. The
+        // renderer can decode this path during the timer wait, and ApplyNext
+        // consumes the same reservation later so preloading never guesses the
+        // wrong file. This is deliberately separate from normal
+        // EverySelection focus changes.
+        public string PrepareNext(Game game, ArtworkKind kind)
+        {
+            if (game == null)
+            {
+                return null;
+            }
+
+            ImageRotaterSettings settings = _settings != null ? _settings() : null;
+            if (settings == null || !settings.EnableRotation ||
+                (kind == ArtworkKind.Background && !settings.RotateBackgrounds) ||
+                (kind == ArtworkKind.Cover && !settings.RotateCovers))
+            {
+                return null;
+            }
+
+            IBackgroundImageSource source = kind == ArtworkKind.Cover ? _coverSource : _source;
+            if (source == null || !HasPluginArtwork(game, kind))
+            {
+                return null;
+            }
+
+            IReadOnlyList<string> candidates = source.GetImagePaths(game);
+            if (candidates == null || candidates.Count < 2)
+            {
+                return null;
+            }
+
+            Guid selectionKey = SelectionKey(game.Id, kind);
+            string previous = PreviousFor(game.Id, kind);
+            SelectionOrder selectionOrder = settings.GetSelectionOrder(
+                game.Id, kind, kind == ArtworkKind.Cover ? settings.CoverSelectionOrder : settings.BackgroundSelectionOrder);
+
+            // On the first slideshow wait the writer may not have rotated this
+            // game yet (the theme control can already be showing its remembered
+            // initial pick). Use that remembered Slideshow pick as the previous
+            // item so the first timer tick cannot reserve the image that is
+            // already on screen.
+            if (string.IsNullOrEmpty(previous))
+            {
+                SelectionMode configuredMode = settings.GetSelectionMode(
+                    game.Id, kind, kind == ArtworkKind.Cover ? settings.CoverSelectionMode : settings.SelectionMode);
+
+                if (configuredMode == SelectionMode.Slideshow)
+                {
+                    previous = _selector.Select(
+                        selectionKey, candidates, null, SelectionMode.Slideshow, selectionOrder);
+                }
+            }
+
+            string path = _selector.Select(
+                selectionKey, candidates, previous, SelectionMode.EverySelection, selectionOrder);
+
+            if (!IsUsable(path))
+            {
+                path = FirstUsable(candidates, path);
+            }
+
+            if (string.IsNullOrEmpty(path))
+            {
+                return null;
+            }
+
+            _preparedNext[WrittenKey(game.Id, kind)] = path;
+            return path;
+        }
+
+        public void ClearPreparedNext(Guid gameId, ArtworkKind kind)
+        {
+            _preparedNext.Remove(WrittenKey(gameId, kind));
+        }
+
+        private string TakePreparedNext(Guid gameId, ArtworkKind kind)
+        {
+            string key = WrittenKey(gameId, kind);
+            string path;
+            if (_preparedNext.TryGetValue(key, out path))
+            {
+                _preparedNext.Remove(key);
+                return path;
+            }
+
+            return null;
         }
 
         private void ApplyTo(Game game, ArtworkKind kind, ImageRotaterSettings settings)
@@ -257,7 +347,8 @@ namespace ImageRotater.Services
             ArtworkKind kind,
             IBackgroundImageSource source,
             ImageRotaterSettings settings,
-            SelectionMode? modeOverride = null)
+            SelectionMode? modeOverride = null,
+            string preparedPath = null)
         {
             if (source == null)
             {
@@ -328,11 +419,16 @@ namespace ImageRotater.Services
             }
 
             Guid selectionKey = SelectionKey(game.Id, kind);
-            SelectionMode mode = modeOverride
-                ?? (kind == ArtworkKind.Cover ? settings.CoverSelectionMode : settings.SelectionMode);
+            SelectionMode configuredModeForGame = settings.GetSelectionMode(
+                game.Id, kind, kind == ArtworkKind.Cover ? settings.CoverSelectionMode : settings.SelectionMode);
+            SelectionMode mode = modeOverride ?? configuredModeForGame;
+            SelectionOrder selectionOrder = settings.GetSelectionOrder(
+                game.Id, kind, kind == ArtworkKind.Cover ? settings.CoverSelectionOrder : settings.BackgroundSelectionOrder);
 
-            string path = _selector.Select(
-                selectionKey, candidates, PreviousFor(game.Id, kind), mode);
+            string path = CandidateContains(candidates, preparedPath)
+                ? preparedPath
+                : _selector.Select(
+                    selectionKey, candidates, PreviousFor(game.Id, kind), mode, selectionOrder);
 
             if (trace)
             {
@@ -357,6 +453,19 @@ namespace ImageRotater.Services
             }
 
             _lastPicked[WrittenKey(game.Id, kind)] = path;
+
+            // A Slideshow renderer reads its current frame from the same
+            // remembered-selection slot as Session. ApplyNext deliberately
+            // picks with EverySelection semantics to avoid repeats, then moves
+            // that exact pick into the remembered slot so the theme control
+            // follows the writer instead of re-selecting an unrelated image.
+            SelectionMode configuredMode = configuredModeForGame;
+            if (modeOverride.HasValue &&
+                configuredMode == SelectionMode.Slideshow)
+            {
+                _selector.Remember(selectionKey, path);
+            }
+
             string picked = path;
 
             if (PosterFrame.IsMotion(path))
@@ -510,7 +619,7 @@ namespace ImageRotater.Services
             if (written)
             {
                 _lastWritten[WrittenKey(game.Id, kind)] = path;
-                ImageDiagnostics.LogApplied(game.Name, path, _settings, 0, 0, kind);
+                ImageDiagnostics.LogApplied(game.Name, path, _settings, _fileLogger, 0, 0, kind);
             }
 
             if (trace)
@@ -527,6 +636,24 @@ namespace ImageRotater.Services
         // the game's own id or the two kinds would overwrite each other's
         // remembered choice. Deriving it from the id keeps that mapping stable
         // across restarts without a second cache.
+        private static bool CandidateContains(IReadOnlyList<string> candidates, string path)
+        {
+            if (candidates == null || string.IsNullOrEmpty(path))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (string.Equals(candidates[i], path, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static Guid SelectionKey(Guid gameId, ArtworkKind kind)
         {
             if (kind != ArtworkKind.Cover)
@@ -831,6 +958,8 @@ namespace ImageRotater.Services
         {
             // Editing artwork invalidates any queued publish based on the old candidate set.
             InvalidateBackgroundPublish(gameId);
+            _preparedNext.Remove(WrittenKey(gameId, ArtworkKind.Background));
+            _preparedNext.Remove(WrittenKey(gameId, ArtworkKind.Cover));
 
             foreach (ArtworkKind kind in new[] { ArtworkKind.Background, ArtworkKind.Cover })
             {
@@ -847,6 +976,7 @@ namespace ImageRotater.Services
         {
             _lastWritten.Clear();
             _lastPicked.Clear();
+            _preparedNext.Clear();
             lock (_backgroundPublishStateLock)
             {
                 _lastPublished.Clear();
