@@ -1,6 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using Newtonsoft.Json.Linq;
 using Playnite.SDK;
 using Playnite.SDK.Controls;
 using Playnite.SDK.Models;
@@ -46,6 +50,17 @@ namespace ImageRotater.Controls
         private readonly IBackgroundImageSource _source;
         private readonly ImageSelector _selector;
         private readonly Func<ImageRotaterSettings> _settings;
+        private readonly string _playniteConfigPath;
+
+        // Playnite stores CoverArtStretch in config.json using the same numeric
+        // values as WPF Stretch (None=0, Fill=1, Uniform=2, UniformToFill=3).
+        // Cache it across every realised cover control so a Fullscreen grid does
+        // not make one disk read per tile. The timestamp check also means a
+        // setting changed while Playnite is running is picked up automatically.
+        private static readonly object CoverStretchSync = new object();
+        private static string _coverStretchConfigPath;
+        private static DateTime _coverStretchConfigStampUtc = DateTime.MinValue;
+        private static Stretch _cachedCoverStretch = Stretch.UniformToFill;
 
         private readonly CoverImageDataContext _data = new CoverImageDataContext();
 
@@ -59,14 +74,19 @@ namespace ImageRotater.Controls
         public CoverImageControl(
             IBackgroundImageSource source,
             ImageSelector selector,
-            Func<ImageRotaterSettings> settings)
+            Func<ImageRotaterSettings> settings,
+            IPlayniteAPI playniteApi)
         {
             InitializeComponent();
 
             _source = source;
             _selector = selector;
             _settings = settings;
+            _playniteConfigPath = playniteApi?.Paths?.ConfigurationPath == null
+                ? null
+                : Path.Combine(playniteApi.Paths.ConfigurationPath, "config.json");
 
+            ApplyPlayniteCoverStretch();
             DataContext = _data;
 
             Loaded += OnLoaded;
@@ -467,10 +487,166 @@ namespace ImageRotater.Controls
             Refresh();
         }
 
+
+        private void ApplyPlayniteCoverStretch()
+        {
+            // Default/fallback: behave like Playnite's native cover renderer.
+            // A theme can override the renderer per ImageRotater_Cover host by
+            // setting the standard ContentControl.Tag property, for example:
+            //
+            //   Tag="ImageRotater:Stretch=Uniform;StretchDirection=Both"
+            //
+            // This keeps the Playnite integration contract as a plain
+            // ContentControl (no plugin XML namespace required in themes) while
+            // still letting Grid View, Details View and Fullscreen choose their
+            // own layout independently. Missing values always fall back to the
+            // native Playnite behaviour.
+            Stretch stretch = GetPlayniteCoverStretch();
+            StretchDirection direction = StretchDirection.Both;
+
+            TryGetThemeCoverLayoutOverride(ref stretch, ref direction);
+
+            DisplayImage.Stretch = stretch;
+            DisplayImage.StretchDirection = direction;
+            PreviousImage.Stretch = stretch;
+            PreviousImage.StretchDirection = direction;
+            DisplayVideo.Stretch = stretch;
+        }
+
+        private void TryGetThemeCoverLayoutOverride(ref Stretch stretch, ref StretchDirection direction)
+        {
+            FrameworkElement current = this;
+
+            while (current != null)
+            {
+                var host = current as System.Windows.Controls.ContentControl;
+                if (host != null && string.Equals(host.Name, "ImageRotater_Cover", StringComparison.Ordinal))
+                {
+                    string value = host.Tag as string;
+                    if (string.IsNullOrWhiteSpace(value) ||
+                        !value.StartsWith("ImageRotater:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+
+                    string options = value.Substring("ImageRotater:".Length);
+                    foreach (string rawPart in options.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        string[] pair = rawPart.Split(new[] { '=' }, 2);
+                        if (pair.Length != 2)
+                        {
+                            continue;
+                        }
+
+                        string key = pair[0].Trim();
+                        string rawValue = pair[1].Trim();
+
+                        if (key.Equals("Stretch", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Stretch parsedStretch;
+                            if (Enum.TryParse(rawValue, true, out parsedStretch))
+                            {
+                                stretch = parsedStretch;
+                            }
+                        }
+                        else if (key.Equals("StretchDirection", StringComparison.OrdinalIgnoreCase))
+                        {
+                            StretchDirection parsedDirection;
+                            if (Enum.TryParse(rawValue, true, out parsedDirection))
+                            {
+                                direction = parsedDirection;
+                            }
+                        }
+                    }
+
+                    return;
+                }
+
+                DependencyObject parent = null;
+                try
+                {
+                    parent = System.Windows.Media.VisualTreeHelper.GetParent(current);
+                }
+                catch
+                {
+                }
+
+                if (parent == null)
+                {
+                    parent = LogicalTreeHelper.GetParent(current);
+                }
+
+                current = parent as FrameworkElement;
+            }
+        }
+
+        private Stretch GetPlayniteCoverStretch()
+        {
+            if (string.IsNullOrEmpty(_playniteConfigPath))
+            {
+                return Stretch.UniformToFill;
+            }
+
+            try
+            {
+                DateTime stamp = File.Exists(_playniteConfigPath)
+                    ? File.GetLastWriteTimeUtc(_playniteConfigPath)
+                    : DateTime.MinValue;
+
+                lock (CoverStretchSync)
+                {
+                    if (string.Equals(_coverStretchConfigPath, _playniteConfigPath, StringComparison.OrdinalIgnoreCase) &&
+                        stamp == _coverStretchConfigStampUtc)
+                    {
+                        return _cachedCoverStretch;
+                    }
+
+                    Stretch resolved = Stretch.UniformToFill;
+                    if (stamp != DateTime.MinValue)
+                    {
+                        JObject root = JObject.Parse(File.ReadAllText(_playniteConfigPath));
+                        JToken token = root["CoverArtStretch"];
+                        if (token != null)
+                        {
+                            int numeric;
+                            if (token.Type == JTokenType.Integer && int.TryParse(token.ToString(), out numeric) &&
+                                numeric >= (int)Stretch.None && numeric <= (int)Stretch.UniformToFill)
+                            {
+                                resolved = (Stretch)numeric;
+                            }
+                            else
+                            {
+                                Stretch parsed;
+                                if (Enum.TryParse(token.ToString(), true, out parsed))
+                                {
+                                    resolved = parsed;
+                                }
+                            }
+                        }
+                    }
+
+                    _coverStretchConfigPath = _playniteConfigPath;
+                    _coverStretchConfigStampUtc = stamp;
+                    _cachedCoverStretch = resolved;
+                    return resolved;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: could not read Playnite CoverArtStretch; using UniformToFill");
+                return Stretch.UniformToFill;
+            }
+        }
+
         private void Refresh()
         {
             try
             {
+                // Match Playnite's native cover renderer by default, while
+                // allowing the hosting theme to override Stretch and
+                // StretchDirection on its ImageRotater_Cover placeholder.
+                ApplyPlayniteCoverStretch();
+
                 ImageRotaterSettings settings = _settings != null ? _settings() : null;
 
                 if (settings == null || !settings.EnableRotation || !settings.RotateCovers)

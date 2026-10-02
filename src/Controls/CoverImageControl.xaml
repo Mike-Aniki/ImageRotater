@@ -10,18 +10,11 @@
              version of this control was placed in a grid template. Binding a
              PATH asynchronously moves the decode off that thread.
 
-             Stretch is set here rather than left to a hosting theme's implicit
-             Image style. A theme cannot supply that style through
-             ContentControl.Resources: Playnite's {Settings} markup extension is
-             illegal in a Setter.Value, and the style is only sealed - and the
-             exception only thrown - once the ContentControl actually resolves
-             to a plugin control. Aniki carries exactly such a Setter for
-             BackgroundChanger and never trips it, because that plugin is not
-             installed.
-
-             Themes wanting different sizing keep this control hidden and bind
-             CoverData.ImagePath, rendering it with their own element - which is
-             the integration pattern Aniki's author describes. -->
+             UniformToFill is only the safe XAML fallback. At runtime the
+             code-behind reads Playnite's native CoverArtStretch setting. A
+             theme can override Stretch and StretchDirection per
+             ImageRotater_Cover host; if it does not, the native Playnite
+             behaviour remains the fallback. -->
         <!-- NotifyOnTargetUpdated is what drives the crossfade.
              The binding is asynchronous, so the new picture arrives some time
              after the path is set and there is no way to know when from the

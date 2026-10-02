@@ -992,7 +992,7 @@ namespace ImageRotater
                     // No ImageLoader: this control publishes a path and the XAML
                 // binds it with IsAsync=True, so decoding never touches the
                 // layout thread.
-                return new CoverImageControl(_coverSource, _selector, () => Settings);
+                return new CoverImageControl(_coverSource, _selector, () => Settings, PlayniteApi);
                 }
             }
             catch (Exception ex)
