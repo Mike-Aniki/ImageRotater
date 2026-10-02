@@ -33,3 +33,14 @@ Packages:
       - Added Spanish localization.
       - Updated English and French localization.
       - Various UI fixes, performance improvements, and bug fixes.
+  - Version: 1.2.0
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-10-02
+    PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/v1.2.0/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_2_0.pext
+    Changelog:
+      - Added Theme Integration mode to display artwork directly through supported themes without updating Playnite's native artwork.
+      - Added Desktop and Fullscreen theme compatibility detection.
+      - Refined the Settings and Artwork Manager with a hybrid style combining ImageRotater's design with the active Desktop theme colors.
+      - Improved Online Artwork Search and remembered filter preferences.
+      - Reduced unnecessary startup artwork processing.
+      - Added a clearer warning when BackgroundChanger is enabled alongside ImageRotater.
