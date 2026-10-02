@@ -125,6 +125,8 @@
              chrome cannot introduce a second visual language. -->
         <Style x:Key="FilterCheckBoxStyle" TargetType="CheckBox">
             <Setter Property="Foreground" Value="#EAF2F5"/>
+            <Setter Property="MinHeight" Value="24"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Margin" Value="0,2"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="Panel.ZIndex" Value="0"/>
@@ -174,6 +176,10 @@
                     <ControlTemplate TargetType="Expander">
                         <StackPanel>
                             <ToggleButton x:Name="AspectHeader"
+                                          Style="{x:Null}"
+                                          Height="Auto"
+                                          MinHeight="30"
+                                          VerticalContentAlignment="Center"
                                           IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource AncestorType={x:Type Expander}}, Mode=TwoWay}"
                                           Content="{TemplateBinding Header}"
                                           ContentTemplate="{TemplateBinding HeaderTemplate}"
@@ -238,6 +244,10 @@
                     <ControlTemplate TargetType="Expander">
                         <StackPanel>
                             <ToggleButton x:Name="HeaderButton"
+                                          Style="{x:Null}"
+                                          Height="Auto"
+                                          MinHeight="34"
+                                          VerticalContentAlignment="Center"
                                           IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource AncestorType={x:Type Expander}}, Mode=TwoWay}"
                                           Content="{TemplateBinding Header}"
                                           ContentTemplate="{TemplateBinding HeaderTemplate}"
@@ -445,8 +455,11 @@
                 <ColumnDefinition x:Name="FiltersColumn" Width="350" MinWidth="260" MaxWidth="520"/>
                 <ColumnDefinition Width="7"/>
                 <ColumnDefinition Width="*" MinWidth="420"/>
-                <!-- Preview opens on demand, so it never steals space while browsing. -->
-                <ColumnDefinition x:Name="PreviewColumn" Width="0"/>
+                <!-- Preview opens on demand, so it never steals space while browsing.
+                     A dedicated splitter lets the user make the larger preview wider
+                     or narrower without disturbing the filter rail. -->
+                <ColumnDefinition x:Name="PreviewSplitterColumn" Width="0"/>
+                <ColumnDefinition x:Name="PreviewColumn" Width="0" MinWidth="0" MaxWidth="680"/>
             </Grid.ColumnDefinitions>
 
             <!-- Resize handle between filters and results. -->
@@ -877,13 +890,25 @@
                 </Border>
             </Grid>
 
+            <GridSplitter x:Name="PreviewSplitter"
+                          Grid.Column="3"
+                          Width="7"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          ResizeDirection="Columns"
+                          ResizeBehavior="PreviousAndNext"
+                          Style="{StaticResource SearchSplitterStyle}"
+                          ShowsPreview="False"
+                          Cursor="SizeWE"
+                          Visibility="Collapsed"/>
+
             <!-- Preview panel.
                  In the dialog rather than a modal window on purpose: a modal
                  has to be dismissed before the next result can be looked at,
                  which makes comparing two candidates a chore. This stays open
                  while the grid is browsed. -->
             <Border x:Name="PreviewPanel"
-                    Grid.Column="3"
+                    Grid.Column="4"
                     Margin="12,0,0,0"
                     Padding="10"
                     Background="#10181D"

@@ -7,12 +7,16 @@
              d:DesignHeight="800" d:DesignWidth="1260">
 
     <UserControl.Resources>
+        <!-- Hybrid ImageRotater / Playnite manager theme.
+             The manager keeps ImageRotater's cyan accent, card layout, focus language and custom
+             controls, while top-level text/glyphs and translucent surfaces let the active Playnite
+             Desktop theme remain visible around and through the manager. -->
         <SolidColorBrush x:Key="ManagerAccentBrush" Color="#39C6D4"/>
-        <SolidColorBrush x:Key="ManagerAccentSoftBrush" Color="#1839C6D4"/>
+        <SolidColorBrush x:Key="ManagerAccentSoftBrush" Color="#2239C6D4"/>
         <SolidColorBrush x:Key="ManagerGoldBrush" Color="#F0B84B"/>
-        <SolidColorBrush x:Key="ManagerCardBrush" Color="#161F25"/>
-        <SolidColorBrush x:Key="ManagerCardAltBrush" Color="#10181D"/>
-        <SolidColorBrush x:Key="ManagerBorderBrush" Color="#294C58"/>
+        <SolidColorBrush x:Key="ManagerCardBrush" Color="#D9161F25"/>
+        <SolidColorBrush x:Key="ManagerCardAltBrush" Color="#D210181D"/>
+        <SolidColorBrush x:Key="ManagerBorderBrush" Color="#70405B66"/>
         <SolidColorBrush x:Key="ManagerMutedBrush" Color="#AAB5BC"/>
         <SolidColorBrush x:Key="ManagerDangerBrush" Color="#D86666"/>
 
@@ -29,8 +33,8 @@
 
         <Style x:Key="ManagerPrimaryButtonStyle" TargetType="Button">
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Background" Value="#182229"/>
-            <Setter Property="BorderBrush" Value="#34464F"/>
+            <Setter Property="Background" Value="#D9182229"/>
+            <Setter Property="BorderBrush" Value="#8834464F"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="16,8"/>
             <Setter Property="MinHeight" Value="36"/>
@@ -79,8 +83,8 @@
         </Style>
 
         <Style x:Key="ManagerSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource ManagerPrimaryButtonStyle}">
-            <Setter Property="Background" Value="#1F2A31"/>
-            <Setter Property="BorderBrush" Value="#43515A"/>
+            <Setter Property="Background" Value="#D91F2A31"/>
+            <Setter Property="BorderBrush" Value="#8043515A"/>
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         </Style>
 
@@ -90,8 +94,8 @@
         </Style>
 
         <Style x:Key="ManagerComboItemStyle" TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="#F3F6F8"/>
-            <Setter Property="Background" Value="#172127"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background" Value="#D9172127"/>
             <Setter Property="Padding" Value="10,7"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
@@ -119,9 +123,9 @@
         <Style x:Key="ManagerComboStyle" TargetType="ComboBox">
             <Setter Property="MinHeight" Value="36"/>
             <Setter Property="Padding" Value="10,5"/>
-            <Setter Property="Background" Value="#172127"/>
-            <Setter Property="Foreground" Value="#F3F6F8"/>
-            <Setter Property="BorderBrush" Value="#43515A"/>
+            <Setter Property="Background" Value="#D9172127"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="#8043515A"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="ItemContainerStyle" Value="{StaticResource ManagerComboItemStyle}"/>
@@ -154,7 +158,7 @@
                                                                   TextElement.Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ComboBox}}"/>
                                                 <Path Grid.Column="1"
                                                       Data="M 0 0 L 4 4 L 8 0 Z"
-                                                      Fill="#AAB5BC"
+                                                      Fill="{DynamicResource GlyphBrush}"
                                                       Width="8" Height="4"
                                                       Stretch="Fill"
                                                       HorizontalAlignment="Center"
@@ -179,8 +183,8 @@
                                    AllowsTransparency="True"
                                    Focusable="False"
                                    PopupAnimation="Fade">
-                                <Border Background="#172127"
-                                        BorderBrush="#43515A"
+                                <Border Background="#F0172127"
+                                        BorderBrush="#8043515A"
                                         BorderThickness="1"
                                         CornerRadius="7"
                                         MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
@@ -222,7 +226,7 @@
         <!-- Standalone page-navigation buttons. Unlike TabItem these cannot be merged into
              the content border by the active Playnite theme, so all four edges stay visible. -->
         <Style x:Key="ManagerPageNavStyle" TargetType="RadioButton">
-            <Setter Property="Foreground" Value="#B7C4CB"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrushDarker}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Padding" Value="20,10"/>
@@ -299,8 +303,8 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ListViewItem">
                         <Border x:Name="ItemBorder"
-                                Background="#111A20"
-                                BorderBrush="#263841"
+                                Background="#D9111A20"
+                                BorderBrush="#70263841"
                                 BorderThickness="1"
                                 CornerRadius="9"
                                 Padding="8">
@@ -329,7 +333,7 @@
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0"
-                Background="#11191E"
+                Background="#B811191E"
                 CornerRadius="10"
                 Padding="7"
                 HorizontalAlignment="Left"
@@ -428,7 +432,7 @@
                                                     <Border Grid.Column="0"
                                                             Width="108"
                                                             Height="68"
-                                                            Background="#0B1115"
+                                                            Background="#C20B1115"
                                                             CornerRadius="6"
                                                             ClipToBounds="True">
                                                         <Grid>
@@ -470,14 +474,14 @@
                                                                     <TextBlock Text="{DynamicResource LOCImageRotaterManagerExcluded}" Foreground="#F0A0A7" FontSize="9" FontWeight="Bold"/>
                                                                 </Border>
                                                             </StackPanel>
-                                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="White" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
+                                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{DynamicResource TextBrush}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}"/>
                                                         </Grid>
                                                         <TextBlock Text="{Binding DetailsLabel}"
                                                                    Foreground="{StaticResource ManagerMutedBrush}"
                                                                    FontSize="11"
                                                                    Margin="0,5,0,0"/>
                                                         <TextBlock Text="{Binding ModifiedLabel}"
-                                                                   Foreground="#7F929C"
+                                                                   Foreground="{DynamicResource TextBrushDarker}"
                                                                    FontSize="10"
                                                                    Margin="0,3,0,0"/>
                                                     </StackPanel>
@@ -537,7 +541,7 @@
                                 </DockPanel>
 
                                 <Border Grid.Row="1"
-                                        Background="#0B1115"
+                                        Background="#C20B1115"
                                         BorderBrush="#253941"
                                         BorderThickness="1"
                                         CornerRadius="9"
@@ -559,7 +563,7 @@
                                                     MaxWidth="420">
                                             <TextBlock Text="▧"
                                                        FontSize="40"
-                                                       Foreground="#557783"
+                                                       Foreground="{DynamicResource TextBrushDarker}"
                                                        HorizontalAlignment="Center"/>
                                             <TextBlock x:Name="PreviewHintText"
                                                        Foreground="{StaticResource ManagerMutedBrush}"
@@ -571,13 +575,13 @@
                                 </Border>
 
                                 <Border Grid.Row="2"
-                                        Background="#10181D"
+                                        Background="#C410181D"
                                         CornerRadius="8"
                                         Padding="12,10"
                                         Margin="0,10,0,0">
                                     <StackPanel>
                                         <TextBlock x:Name="PreviewNameText"
-                                                   Foreground="White"
+                                                   Foreground="{DynamicResource TextBrush}"
                                                    FontWeight="SemiBold"
                                                    FontSize="14"
                                                    TextWrapping="Wrap"/>
@@ -605,7 +609,7 @@
                             <ComboBox x:Name="GameModeOverrideCombo" Grid.Column="1" Style="{StaticResource ManagerComboStyle}" DisplayMemberPath="Label" SelectionChanged="GameModeOverrideCombo_SelectionChanged"/>
                             <TextBlock Grid.Column="3" Text="{DynamicResource LOCImageRotaterManagerGameSelectionMethod}" Foreground="{StaticResource ManagerMutedBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                             <ComboBox x:Name="GameOrderOverrideCombo" Grid.Column="4" Style="{StaticResource ManagerComboStyle}" DisplayMemberPath="Label" SelectionChanged="GameOrderOverrideCombo_SelectionChanged"/>
-                            <TextBlock Grid.Column="5" Text="{DynamicResource LOCImageRotaterManagerGameBehaviorHint}" Foreground="#7F929C" VerticalAlignment="Center" Margin="18,0,0,0" TextWrapping="Wrap"/>
+                            <TextBlock Grid.Column="5" Text="{DynamicResource LOCImageRotaterManagerGameBehaviorHint}" Foreground="{DynamicResource TextBrushDarker}" VerticalAlignment="Center" Margin="18,0,0,0" TextWrapping="Wrap"/>
                         </Grid>
                     </Border>
 
@@ -679,7 +683,7 @@
 
                         <TextBlock Grid.Column="1"
                                    Text="{DynamicResource LOCImageRotaterManagerRightClickHint}"
-                                   Foreground="#71858F"
+                                   Foreground="{DynamicResource TextBrushDarker}"
                                    FontSize="12"
                                    VerticalAlignment="Center"
                                    HorizontalAlignment="Right"

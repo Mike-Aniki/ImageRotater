@@ -432,8 +432,10 @@ namespace ImageRotater.Controls
 
             bool mustStandDown = !IsSelectedTile
                 && settings?.AnimateUnfocusedCovers != true
-                && (DisplayImage.Visibility == Visibility.Visible ||
-                    DisplayVideo.Visibility == Visibility.Visible);
+                && (settings?.UseThemeIntegration == true
+                    ? (_animating || DisplayVideo.Visibility == Visibility.Visible)
+                    : (DisplayImage.Visibility == Visibility.Visible ||
+                       DisplayVideo.Visibility == Visibility.Visible));
 
             if (!mine && !mustStandDown)
             {
@@ -452,7 +454,7 @@ namespace ImageRotater.Controls
             // "mine" is the test because the announcement names the game whose
             // artwork moved on; a stand-down tile is being told to stop, not
             // that its pick changed.
-            if (mine)
+            if (mine && settings?.UseThemeIntegration != true)
             {
                 _previousPick = null;
             }
@@ -490,7 +492,14 @@ namespace ImageRotater.Controls
                     return;
                 }
 
-                if (!IsSelectedTile && !settings.AnimateUnfocusedCovers)
+                // Compatibility mode still relies on Playnite's native cover
+                // for ordinary (unselected) tiles, so the plugin layer only
+                // needs to wake there when animated-unfocused covers are
+                // explicitly requested. Theme integration is different: this
+                // control IS the cover renderer, so static artwork must remain
+                // visible on every realised tile even when animation is paused.
+                bool selectedTile = IsSelectedTile;
+                if (!selectedTile && !settings.AnimateUnfocusedCovers && !settings.UseThemeIntegration)
                 {
                     ShowNothing();
                     return;
@@ -522,7 +531,8 @@ namespace ImageRotater.Controls
                 // drift apart.
                 string path = null;
 
-                if (string.Equals(settings.CurrentCoverGameId, game.Id.ToString(),
+                if (!settings.UseThemeIntegration &&
+                    string.Equals(settings.CurrentCoverGameId, game.Id.ToString(),
                         StringComparison.OrdinalIgnoreCase))
                 {
                     path = settings.CurrentCoverPath;
@@ -561,6 +571,35 @@ namespace ImageRotater.Controls
 
                     ShowPlaceholder();
                     return;
+                }
+
+                // Theme-integration mode must still draw static covers on
+                // unfocused grid tiles. Animated-unfocused remains opt-in, so
+                // a GIF is flattened to its cached poster and a video falls
+                // back to another still candidate when one exists. If a game
+                // only has video artwork, rendering nothing here lets the
+                // theme's native cover show through until that tile is selected.
+                if (settings.UseThemeIntegration && !selectedTile && !settings.AnimateUnfocusedCovers)
+                {
+                    if (PosterFrame.IsAnimated(path))
+                    {
+                        string poster = PosterFrame.For(path);
+                        if (!string.IsNullOrEmpty(poster))
+                        {
+                            path = poster;
+                        }
+                    }
+                    else if (PosterFrame.IsVideo(path))
+                    {
+                        string still = FirstStillCandidate(candidates);
+                        if (string.IsNullOrEmpty(still))
+                        {
+                            ShowNothing();
+                            return;
+                        }
+
+                        path = still;
+                    }
                 }
 
                 // Video is a third channel, and a different renderer: WPF's
@@ -672,6 +711,34 @@ namespace ImageRotater.Controls
 
         // First candidate that still exists, skipping the one already rejected.
         // A single unloadable file should cost one retry, not the whole tile.
+        private static string FirstStillCandidate(IReadOnlyList<string> candidates)
+        {
+            if (candidates == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                string candidate = candidates[i];
+                if (!PosterFrame.IsMotion(candidate) && IsUsable(candidate))
+                {
+                    return candidate;
+                }
+
+                if (PosterFrame.IsAnimated(candidate))
+                {
+                    string poster = PosterFrame.For(candidate);
+                    if (!string.IsNullOrEmpty(poster) && IsUsable(poster))
+                    {
+                        return poster;
+                    }
+                }
+            }
+
+            return null;
+        }
+
         private static string FirstUsable(IReadOnlyList<string> candidates, string skip)
         {
             for (int i = 0; i < candidates.Count; i++)

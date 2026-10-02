@@ -99,6 +99,7 @@ namespace ImageRotater.Services
             Log($"ImagesRoot       = {settings.ImagesRoot}");
             Log($"RotateCovers     = {settings.RotateCovers}");
             Log($"RotateBackgrounds = {settings.RotateBackgrounds}");
+            Log($"ThemeIntegration  = {settings.UseThemeIntegration}");
             Log($"BackgroundMode    = {settings.SelectionMode}");
             Log($"BackgroundOrder   = {settings.BackgroundSelectionOrder}");
             Log($"CoverMode         = {settings.CoverSelectionMode}");
@@ -106,7 +107,14 @@ namespace ImageRotater.Services
             Log($"Letterbox         = {settings.LetterboxBackgrounds}");
             Log($"Normalise         = {settings.NormaliseBackgroundSize}");
             Log($"EnableCoverImage = {settings.EnableCoverImage}");
-            Log($"Theme binds: {{ImagesRoot}}\\{{game id}}\\covers{GameImageStore.PublishedFolderSuffix}\\{GameImageStore.PublishedFileName}");
+            if (settings.UseThemeIntegration)
+            {
+                Log("Theme elements: ImageRotater_Background / ImageRotater_Cover");
+            }
+            else
+            {
+                Log($"Compatibility theme bind: {{ImagesRoot}}\\{{game id}}\\covers{GameImageStore.PublishedFolderSuffix}\\{GameImageStore.PublishedFileName}");
+            }
             Log($"Log file: {_path}");
         }
 

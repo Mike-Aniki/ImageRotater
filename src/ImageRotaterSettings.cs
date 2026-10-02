@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using ImageRotater.Services;
@@ -43,6 +45,12 @@ namespace ImageRotater
     public class ImageRotaterSettings : ObservableObject
     {
         private bool enableRotation = true;     // Master switch for the whole feature
+        // Recommended/default rendering path. When enabled, ImageRotater leaves
+        // Playnite's native artwork fields untouched and a compatible theme hosts
+        // the plugin controls directly (same architecture as BackgroundChanger).
+        // Disable it for maximum theme compatibility: the plugin then publishes
+        // the selected artwork back through Playnite's database as before.
+        private bool useThemeIntegration = true;
         private bool enableDebugLogging = false; // Verbose log to ImageRotater.log
         private DateTime? debugLoggingEnabledAtUtc;
         private SelectionMode selectionMode = SelectionMode.Session;
@@ -50,6 +58,21 @@ namespace ImageRotater
         private bool rotateBackgrounds = true;
         private bool rotateCovers = false;
         private VideoStartMode coverVideoStartMode = VideoStartMode.Beginning;
+
+        public bool UseThemeIntegration
+        {
+            get => useThemeIntegration;
+            set
+            {
+                if (useThemeIntegration == value)
+                {
+                    return;
+                }
+
+                useThemeIntegration = value;
+                OnPropertyChanged();
+            }
+        }
 
         public bool RotateBackgrounds
         {
@@ -146,6 +169,13 @@ namespace ImageRotater
 
         private string steamGridDbApiKey = string.Empty;
 
+        // Extra words automatically appended to the game name on the generic
+        // Web Images tab. These improve relevance without hard-coding one
+        // search style: users can change them, or leave them empty to search
+        // the plain game title.
+        private string webBackgroundSearchTerm = "wallpaper";
+        private string webCoverSearchTerm = "cover";
+
         // Explicit paths to external tools, empty meaning "search PATH".
         //
         // Neither is bundled: ffmpeg and yt-dlp are both GPL and this plugin is
@@ -171,6 +201,26 @@ namespace ImageRotater
         {
             get => normaliseBackgroundSize;
             set { normaliseBackgroundSize = value; OnPropertyChanged(); }
+        }
+
+        public string WebBackgroundSearchTerm
+        {
+            get => webBackgroundSearchTerm;
+            set
+            {
+                webBackgroundSearchTerm = value ?? string.Empty;
+                OnPropertyChanged();
+            }
+        }
+
+        public string WebCoverSearchTerm
+        {
+            get => webCoverSearchTerm;
+            set
+            {
+                webCoverSearchTerm = value ?? string.Empty;
+                OnPropertyChanged();
+            }
         }
 
         // Internal migration state persisted with the normal settings. This is
@@ -798,7 +848,11 @@ namespace ImageRotater
         private SetupStatus _ytDlpStatus = SetupStatus.Neutral(string.Empty);
         private SetupStatus _denoStatus = SetupStatus.Neutral(string.Empty);
         private SetupStatus _apiKeyStatus = SetupStatus.Neutral(string.Empty);
+        private SetupStatus _desktopThemeStatus = SetupStatus.Neutral(string.Empty);
+        private SetupStatus _fullscreenThemeStatus = SetupStatus.Neutral(string.Empty);
         private bool _toolStatusLoaded;
+        private bool _themeSupportLoaded;
+        private int _themeProbeGeneration;
         private int _toolProbeGeneration;
         private readonly object _toolProbeLock = new object();
 
@@ -837,6 +891,18 @@ namespace ImageRotater
         {
             get => _apiKeyStatus;
             set { _apiKeyStatus = value; OnPropertyChanged(); }
+        }
+
+        public SetupStatus DesktopThemeStatus
+        {
+            get => _desktopThemeStatus;
+            set { _desktopThemeStatus = value; OnPropertyChanged(); }
+        }
+
+        public SetupStatus FullscreenThemeStatus
+        {
+            get => _fullscreenThemeStatus;
+            set { _fullscreenThemeStatus = value; OnPropertyChanged(); }
         }
 
         // Reports on the key's SHAPE as it is typed. Whether the key actually
@@ -1002,6 +1068,228 @@ namespace ImageRotater
         // explicit when it is not - and a user who later moves the tool would
         // then have a stale path pinned rather than a search that follows it.
 
+        // Theme support is intentionally checked off the UI thread. A theme may
+        // contain many XAML files, and opening ImageRotater settings should not
+        // become slower just because the user has several themes installed.
+        //
+        // Playnite exposes the active Desktop and Fullscreen theme IDs through
+        // IPlayniteSettingsAPI. We resolve those IDs to their theme.yaml files,
+        // then look for ImageRotater's official custom element names in that
+        // theme's XAML. This detects actual theme integration rather than merely
+        // assuming that an installed plugin means the theme supports it.
+        public void EnsureThemeSupportLoaded()
+        {
+            if (_themeSupportLoaded)
+            {
+                return;
+            }
+
+            _themeSupportLoaded = true;
+            RefreshThemeSupportAsync();
+        }
+
+        private async void RefreshThemeSupportAsync()
+        {
+            int generation = ++_themeProbeGeneration;
+
+            DesktopThemeStatus = SetupStatus.Neutral(Loc.Get("LOCImageRotaterCheckingThemeSupport"));
+            FullscreenThemeStatus = SetupStatus.Neutral(Loc.Get("LOCImageRotaterCheckingThemeSupport"));
+
+            ThemeProbeResult desktop;
+            ThemeProbeResult fullscreen;
+
+            try
+            {
+                string desktopId = plugin?.PlayniteApi?.ApplicationSettings?.DesktopTheme;
+                string fullscreenId = plugin?.PlayniteApi?.ApplicationSettings?.FullscreenTheme;
+                string configPath = plugin?.PlayniteApi?.Paths?.ConfigurationPath;
+                string appPath = plugin?.PlayniteApi?.Paths?.ApplicationPath;
+
+                var result = await Task.Run(() => new[]
+                {
+                    ProbeTheme(desktopId, "Desktop", configPath, appPath),
+                    ProbeTheme(fullscreenId, "Fullscreen", configPath, appPath)
+                });
+
+                desktop = result[0];
+                fullscreen = result[1];
+            }
+            catch (Exception ex)
+            {
+                LogManager.GetLogger().Warn(ex, "ImageRotater: active theme support probe failed");
+                return;
+            }
+
+            if (generation != _themeProbeGeneration)
+            {
+                return;
+            }
+
+            DesktopThemeStatus = DescribeThemeSupport(desktop);
+            FullscreenThemeStatus = DescribeThemeSupport(fullscreen);
+        }
+
+        private sealed class ThemeProbeResult
+        {
+            public string Name;
+            public bool Found;
+            public bool HasBackground;
+            public bool HasCover;
+        }
+
+        private static ThemeProbeResult ProbeTheme(string themeId, string modeFolder, string configPath, string appPath)
+        {
+            var result = new ThemeProbeResult
+            {
+                Name = string.IsNullOrWhiteSpace(themeId) ? Loc.Get("LOCImageRotaterUnknownTheme") : themeId,
+                Found = false
+            };
+
+            if (string.IsNullOrWhiteSpace(themeId))
+            {
+                return result;
+            }
+
+            string[] roots =
+            {
+                string.IsNullOrWhiteSpace(configPath) ? null : Path.Combine(configPath, "Themes", modeFolder),
+                string.IsNullOrWhiteSpace(appPath) ? null : Path.Combine(appPath, "Themes", modeFolder)
+            };
+
+            foreach (string root in roots.Where(a => !string.IsNullOrWhiteSpace(a) && Directory.Exists(a)))
+            {
+                IEnumerable<string> manifests;
+                try
+                {
+                    manifests = Directory.EnumerateFiles(root, "theme.yaml", SearchOption.AllDirectories);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (string manifest in manifests)
+                {
+                    string id = ReadYamlValue(manifest, "Id");
+                    if (!string.Equals(id, themeId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    result.Found = true;
+                    string displayName = ReadYamlValue(manifest, "Name");
+                    if (!string.IsNullOrWhiteSpace(displayName))
+                    {
+                        result.Name = displayName;
+                    }
+
+                    string themeDir = Path.GetDirectoryName(manifest);
+                    if (string.IsNullOrWhiteSpace(themeDir) || !Directory.Exists(themeDir))
+                    {
+                        return result;
+                    }
+
+                    IEnumerable<string> xamlFiles;
+                    try
+                    {
+                        xamlFiles = Directory.EnumerateFiles(themeDir, "*.xaml", SearchOption.AllDirectories);
+                    }
+                    catch
+                    {
+                        return result;
+                    }
+
+                    foreach (string xaml in xamlFiles)
+                    {
+                        string text;
+                        try
+                        {
+                            text = File.ReadAllText(xaml);
+                        }
+                        catch
+                        {
+                            continue;
+                        }
+
+                        if (!result.HasBackground &&
+                            text.IndexOf("ImageRotater_Background", StringComparison.Ordinal) >= 0)
+                        {
+                            result.HasBackground = true;
+                        }
+
+                        if (!result.HasCover &&
+                            text.IndexOf("ImageRotater_Cover", StringComparison.Ordinal) >= 0)
+                        {
+                            result.HasCover = true;
+                        }
+
+                        if (result.HasBackground && result.HasCover)
+                        {
+                            return result;
+                        }
+                    }
+
+                    return result;
+                }
+            }
+
+            return result;
+        }
+
+        private static string ReadYamlValue(string manifestPath, string key)
+        {
+            try
+            {
+                string prefix = key + ":";
+                foreach (string raw in File.ReadLines(manifestPath))
+                {
+                    string line = raw.Trim();
+                    if (!line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    return line.Substring(prefix.Length).Trim().Trim('"', '\'');
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
+        private static SetupStatus DescribeThemeSupport(ThemeProbeResult result)
+        {
+            if (result == null || !result.Found)
+            {
+                string name = result?.Name ?? Loc.Get("LOCImageRotaterUnknownTheme");
+                return SetupStatus.Neutral(
+                    Loc.Format("LOCImageRotaterThemeSupportUnknown", name));
+            }
+
+            if (result.HasBackground && result.HasCover)
+            {
+                return SetupStatus.Ok(
+                    Loc.Format("LOCImageRotaterThemeSupportFull", result.Name));
+            }
+
+            if (result.HasBackground)
+            {
+                return SetupStatus.Warning(
+                    Loc.Format("LOCImageRotaterThemeSupportBackgroundOnly", result.Name));
+            }
+
+            if (result.HasCover)
+            {
+                return SetupStatus.Warning(
+                    Loc.Format("LOCImageRotaterThemeSupportCoverOnly", result.Name));
+            }
+
+            return SetupStatus.Problem(
+                Loc.Format("LOCImageRotaterThemeSupportNone", result.Name));
+        }
+
         // Tool probing launches ffmpeg / yt-dlp / deno. Keep it lazy (only
         // when Tools is actually opened) and off the UI thread so opening the
         // settings window stays instant.
@@ -1132,7 +1420,11 @@ namespace ImageRotater
             // and blocking BeginEdit was making ImageRotater settings visibly
             // slower to open than other plugins.
             _toolStatusLoaded = false;
+            _themeSupportLoaded = false;
             ++_toolProbeGeneration;
+            ++_themeProbeGeneration;
+            DesktopThemeStatus = SetupStatus.Neutral(string.Empty);
+            FullscreenThemeStatus = SetupStatus.Neutral(string.Empty);
             FfmpegStatus = SetupStatus.Neutral(string.Empty);
             YtDlpStatus = SetupStatus.Neutral(string.Empty);
             DenoStatus = SetupStatus.Neutral(string.Empty);

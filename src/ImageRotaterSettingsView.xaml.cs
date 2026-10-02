@@ -9,6 +9,12 @@ namespace ImageRotater
         public ImageRotaterSettingsView()
         {
             InitializeComponent();
+            Loaded += ImageRotaterSettingsView_Loaded;
+        }
+
+        private void ImageRotaterSettingsView_Loaded(object sender, System.Windows.RoutedEventArgs e)
+        {
+            (DataContext as ImageRotaterSettingsViewModel)?.EnsureThemeSupportLoaded();
         }
 
 

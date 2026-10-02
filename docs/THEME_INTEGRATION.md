@@ -1,25 +1,45 @@
 # Theme integration
 
-ImageRotater needs no theme support for stills, and two elements for motion.
+ImageRotater now has two rendering paths.
 
-**Stills work everywhere, untouched.** The plugin writes Playnite's own
-`Game.BackgroundImage` / `Game.CoverImage`; Playnite re-reads them in every
-view - Desktop always did, Fullscreen grid tiles since Playnite 10.57 - and the
-plugin draws the chosen transition (Covers → Animation, Backgrounds → Animation
-in its settings) over Playnite's own element. Nothing to add, nothing to bind.
+## Theme integration (default / recommended)
 
-**GIF and video need a renderer Playnite does not have.** Playnite's `Image`
-shows a GIF's first frame and cannot decode video; its `FadeImage` background
-is the same `Image` twice. The plugin publishes a poster frame to the database
-so those elements always show *something*, and carries the real renderer - an
-`Image`, XamlAnimatedGif and a `MediaElement`, switched per pick - in two
-controls a theme hosts by name:
+This is the fast path, following the same principle as BackgroundChanger.
+ImageRotater leaves Playnite's native `Game.BackgroundImage` and
+`Game.CoverImage` metadata untouched and renders directly from its own artwork
+folders through plugin controls hosted by the theme. This avoids the repeated
+Playnite database updates that can wake other metadata plugins on every
+rotation or slideshow tick.
 
-| Where | Still | GIF / video |
-| --- | --- | --- |
-| Fullscreen grid tile | works, nothing to add | place `ImageRotater_Cover` in the tile template |
-| Details view cover (either mode) | works, nothing to add | place `ImageRotater_Cover` in the details template |
-| Background (either mode) | works, nothing to add | place `ImageRotater_Background` over your background |
+A compatible theme hosts:
+
+```xml
+<ContentControl x:Name="ImageRotater_Background"/>
+<ContentControl x:Name="ImageRotater_Cover"/>
+```
+
+The controls render still images, GIFs and video themselves. Backgrounds fall
+back to the game's native Playnite background when the game has no
+ImageRotater background. Cover controls remain transparent when the game has no
+ImageRotater cover, so the theme's native cover can stay underneath.
+
+## Compatibility mode
+
+Turn **Theme integration** off in **Settings > General** when the active theme
+does not support ImageRotater. In this mode the plugin keeps the historical
+behaviour: the selected still/poster is temporarily written through Playnite's
+native artwork fields, so ordinary themes work without any special markup.
+
+This is the broadest-compatibility path, but each artwork change can trigger a
+Playnite game/database update. Other extensions that react to those updates may
+perform additional metadata or image work, so Slideshow and frequent rotation
+can cost more on installations with such plugins. ImageRotater restores the
+user's original Playnite artwork when it no longer needs the compatibility
+write path.
+
+Theme integration is enabled by default.
+
+---
 
 **What a theme author has to do, in full:**
 
@@ -34,13 +54,10 @@ controls a theme hosts by name:
    converters, no plugin-settings conditions. Video and GIF play through the
    hosted control; stills keep coming through Playnite.
 
-A theme built for BackgroundChanger is most of the way there: the plugin also
-answers to `BackgroundChanger_PluginCoverImage` and
-`BackgroundChanger_PluginBackgroundImage`.
-The elements resolve, but any *conditions* the theme wraps them in that check
-BackgroundChanger's own plugin status or settings stay false, so such a theme
-still needs an ImageRotater branch beside them - see
-[Themes built for BackgroundChanger](#themes-built-for-backgroundchanger).
+BackgroundChanger and ImageRotater use separate theme controls. A theme may
+support both plugins at the same time, but ImageRotater requires its own
+`ImageRotater_Background` / `ImageRotater_Cover` elements and never claims
+BackgroundChanger's element names.
 
 See [Animated covers](#animated-covers-place-the-plugins-control) for the
 markup and [Worked example: Aniki ReMake](#worked-example-aniki-remake) for a
@@ -400,22 +417,26 @@ the Fullscreen grid issue above, for the binding reasons already listed.
 <ContentControl x:Name="ImageRotater_Cover"/>
 ```
 
-Backgrounds work without a theme hook; the element is only needed if a theme
-wants to control sizing or layering itself.
+In Theme integration mode these controls are required. Without them, use
+Compatibility mode for static artwork on themes that do not integrate
+ImageRotater.
 
-## Themes built for BackgroundChanger
+## Themes that also support BackgroundChanger
 
-ImageRotater also answers to `BackgroundChanger_PluginBackgroundImage` and
-`BackgroundChanger_PluginCoverImage`, always - there is nothing to switch on.
+BackgroundChanger and ImageRotater are intentionally independent. ImageRotater
+only registers its own elements:
 
-The *elements* resolve, but the *conditions* around them do not: such a theme
-gates on `{PluginStatus Plugin=playnite-backgroundchanger-plugin}` and
-`{PluginSettings Plugin=BackgroundChanger}`, which only that plugin can satisfy.
-ImageRotater cannot answer to another plugin's identity without colliding with a
-real BackgroundChanger install — Playnite keys settings, data paths and the addon
-registry on that id.
+```xml
+<ContentControl x:Name="ImageRotater_Background"/>
+<ContentControl x:Name="ImageRotater_Cover"/>
+```
 
-A theme supporting both should add a parallel branch using ImageRotater's own id
-and name. The two plugins should not be enabled together in any case: Playnite
-routes a shared element name to whichever plugin claimed it first, so the winner
-depends on load order.
+It does **not** register or answer to
+`BackgroundChanger_PluginBackgroundImage` or
+`BackgroundChanger_PluginCoverImage`. A theme can therefore keep its existing
+BackgroundChanger controls and add ImageRotater controls alongside them without
+either plugin claiming the other's element names.
+
+Theme integration works only where the ImageRotater controls are actually
+present. If a theme has only BackgroundChanger integration, enable ImageRotater's
+Compatibility mode instead or add the ImageRotater controls to that theme.

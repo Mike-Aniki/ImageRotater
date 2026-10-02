@@ -438,29 +438,59 @@ namespace ImageRotater.Controls
             await RunSearch();
         }
 
-        // The YouTube tab searches for "<game> live wallpaper", the others for
-        // the game's name.
+        // Source-specific default queries. YouTube uses "live wallpaper"; the
+        // generic Web Images source adds a user-configurable word such as
+        // "wallpaper" or "cover" depending on the artwork kind. Steam and
+        // SteamGridDB use the plain game name.
         //
-        // Only rewritten while the box still holds a term this method itself
-        // put there - the moment a user types their own words, switching tabs
-        // stops overwriting them.
+        // We only rewrite terms that match one of our own automatic defaults.
+        // The moment a user types a custom query, switching source leaves it
+        // untouched.
         private void SyncSearchTermToTab()
         {
             string plain = (_game?.Name ?? string.Empty).Trim();
             string forYouTube = Services.YouTubeSearch.DefaultQueryFor(plain);
+            string forWeb = BuildDefaultWebQuery(plain);
 
             string current = (SearchBox.Text ?? string.Empty).Trim();
+            bool isAutomatic = string.Equals(current, plain, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(current, forYouTube, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(current, forWeb, StringComparison.OrdinalIgnoreCase);
 
-            bool onYouTube = ReferenceEquals(SourceTabs.SelectedItem, YouTubeTab);
+            if (!isAutomatic)
+            {
+                return;
+            }
 
-            if (onYouTube && current == plain)
+            if (ReferenceEquals(SourceTabs.SelectedItem, YouTubeTab))
             {
                 SearchBox.Text = forYouTube;
             }
-            else if (!onYouTube && current == forYouTube)
+            else if (ReferenceEquals(SourceTabs.SelectedItem, WebTab))
+            {
+                SearchBox.Text = forWeb;
+            }
+            else
             {
                 SearchBox.Text = plain;
             }
+        }
+
+        private string BuildDefaultWebQuery(string gameName)
+        {
+            string extra = _kind == ArtworkKind.Cover
+                ? _settings.WebCoverSearchTerm
+                : _settings.WebBackgroundSearchTerm;
+
+            string plain = (gameName ?? string.Empty).Trim();
+            string suffix = (extra ?? string.Empty).Trim();
+
+            if (string.IsNullOrEmpty(plain))
+            {
+                return suffix;
+            }
+
+            return string.IsNullOrEmpty(suffix) ? plain : plain + " " + suffix;
         }
 
         private async void SearchBox_KeyDown(object sender, KeyEventArgs e)
@@ -656,7 +686,23 @@ namespace ImageRotater.Controls
         {
             StopPreview();
 
-            PreviewColumn.Width = new GridLength(320);
+            // Give previews enough room to judge artwork properly. The old
+            // 320px rail was fine for metadata but too small for visual
+            // comparison. Keep the width responsive so smaller Desktop
+            // windows still leave a useful result grid, and expose a splitter
+            // so the user can resize it further.
+            double available = ActualWidth > 0 ? ActualWidth : 1200;
+            double filterWidth = FiltersColumn.ActualWidth > 0 ? FiltersColumn.ActualWidth : 350;
+            double maxThatKeepsResultsUseful = available - filterWidth - 7 - 420 - 28;
+            double previewWidth = Math.Max(360, Math.Min(560, available * 0.40));
+            if (maxThatKeepsResultsUseful >= 360)
+            {
+                previewWidth = Math.Min(previewWidth, maxThatKeepsResultsUseful);
+            }
+
+            PreviewSplitterColumn.Width = new GridLength(7);
+            PreviewSplitter.Visibility = Visibility.Visible;
+            PreviewColumn.Width = new GridLength(previewWidth);
             PreviewPanel.Visibility = Visibility.Visible;
 
             PreviewTitle.Text = string.IsNullOrEmpty(item.Style) ? Loc.Get("LOCImageRotaterPreview") : item.Style;
@@ -791,6 +837,8 @@ namespace ImageRotater.Controls
 
             PreviewPanel.Visibility = Visibility.Collapsed;
             PreviewColumn.Width = new GridLength(0);
+            PreviewSplitterColumn.Width = new GridLength(0);
+            PreviewSplitter.Visibility = Visibility.Collapsed;
         }
 
         // Releases the preview. Not merely hidden: a hidden video keeps

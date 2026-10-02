@@ -95,11 +95,11 @@ namespace ImageRotater.Services
 
                 window.Width = fullscreen
                     ? Math.Min(1600, SystemParameters.PrimaryScreenWidth * 0.92)
-                    : 1000;
+                    : Math.Min(1320, SystemParameters.PrimaryScreenWidth * 0.92);
 
                 window.Height = fullscreen
                     ? Math.Min(950, SystemParameters.PrimaryScreenHeight * 0.9)
-                    : 640;
+                    : Math.Min(760, SystemParameters.PrimaryScreenHeight * 0.88);
 
                 window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
                 window.Content = new Controls.SteamGridDbSearchView(

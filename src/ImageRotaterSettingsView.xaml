@@ -46,6 +46,65 @@
                         </Grid>
                     </Border>
 
+                    <!-- Rendering path: visible on General because it changes both performance
+                         and whether the active theme must explicitly support ImageRotater. -->
+                    <Border Style="{StaticResource IrCard}" Margin="0,0,0,14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,20,0">
+                                <TextBlock Text="{DynamicResource LOCImageRotaterThemeIntegration}" Style="{StaticResource IrCardTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterThemeIntegrationHint}" Style="{StaticResource IrHintFlush}" Margin="0,3,0,0"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterCompatibilityModeHint}"
+                                           Style="{StaticResource IrHintFlush}"
+                                           Foreground="{StaticResource IrWarn}"
+                                           FontSize="11"
+                                           Margin="0,4,0,10"/>
+
+                                <!-- Active-theme compatibility is detected from the selected theme's
+                                     XAML, not from the plugin list. Full means both official IR
+                                     controls are present; partial support tells the user which one. -->
+                                <Border Background="#1812181E"
+                                        BorderBrush="{StaticResource IrStroke}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="10,8"
+                                        Margin="0,0,0,2">
+                                    <StackPanel>
+                                        <TextBlock Text="{DynamicResource LOCImageRotaterActiveThemeSupport}"
+                                                   Style="{StaticResource IrLabel}"
+                                                   FontWeight="SemiBold"
+                                                   Margin="0,0,0,5"/>
+                                        <TextBlock Style="{StaticResource IrStatus}"
+                                                   Foreground="{Binding DesktopThemeStatus.Brush}"
+                                                   Margin="0,0,0,4">
+                                            <Run Text="{DynamicResource LOCImageRotaterDesktopThemeLabel}"/>
+                                            <Run Text=" "/>
+                                            <Run Text="{Binding DesktopThemeStatus.Glyph, Mode=OneWay}"/>
+                                            <Run Text=" "/>
+                                            <Run Text="{Binding DesktopThemeStatus.Message, Mode=OneWay}"/>
+                                        </TextBlock>
+                                        <TextBlock Style="{StaticResource IrStatus}"
+                                                   Foreground="{Binding FullscreenThemeStatus.Brush}">
+                                            <Run Text="{DynamicResource LOCImageRotaterFullscreenThemeLabel}"/>
+                                            <Run Text=" "/>
+                                            <Run Text="{Binding FullscreenThemeStatus.Glyph, Mode=OneWay}"/>
+                                            <Run Text=" "/>
+                                            <Run Text="{Binding FullscreenThemeStatus.Message, Mode=OneWay}"/>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                            <CheckBox Grid.Column="1"
+                                      Style="{StaticResource IrToggleSwitchOnly}"
+                                      ToolTip="{DynamicResource LOCImageRotaterThemeIntegrationTooltip}"
+                                      VerticalAlignment="Center"
+                                      IsChecked="{Binding Settings.UseThemeIntegration}"/>
+                        </Grid>
+                    </Border>
+
                     <Border Style="{StaticResource IrSectionBar}">
                         <TextBlock Text="{DynamicResource LOCImageRotaterChooseContent}" Style="{StaticResource IrSectionTitle}"/>
                     </Border>
@@ -399,6 +458,32 @@
                                 <Run Text="{Binding ApiKeyStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding ApiKeyStatus.Message, Mode=OneWay}"/>
                             </TextBlock>
                             <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,0,0,0" Text="{DynamicResource LOCImageRotaterApiKeyStorage}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterWebSearchTerms}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterWebSearchTermsHint}" Margin="0,0,0,10"/>
+                            <Grid Margin="0,0,0,7">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="150"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{DynamicResource LOCImageRotaterBackgrounds}" Style="{StaticResource IrLabel}" VerticalAlignment="Center"/>
+                                <TextBox Grid.Column="1" Style="{StaticResource IrTextBox}"
+                                         Text="{Binding Settings.WebBackgroundSearchTerm, UpdateSourceTrigger=PropertyChanged}"/>
+                            </Grid>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="150"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{DynamicResource LOCImageRotaterCovers}" Style="{StaticResource IrLabel}" VerticalAlignment="Center"/>
+                                <TextBox Grid.Column="1" Style="{StaticResource IrTextBox}"
+                                         Text="{Binding Settings.WebCoverSearchTerm, UpdateSourceTrigger=PropertyChanged}"/>
+                            </Grid>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,9,0,0" Text="{DynamicResource LOCImageRotaterWebSearchTermsExample}"/>
                         </StackPanel>
                     </Border>
 

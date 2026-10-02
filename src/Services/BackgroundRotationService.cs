@@ -9,12 +9,11 @@ using ImageRotater.Models;
 
 namespace ImageRotater.Services
 {
-    // Drives write mode: picks an image for a game and pushes it into
-    // Playnite's own BackgroundImage field.
-    //
-    // The theme-element mode does its own picking inside the control. This
-    // service is the equivalent for themes that never place that element -
-    // which is most of them.
+    // Drives the compatibility write path and the shared slideshow selection.
+    // In compatibility mode it pushes the selected image into Playnite's own
+    // artwork fields. In theme-integration mode the controls render directly
+    // from ImageRotater's folders; this service only advances shared slideshow
+    // state and deliberately performs no database writes.
     public class BackgroundRotationService
     {
         private static readonly ILogger Logger = LogManager.GetLogger();
@@ -393,7 +392,14 @@ namespace ImageRotater.Services
                 return;
             }
 
-            _preserver?.Preserve(game, kind);
+            // Compatibility mode temporarily writes the selected artwork into
+            // Playnite's own metadata, so it must preserve the user's original
+            // artwork first. Theme integration renders directly from the plugin
+            // folders and deliberately never touches those native fields.
+            if (!settings.UseThemeIntegration)
+            {
+                _preserver?.Preserve(game, kind);
+            }
             if (trace)
             {
                 preserveMs = step.ElapsedMilliseconds;
@@ -464,6 +470,24 @@ namespace ImageRotater.Services
                 configuredMode == SelectionMode.Slideshow)
             {
                 _selector.Remember(selectionKey, path);
+            }
+
+            // Theme integration has its own renderer (the plugin controls a
+            // compatible theme hosts, just like BackgroundChanger). The
+            // selection work above is still useful for Slideshow because it
+            // advances the shared remembered pick, but nothing below this point
+            // is: publishing/copying and GameDatabase updates are the expensive
+            // compatibility path we explicitly want to avoid in this mode.
+            if (settings.UseThemeIntegration)
+            {
+                if (trace)
+                {
+                    _fileLogger.Log(
+                        $"BG PERF apply \"{game.Name}\" theme-direct total={total.ElapsedMilliseconds}ms " +
+                        $"has={artworkMs}ms preserve={preserveMs}ms list={candidatesMs}ms select={selectMs}ms " +
+                        $"candidates={candidates.Count} mode={mode} source={path}");
+                }
+                return;
             }
 
             string picked = path;

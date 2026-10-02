@@ -44,6 +44,16 @@
             };
         }
 
+        public static SetupStatus Warning(string message)
+        {
+            return new SetupStatus
+            {
+                Glyph = "!",
+                Message = message,
+                Brush = "#D9A441"
+            };
+        }
+
         public static SetupStatus Problem(string message)
         {
             return new SetupStatus

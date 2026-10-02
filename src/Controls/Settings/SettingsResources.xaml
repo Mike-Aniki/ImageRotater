@@ -2,20 +2,15 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!--
-      The settings page look, shared with UniPlaySong and SuperScroll.
+      Hybrid ImageRotater / Playnite settings presentation.
 
-      A settings page hosted inside somebody else's WPF application inherits that application's
-      decisions unless it states its own. Foreground, FontSize and FontWeight are INHERITABLE: a
-      TextBlock that leaves Foreground unset takes it from the Playnite window, which may be
-      near-white on one theme and near-black on another. So every style here states its colours
-      and metrics outright, and the page paints its own ground, so the contrast pair is decided
-      here rather than borrowed.
+      ImageRotater keeps its own navigation, glass cards, cyan accent and compact control
+      language. The host window itself is left visible so the active Playnite Desktop theme
+      still frames the page, and top-level headings use Playnite's text resources.
 
-      Every control gets an EXPLICIT style too. A theme's implicit `<Style TargetType="CheckBox">`
-      applies to any CheckBox without one - and those routinely carry a Template, a fixed Height
-      and Padding of their own (Mythos sizes every ToggleButton to 28px, which is what squashed the
-      search tiles). Keyed, never implicit: an implicit style here would leak into the rest of the
-      settings window.
+      Controls remain explicitly keyed so a Desktop theme cannot accidentally replace their
+      templates or sizing. This keeps the page recognisably ImageRotater while avoiding the
+      feeling of a completely separate application inside Playnite.
     -->
 
     <!-- Palette. The same construction as UniPlaySong's page - ground, surface, stroke,
@@ -23,9 +18,9 @@
          accent, where UniPlaySong is slate and cyan and SuperScroll slate and mint. The three
          share a language, not a coat of paint. Warn and danger stay amber and red, because
          those mean the same thing everywhere. -->
-    <SolidColorBrush x:Key="IrGround"     Color="#12181E"/>
-    <SolidColorBrush x:Key="IrSurface"    Color="#1A2026"/>
-    <SolidColorBrush x:Key="IrSurfaceHi"  Color="#202A31"/>
+    <SolidColorBrush x:Key="IrGround"     Color="#E612181E"/>
+    <SolidColorBrush x:Key="IrSurface"    Color="#E61A2026"/>
+    <SolidColorBrush x:Key="IrSurfaceHi"  Color="#E6202A31"/>
     <SolidColorBrush x:Key="IrStroke"     Color="#2F3D45"/>
     <SolidColorBrush x:Key="IrStrokeHi"   Color="#42545E"/>
     <SolidColorBrush x:Key="IrAccent"     Color="#32CFE5"/>
@@ -47,7 +42,7 @@
     <!-- Padding sits here rather than on the inner panel so the ground fills the whole page
          instead of leaving a theme-coloured gutter round the edge. -->
     <Style x:Key="IrPage" TargetType="ScrollViewer">
-        <Setter Property="Background" Value="{StaticResource IrGroundGlass}"/>
+        <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Padding" Value="26,22,28,28"/>
         <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
         <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
@@ -57,14 +52,14 @@
     <Style x:Key="IrPageTitle" TargetType="TextBlock">
         <Setter Property="FontSize" Value="28"/>
         <Setter Property="FontWeight" Value="Bold"/>
-        <Setter Property="Foreground" Value="{StaticResource IrText}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
         <Setter Property="Margin" Value="0,0,0,6"/>
     </Style>
 
     <Style x:Key="IrPageSubtitle" TargetType="TextBlock">
         <Setter Property="FontWeight" Value="Normal"/>
         <Setter Property="FontSize" Value="13"/>
-        <Setter Property="Foreground" Value="{StaticResource IrTextMuted}"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextBrushDarker}"/>
         
         <Setter Property="TextWrapping" Value="Wrap"/>
         <Setter Property="Margin" Value="0,0,0,8"/>
@@ -457,7 +452,7 @@
     <!-- A full-width row that marks selection with a left accent bar - the TabItem's own left
          border, so nothing has to be kept in sync with the row's height. -->
     <Style x:Key="IrRailItem" TargetType="TabItem"><Setter Property="Width" Value="190"/><Setter Property="MinHeight" Value="46"/><Setter Property="Margin" Value="0,0,14,6"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabItem"><Border x:Name="Row" Background="Transparent" BorderBrush="Transparent" BorderThickness="4,0,0,0" CornerRadius="0,10,10,0" Padding="17,11" Cursor="Hand" TextElement.Foreground="{StaticResource IrTextMuted}" TextElement.FontSize="13" TextElement.FontWeight="SemiBold"><ContentPresenter ContentSource="Header" HorizontalAlignment="Left" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="#1432CFE5"/><Setter TargetName="Row" Property="TextElement.Foreground" Value="White"/></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="#2032CFE5"/><Setter TargetName="Row" Property="BorderBrush" Value="{StaticResource IrAccent}"/><Setter TargetName="Row" Property="TextElement.Foreground" Value="White"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
-    <Style x:Key="IrRail" TargetType="TabControl"><Setter Property="ItemContainerStyle" Value="{StaticResource IrRailItem}"/><Setter Property="Background" Value="{StaticResource IrGround}"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabControl"><Grid Background="{StaticResource IrGround}"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Grid.Column="0" Background="#D911171D" BorderBrush="#22FFFFFF" BorderThickness="0,0,1,0" Padding="0,14,0,14"><StackPanel IsItemsHost="True" MinWidth="204"/></Border><ContentPresenter Grid.Column="1" ContentSource="SelectedContent"/></Grid></ControlTemplate></Setter.Value></Setter></Style>
+    <Style x:Key="IrRail" TargetType="TabControl"><Setter Property="ItemContainerStyle" Value="{StaticResource IrRailItem}"/><Setter Property="Background" Value="Transparent"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabControl"><Grid Background="Transparent"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Border Grid.Column="0" Background="#C911171D" BorderBrush="#22FFFFFF" BorderThickness="0,0,1,0" Padding="0,14,0,14"><StackPanel IsItemsHost="True" MinWidth="204"/></Border><ContentPresenter Grid.Column="1" ContentSource="SelectedContent"/></Grid></ControlTemplate></Setter.Value></Setter></Style>
 
     <!-- The strip along the top of a rail entry: its pages. Underlined rather than a second
          boxed tab, so it reads as subordinate to the rail instead of competing with it. -->
@@ -499,7 +494,7 @@
                 <ControlTemplate TargetType="TabControl">
                     <DockPanel>
                         <Border DockPanel.Dock="Top"
-                                Background="{StaticResource IrSurface}"
+                                Background="#D91A2026"
                                 BorderBrush="{StaticResource IrStroke}"
                                 BorderThickness="0,0,0,1"
                                 Padding="8,0,8,0">

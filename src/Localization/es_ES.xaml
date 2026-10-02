@@ -29,6 +29,20 @@
     <sys:String x:Key="LOCImageRotaterToolPathHint" xml:space="preserve">Puedes dejar la ruta vacía si la herramienta ya está disponible en el PATH de Windows. De lo contrario, busca el ejecutable.</sys:String>
     <sys:String x:Key="LOCImageRotaterBrowse" xml:space="preserve">Examinar…</sys:String>
     <sys:String x:Key="LOCImageRotaterGeneralIntro" xml:space="preserve">Configura aquí lo esencial. Elige qué gestiona ImageRotater y después ajusta los fondos y las carátulas en sus páginas dedicadas.</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeIntegration" xml:space="preserve">Integración con el tema</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeIntegrationHint" xml:space="preserve">Usa esta opción si tu tema de Playnite es compatible con ImageRotater. Se recomienda esta opción porque ofrece el mejor rendimiento, admite ilustraciones animadas y mantiene intactas las carátulas y los fondos nativos de Playnite.</sys:String>
+    <sys:String x:Key="LOCImageRotaterCompatibilityModeHint" xml:space="preserve">Si tu tema no es compatible, desactiva esta opción. ImageRotater funcionará entonces con casi cualquier tema actualizando directamente las ilustraciones nativas de Playnite. Esto puede provocar más actualizaciones de la base de datos y reducir el rendimiento cuando otros plugins reaccionan a esos cambios.</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeIntegrationTooltip" xml:space="preserve">Usar el renderizado integrado con el tema. Desactívalo solo si el tema activo no es compatible con ImageRotater.</sys:String>
+    <sys:String x:Key="LOCImageRotaterActiveThemeSupport" xml:space="preserve">Compatibilidad de los temas activos</sys:String>
+    <sys:String x:Key="LOCImageRotaterDesktopThemeLabel" xml:space="preserve">Escritorio:</sys:String>
+    <sys:String x:Key="LOCImageRotaterFullscreenThemeLabel" xml:space="preserve">Pantalla completa:</sys:String>
+    <sys:String x:Key="LOCImageRotaterCheckingThemeSupport" xml:space="preserve">Comprobando compatibilidad del tema...</sys:String>
+    <sys:String x:Key="LOCImageRotaterUnknownTheme" xml:space="preserve">Tema desconocido</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeSupportFull" xml:space="preserve">{0} — Compatible (Fondo + Carátula)</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeSupportBackgroundOnly" xml:space="preserve">{0} — Compatibilidad parcial (Solo fondo)</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeSupportCoverOnly" xml:space="preserve">{0} — Compatibilidad parcial (Solo carátula)</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeSupportNone" xml:space="preserve">{0} — No compatible</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeSupportUnknown" xml:space="preserve">{0} — No se pudieron comprobar los archivos del tema</sys:String>
     <sys:String x:Key="LOCImageRotaterMasterDescription" xml:space="preserve">Activa o desactiva el plugin desde un único lugar. Al desactivarlo se pausa la rotación y el contenido animado sin eliminar tus ilustraciones ni cambiar la configuración.</sys:String>
     <sys:String x:Key="LOCImageRotaterChooseContent" xml:space="preserve">ELIGE QUÉ GESTIONA IMAGEROTATER</sys:String>
     <sys:String x:Key="LOCImageRotaterChooseContentHint" xml:space="preserve">Activa cada función de forma independiente. Puedes configurar el comportamiento de cada una desde su propia página.</sys:String>
@@ -451,4 +465,11 @@ Se copiaron {0} archivo(s) WebP tal cual. Playnite no puede mostrar WebP, así q
     <sys:String x:Key="LOCImageRotaterManagerOpenFileLocation" xml:space="preserve">Abrir ubicación del archivo</sys:String>
     <sys:String x:Key="LOCImageRotaterManagerDeleteArtwork" xml:space="preserve">Eliminar ilustración</sys:String>
 
+    <sys:String x:Key="LOCImageRotaterWebSearchTerms" xml:space="preserve">Términos de búsqueda de imágenes web</sys:String>
+    <sys:String x:Key="LOCImageRotaterWebSearchTermsHint" xml:space="preserve">ImageRotater añade estas palabras al nombre del juego al abrir la fuente Imágenes web. Cámbialas según el tipo de ilustración que sueles buscar, o déjalas vacías para usar solo el nombre del juego.</sys:String>
+    <sys:String x:Key="LOCImageRotaterWebSearchTermsExample" xml:space="preserve">Ejemplo: « Hades wallpaper » para fondos y « Hades cover » para carátulas.</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackgroundChangerConflictTitle" xml:space="preserve">Conflicto con BackgroundChanger</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackgroundChangerConflictMessage" xml:space="preserve">BackgroundChanger e ImageRotater están activados al mismo tiempo. Como ambos plugins pueden gestionar carátulas y fondos, usarlos juntos puede provocar comportamientos visuales duplicados o inesperados.</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackgroundChangerConflictHint" xml:space="preserve">Para una mejor experiencia, recomendamos desactivar BackgroundChanger mientras usas ImageRotater.</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackgroundChangerConflictAcknowledge" xml:space="preserve">Entendido</sys:String>
 </ResourceDictionary>
