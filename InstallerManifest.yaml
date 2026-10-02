@@ -44,3 +44,9 @@ Packages:
       - Improved Online Artwork Search and remembered filter preferences.
       - Reduced unnecessary startup artwork processing.
       - Added a clearer warning when BackgroundChanger is enabled alongside ImageRotater.
+  - Version: 1.2.1
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-10-02
+    PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/v1.2.1/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_2_1.pext
+    Changelog:
+      - Added theme-controlled cover Stretch and StretchDirection support, with automatic Playnite fallback when not specified.
