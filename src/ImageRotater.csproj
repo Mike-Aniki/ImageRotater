@@ -63,4 +63,10 @@
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </None>
     </ItemGroup>
+
+    <ItemGroup>
+        <None Remove="Assets\Preview\*.*" />
+        <Resource Include="Assets\Preview\*.*" />
+    </ItemGroup>
+
 </Project>

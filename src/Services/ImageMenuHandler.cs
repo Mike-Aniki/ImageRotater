@@ -23,6 +23,7 @@ namespace ImageRotater.Services
         private readonly SessionSelectionCache _sessionCache;
         private readonly ISteamGridDbClient _steamGridDb;
         private readonly ArtworkDownloader _downloader;
+        private readonly OriginalArtPreserver _preserver;
         private readonly Func<ImageRotaterSettings> _settings;
         private readonly Action _saveSettings;
 
@@ -39,6 +40,7 @@ namespace ImageRotater.Services
             SessionSelectionCache sessionCache,
             ISteamGridDbClient steamGridDb,
             ArtworkDownloader downloader,
+            OriginalArtPreserver preserver = null,
             Func<ImageRotaterSettings> settings = null,
             Action<Guid> onImagesChanged = null,
             Action saveSettings = null)
@@ -48,6 +50,7 @@ namespace ImageRotater.Services
             _sessionCache = sessionCache;
             _steamGridDb = steamGridDb;
             _downloader = downloader;
+            _preserver = preserver;
 
             // A getter rather than the object: settings can change while
             // Playnite runs, and a snapshot taken at startup would leave the
@@ -420,6 +423,7 @@ namespace ImageRotater.Services
                     _sessionCache,
                     game,
                     kind,
+                    _preserver,
                     NotifyImagesChanged,
                     searchViewFactory,
                     () => DownloadFromSteamGridDb(new[] { game }, kind),
@@ -469,14 +473,42 @@ namespace ImageRotater.Services
             }
 
             int added = 0;
+            int optimised = 0;
+            ImageRotaterSettings currentSettings = _settings != null ? _settings() : null;
+            ImageOptimizer optimizer = currentSettings?.OptimiseDownloadedImages == true
+                ? new ImageOptimizer(_store)
+                : null;
+
             foreach (Game game in targets)
             {
                 foreach (string source in selected)
                 {
-                    if (_store.AddImage(game.Id, source, kind) != null)
+                    string addedPath = _store.AddImage(game.Id, source, kind);
+                    if (addedPath == null)
                     {
-                        added++;
+                        continue;
                     }
+
+                    added++;
+
+                    if (optimizer != null && ImageOptimizer.CanOptimiseAutomatically(addedPath))
+                    {
+                        string finalPath;
+                        if (optimizer.Optimise(addedPath, null, out finalPath))
+                        {
+                            optimised++;
+                        }
+                    }
+                }
+
+                // Compatibility mode needs a stable native copy before it
+                // starts replacing Playnite's artwork field. Theme Integration
+                // keeps Original virtual and reads Playnite directly, so do not
+                // create a duplicate there.
+                if (_store.HasAnyImage(game.Id, kind) &&
+                    currentSettings?.UseThemeIntegration != true)
+                {
+                    _preserver?.Preserve(game, kind);
                 }
 
                 // The candidate list changed, so any remembered choice for this
@@ -487,6 +519,10 @@ namespace ImageRotater.Services
             if (added > 0)
             {
                 string message = Loc.Format("LOCImageRotaterAddedImages", added, targets.Count);
+                if (optimised > 0)
+                {
+                    message += "\n" + Loc.Format("LOCImageRotaterAddedImagesOptimised", optimised);
+                }
 
                 // Rotation needs something to rotate TO. Checked for a single
                 // game only; a batch add is not where a one-image setup happens.

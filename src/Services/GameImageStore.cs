@@ -148,7 +148,8 @@ namespace ImageRotater.Services
                 foreach (string file in Directory.EnumerateFiles(folder))
                 {
                     if (SupportedExtensions.Contains(Path.GetExtension(file)) &&
-                        !IsPublishedCopy(file))
+                        !IsPublishedCopy(file) &&
+                        !IsPreservedOriginal(file))
                     {
                         return true;
                     }
@@ -266,6 +267,13 @@ namespace ImageRotater.Services
                 IReadOnlyList<string> listed = DeduplicateByContent(ListCandidateFiles(folder, false));
                 listed = FilterExcluded(folder, listed);
 
+                // Listing can also prune stale metadata left behind when an
+                // artwork file was removed outside ImageRotater. If that cleanup
+                // touched a marker file, cache against the NEW folder timestamp
+                // so the next selection remains a cache hit instead of doing a
+                // redundant second rebuild.
+                stamp = Directory.GetLastWriteTimeUtc(folder);
+
                 lock (_listCacheLock)
                 {
                     _listCache[key] = Tuple.Create(stamp, listed);
@@ -322,8 +330,12 @@ namespace ImageRotater.Services
 
                 foreach (string file in Directory.EnumerateFiles(folder))
                 {
+                    // original_* is only Compatibility's safety copy. It must
+                    // not keep a game opted into ImageRotater after every real
+                    // user-added/downloaded image has been removed.
                     if (SupportedExtensions.Contains(Path.GetExtension(file)) &&
-                        !IsPublishedCopy(file))
+                        !IsPublishedCopy(file) &&
+                        !IsPreservedOriginal(file))
                     {
                         return true;
                     }
@@ -411,9 +423,14 @@ namespace ImageRotater.Services
             var files = Directory.GetFiles(folder)
                 .Where(f => SupportedExtensions.Contains(Path.GetExtension(f)))
                 .Where(f => !IsPublishedCopy(f))
+                // A file can disappear between Directory.GetFiles and the next
+                // operation when the user manages the folder manually. Treat it
+                // as gone instead of letting a transient FileNotFound bubble up.
+                .Where(File.Exists)
                 .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            CleanStaleMetadata(folder, files);
             ApplyCustomOrder(folder, files);
 
             if (!promoteFixed)
@@ -452,6 +469,105 @@ namespace ImageRotater.Services
             catch
             {
                 return files;
+            }
+        }
+
+        // Artwork files are intentionally the source of truth, but the small
+        // marker files can still remember a filename after the user deletes that
+        // image directly in Explorer. Prune those stale references whenever the
+        // candidate folder is rebuilt. This keeps Fixed / order / exclusion state
+        // self-healing without adding a watcher or any work to normal cache hits.
+        private static void CleanStaleMetadata(string folder, IReadOnlyList<string> files)
+        {
+            try
+            {
+                var validNames = new HashSet<string>(
+                    (files ?? Empty).Select(Path.GetFileName),
+                    StringComparer.OrdinalIgnoreCase);
+
+                CleanFixedMarker(folder, validNames);
+                CleanListMarker(Path.Combine(folder, ArtworkOrderFileName), validNames);
+                CleanListMarker(Path.Combine(folder, ExcludedArtworkFileName), validNames);
+            }
+            catch
+            {
+                // Metadata cleanup is maintenance only. A read-only folder or a
+                // temporarily locked marker must never prevent artwork rendering.
+            }
+        }
+
+        private static void CleanFixedMarker(string folder, HashSet<string> validNames)
+        {
+            string marker = Path.Combine(folder, FixedArtworkFileName);
+            if (!File.Exists(marker))
+            {
+                return;
+            }
+
+            try
+            {
+                string name = (File.ReadAllText(marker) ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(name) || !validNames.Contains(name))
+                {
+                    File.Delete(marker);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static void CleanListMarker(string marker, HashSet<string> validNames)
+        {
+            if (!File.Exists(marker))
+            {
+                return;
+            }
+
+            try
+            {
+                string[] original = File.ReadAllLines(marker);
+                var cleaned = new List<string>(original.Length);
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                for (int i = 0; i < original.Length; i++)
+                {
+                    string name = (original[i] ?? string.Empty).Trim();
+                    if (!string.IsNullOrEmpty(name) && validNames.Contains(name) && seen.Add(name))
+                    {
+                        cleaned.Add(name);
+                    }
+                }
+
+                bool changed = cleaned.Count != original.Length;
+                if (!changed)
+                {
+                    for (int i = 0; i < cleaned.Count; i++)
+                    {
+                        if (!string.Equals(cleaned[i], original[i], StringComparison.Ordinal))
+                        {
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!changed)
+                {
+                    return;
+                }
+
+                if (cleaned.Count == 0)
+                {
+                    File.Delete(marker);
+                }
+                else
+                {
+                    File.WriteAllLines(marker, cleaned);
+                }
+            }
+            catch
+            {
             }
         }
 
@@ -766,12 +882,11 @@ namespace ImageRotater.Services
                 : PublishedVideoBaseName + ext.ToLowerInvariant();
         }
 
-        // Preserved native Playnite artwork is a normal rotation candidate.
-        // If a game has one native cover/background plus ten ImageRotater files,
-        // all eleven belong to the pool unless one is explicitly excluded.
-        //
-        // Content deduplication still removes byte-identical copies so the
-        // rotation cannot fade from an image to an identical preserved copy.
+        // Compatibility mode keeps the native Playnite artwork as original_*
+        // so it survives Playnite reclaiming an unreferenced library file. The
+        // rotation source treats that safety copy as the logical Original. Theme
+        // Integration filters the safety copy and uses Playnite's live file
+        // directly instead, so no duplicate is created there.
 
         // Matches the prefix OriginalArtPreserver writes. Kept here rather than
         // referenced from that class so the listing has no dependency on it.
@@ -786,8 +901,8 @@ namespace ImageRotater.Services
         }
 
         // How many images a game will rotate through: what its folder holds,
-        // plus its own Playnite art if that has not been preserved yet - the
-        // first rotation copies it in, and it joins the pool.
+        // plus its own Playnite art when it is still virtual rather than a
+        // Compatibility safety copy.
         //
         // Rotation needs two. Callers that just added a single image use this
         // to tell the user so, rather than letting them conclude the plugin
@@ -1134,16 +1249,24 @@ namespace ImageRotater.Services
         // the result is cached with the listing itself.
         private static IReadOnlyList<string> DeduplicateByContent(List<string> paths)
         {
-            if (paths.Count < 2)
+            // A user can remove a file from the ImageRotater folder while a
+            // listing is being rebuilt. Start from files that still exist and
+            // re-check again on fallback, so one disappearing candidate never
+            // turns the whole pool into a stale list.
+            var existingPaths = (paths ?? new List<string>())
+                .Where(path => !string.IsNullOrEmpty(path) && File.Exists(path))
+                .ToList();
+
+            if (existingPaths.Count < 2)
             {
-                return paths;
+                return existingPaths;
             }
 
             try
             {
                 var byLength = new Dictionary<long, List<string>>();
 
-                foreach (string path in paths)
+                foreach (string path in existingPaths)
                 {
                     if (PosterFrame.IsVideo(path))
                     {
@@ -1219,15 +1342,18 @@ namespace ImageRotater.Services
 
                 if (drop.Count == 0)
                 {
-                    return paths;
+                    return existingPaths.Where(File.Exists).ToList();
                 }
 
-                return paths.Where(p => !drop.Contains(p)).ToList();
+                return existingPaths
+                    .Where(p => !drop.Contains(p) && File.Exists(p))
+                    .ToList();
             }
             catch (Exception)
             {
-                // Deduplication is an improvement, not a requirement.
-                return paths;
+                // Deduplication is an improvement, not a requirement. Missing
+                // files still stay out of the returned pool on this fallback.
+                return existingPaths.Where(File.Exists).ToList();
             }
         }
 

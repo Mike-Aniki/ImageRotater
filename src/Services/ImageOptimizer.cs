@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -134,12 +134,32 @@ namespace ImageRotater.Services
             }
         }
 
+        // Formats that can be safely sent through the built-in System.Drawing
+        // optimiser when a user adds a local file. Animated/video artwork is
+        // intentionally excluded, and WebP is left alone because .NET Framework
+        // does not decode it natively.
+        public static bool CanOptimiseAutomatically(string path)
+        {
+            string ext = (Path.GetExtension(path) ?? string.Empty).ToLowerInvariant();
+            return ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".bmp";
+        }
+
         // Re-encodes one file when that makes it meaningfully smaller.
         //
         // The original is replaced only after the new file is written and
         // measured, so a failure at any point leaves the original untouched.
         public bool Optimise(string path, Result result = null)
         {
+            string ignored;
+            return Optimise(path, result, out ignored);
+        }
+
+        // Same operation as Optimise, but also tells callers where the file
+        // ended up. A successful PNG -> JPEG optimisation changes the extension,
+        // so download code must not keep returning the now-deleted PNG path.
+        public bool Optimise(string path, Result result, out string resultingPath)
+        {
+            resultingPath = path;
             result = result ?? new Result();
 
             try
@@ -185,14 +205,27 @@ namespace ImageRotater.Services
                 // misled.
                 string finalPath = Path.ChangeExtension(path, ".jpg");
 
-                File.Delete(path);
-
-                if (File.Exists(finalPath))
+                // A manually added PNG can legitimately sit beside an existing
+                // JPEG with the same basename. Never delete that other artwork
+                // just because optimisation changes the extension: choose a
+                // unique JPEG name instead.
+                if (!string.Equals(finalPath, path, StringComparison.OrdinalIgnoreCase)
+                    && File.Exists(finalPath))
                 {
-                    File.Delete(finalPath);
+                    string directory = Path.GetDirectoryName(finalPath) ?? string.Empty;
+                    string name = Path.GetFileNameWithoutExtension(finalPath);
+                    int suffix = 1;
+                    do
+                    {
+                        finalPath = Path.Combine(directory, name + "_" + suffix + ".jpg");
+                        suffix++;
+                    }
+                    while (File.Exists(finalPath));
                 }
 
+                File.Delete(path);
                 File.Move(temp, finalPath);
+                resultingPath = finalPath;
 
                 result.FilesOptimised++;
                 result.BytesAfter -= original.Length - candidate.Length;

@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Newtonsoft.Json.Linq;
 using Playnite.SDK;
 using Playnite.SDK.Controls;
@@ -976,9 +978,15 @@ namespace ImageRotater.Controls
             {
                 // Cancel visual state left by a transition interrupted by fast navigation.
                 DisplayImage.BeginAnimation(OpacityProperty, null);
+                DisplayImage.BeginAnimation(Image.SourceProperty, null);
+                PreviousImage.BeginAnimation(Image.SourceProperty, null);
+                RenderOptions.SetBitmapScalingMode(DisplayImage, BitmapScalingMode.Linear);
+                RenderOptions.SetBitmapScalingMode(PreviousImage, BitmapScalingMode.Linear);
                 DisplayImage.Opacity = 1.0;
                 DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
                 PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
+                DisplayImage.Effect = null;
+                PreviousImage.Effect = null;
                 if (_cutNextStage)
                 {
                     _cutNextStage = false;
@@ -1095,6 +1103,10 @@ namespace ImageRotater.Controls
         {
             if (bitmap == null || !bitmap.IsDownloading)
             {
+                if (Transition.CoverStyle == TransitionStyle.Pixelate)
+                {
+                    PixelateFrames.QueuePrewarm(DisplayImage.Source);
+                }
                 CrossfadePreviousCover();
                 return;
             }
@@ -1129,6 +1141,10 @@ namespace ImageRotater.Controls
 
                 if (generation == _fadeGeneration)
                 {
+                    if (Transition.CoverStyle == TransitionStyle.Pixelate)
+                    {
+                        PixelateFrames.QueuePrewarm(DisplayImage.Source);
+                    }
                     CrossfadePreviousCover();
                 }
             };
@@ -1146,6 +1162,10 @@ namespace ImageRotater.Controls
 
                 if (generation == _fadeGeneration)
                 {
+                    if (Transition.CoverStyle == TransitionStyle.Pixelate)
+                    {
+                        PixelateFrames.QueuePrewarm(DisplayImage.Source);
+                    }
                     CrossfadePreviousCover();
                 }
             };
@@ -1226,6 +1246,48 @@ namespace ImageRotater.Controls
                     return;
                 }
 
+                if (style == TransitionStyle.SideReveal)
+                {
+                    StartSideRevealCoverTransition(style);
+                    return;
+                }
+
+                if (style == TransitionStyle.DiagonalReveal)
+                {
+                    StartDiagonalRevealCoverTransition(style);
+                    return;
+                }
+
+                if (style == TransitionStyle.DepthShift)
+                {
+                    StartDepthShiftCoverTransition(style);
+                    return;
+                }
+
+                if (style == TransitionStyle.Mosaic)
+                {
+                    StartMosaicCoverTransition(style);
+                    return;
+                }
+
+                if (style == TransitionStyle.Pixelate)
+                {
+                    StartPixelateCoverTransition(style);
+                    return;
+                }
+
+                if (style == TransitionStyle.Zoom)
+                {
+                    StartZoomCoverTransition(style);
+                    return;
+                }
+
+                if (style == TransitionStyle.Focus)
+                {
+                    StartFocusCoverTransition(style);
+                    return;
+                }
+
                 var fade = new System.Windows.Media.Animation.DoubleAnimation(
                     1.0, 0.0, new Duration(Transition.CoverDuration));
 
@@ -1249,6 +1311,651 @@ namespace ImageRotater.Controls
                 ClearPreviousCover();
                 Logger.Warn(ex, "ImageRotater: could not crossfade the cover");
             }
+        }
+
+        private void StartSideRevealCoverTransition(TransitionStyle style)
+        {
+            int generation = ++_fadeGeneration;
+
+            DisplayImage.BeginAnimation(OpacityProperty, null);
+            PreviousImage.BeginAnimation(OpacityProperty, null);
+            DisplayImage.Opacity = 1.0;
+            PreviousImage.Opacity = 1.0;
+            DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
+            PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
+            DisplayImage.Effect = null;
+            PreviousImage.Effect = null;
+            DisplayImage.OpacityMask = null;
+            PreviousImage.OpacityMask = null;
+
+            var mask = new System.Windows.Media.LinearGradientBrush
+            {
+                MappingMode = System.Windows.Media.BrushMappingMode.RelativeToBoundingBox,
+                StartPoint = new System.Windows.Point(1.0, 0.5),
+                EndPoint = new System.Windows.Point(1.34, 0.5),
+                SpreadMethod = System.Windows.Media.GradientSpreadMethod.Pad
+            };
+            mask.GradientStops.Add(new System.Windows.Media.GradientStop(
+                System.Windows.Media.Colors.White, 0.0));
+            mask.GradientStops.Add(new System.Windows.Media.GradientStop(
+                System.Windows.Media.Colors.Transparent, 1.0));
+            PreviousImage.OpacityMask = mask;
+
+            var ease = new System.Windows.Media.Animation.CubicEase
+            {
+                EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut
+            };
+            var startMove = new System.Windows.Media.Animation.PointAnimation
+            {
+                From = new System.Windows.Point(1.0, 0.5),
+                To = new System.Windows.Point(-0.34, 0.5),
+                Duration = new Duration(Transition.CoverDuration),
+                EasingFunction = ease
+            };
+            var endMove = new System.Windows.Media.Animation.PointAnimation
+            {
+                From = new System.Windows.Point(1.34, 0.5),
+                To = new System.Windows.Point(0.0, 0.5),
+                Duration = new Duration(Transition.CoverDuration),
+                EasingFunction = ease
+            };
+
+            endMove.Completed += (s, e) =>
+            {
+                if (generation != _fadeGeneration)
+                {
+                    return;
+                }
+
+                mask.BeginAnimation(
+                    System.Windows.Media.LinearGradientBrush.StartPointProperty, null);
+                mask.BeginAnimation(
+                    System.Windows.Media.LinearGradientBrush.EndPointProperty, null);
+                if (ReferenceEquals(PreviousImage.OpacityMask, mask))
+                {
+                    PreviousImage.OpacityMask = null;
+                }
+
+                ClearPreviousCover();
+            };
+
+            mask.BeginAnimation(
+                System.Windows.Media.LinearGradientBrush.StartPointProperty, startMove);
+            mask.BeginAnimation(
+                System.Windows.Media.LinearGradientBrush.EndPointProperty, endMove);
+        }
+
+        private void StartDiagonalRevealCoverTransition(TransitionStyle style)
+        {
+            int generation = ++_fadeGeneration;
+
+            DisplayImage.BeginAnimation(OpacityProperty, null);
+            PreviousImage.BeginAnimation(OpacityProperty, null);
+            DisplayImage.Opacity = 1.0;
+            PreviousImage.Opacity = 1.0;
+            DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
+            PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
+            DisplayImage.Effect = null;
+            PreviousImage.Effect = null;
+            DisplayImage.OpacityMask = null;
+            PreviousImage.OpacityMask = null;
+
+            var mask = new System.Windows.Media.LinearGradientBrush
+            {
+                MappingMode = System.Windows.Media.BrushMappingMode.RelativeToBoundingBox,
+                StartPoint = new System.Windows.Point(0.94, -0.04),
+                EndPoint = new System.Windows.Point(1.28, 0.30),
+                SpreadMethod = System.Windows.Media.GradientSpreadMethod.Pad
+            };
+            var leadingStop = new System.Windows.Media.GradientStop(
+                System.Windows.Media.Colors.White, 0.0);
+            var trailingStop = new System.Windows.Media.GradientStop(
+                System.Windows.Media.Colors.Transparent, 1.0);
+            mask.GradientStops.Add(leadingStop);
+            mask.GradientStops.Add(trailingStop);
+            PreviousImage.OpacityMask = mask;
+
+            var ease = new System.Windows.Media.Animation.CubicEase
+            {
+                EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
+            };
+            var startMove = new System.Windows.Media.Animation.PointAnimation
+            {
+                From = new System.Windows.Point(0.94, -0.04),
+                To = new System.Windows.Point(-0.82, 1.42),
+                Duration = new Duration(Transition.CoverDuration),
+                EasingFunction = ease
+            };
+            var endMove = new System.Windows.Media.Animation.PointAnimation
+            {
+                From = new System.Windows.Point(1.28, 0.30),
+                To = new System.Windows.Point(-0.48, 1.76),
+                Duration = new Duration(Transition.CoverDuration),
+                EasingFunction = ease
+            };
+
+            endMove.Completed += (s, e) =>
+            {
+                if (generation != _fadeGeneration)
+                {
+                    return;
+                }
+
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                {
+                    if (generation != _fadeGeneration)
+                    {
+                        return;
+                    }
+
+                    mask.BeginAnimation(
+                        System.Windows.Media.LinearGradientBrush.StartPointProperty, null);
+                    mask.BeginAnimation(
+                        System.Windows.Media.LinearGradientBrush.EndPointProperty, null);
+                    if (ReferenceEquals(PreviousImage.OpacityMask, mask))
+                    {
+                        PreviousImage.OpacityMask = null;
+                    }
+
+                    ClearPreviousCover();
+                }));
+            };
+
+            mask.BeginAnimation(
+                System.Windows.Media.LinearGradientBrush.StartPointProperty, startMove);
+            mask.BeginAnimation(
+                System.Windows.Media.LinearGradientBrush.EndPointProperty, endMove);
+        }
+
+        private void StartDepthShiftCoverTransition(TransitionStyle style)
+        {
+            int generation = ++_fadeGeneration;
+
+            DisplayImage.BeginAnimation(OpacityProperty, null);
+            PreviousImage.BeginAnimation(OpacityProperty, null);
+            DisplayImage.Opacity = 0.0;
+            PreviousImage.Opacity = 1.0;
+
+            DisplayImage.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
+            PreviousImage.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
+            var incomingScale = new System.Windows.Media.ScaleTransform(1.05, 1.05);
+            var outgoingScale = new System.Windows.Media.ScaleTransform(1.0, 1.0);
+            DisplayImage.RenderTransform = incomingScale;
+            PreviousImage.RenderTransform = outgoingScale;
+
+            var incomingBlur = new System.Windows.Media.Effects.BlurEffect
+            {
+                KernelType = System.Windows.Media.Effects.KernelType.Gaussian,
+                Radius = 12.0,
+                RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
+            };
+            var outgoingBlur = new System.Windows.Media.Effects.BlurEffect
+            {
+                KernelType = System.Windows.Media.Effects.KernelType.Gaussian,
+                Radius = 0.0,
+                RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
+            };
+            DisplayImage.Effect = incomingBlur;
+            PreviousImage.Effect = outgoingBlur;
+
+            var easeOut = new System.Windows.Media.Animation.CubicEase
+            {
+                EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
+            };
+            var easeIn = new System.Windows.Media.Animation.CubicEase
+            {
+                EasingMode = System.Windows.Media.Animation.EasingMode.EaseIn
+            };
+
+            var incomingFade = new System.Windows.Media.Animation.DoubleAnimation(
+                0.0, 1.0, new Duration(Transition.CoverDuration))
+            {
+                EasingFunction = easeOut
+            };
+            incomingFade.Completed += (s, e) =>
+            {
+                if (generation != _fadeGeneration) return;
+                DisplayImage.BeginAnimation(OpacityProperty, null);
+                DisplayImage.Opacity = 1.0;
+                incomingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, null);
+                outgoingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, null);
+                if (ReferenceEquals(DisplayImage.Effect, incomingBlur))
+                {
+                    DisplayImage.Effect = null;
+                }
+                DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
+                PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
+                ClearPreviousCover();
+            };
+
+            var outgoingFade = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.CoverDuration)
+            };
+            outgoingFade.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(
+                1.0, System.Windows.Media.Animation.KeyTime.FromPercent(0.20)));
+            outgoingFade.KeyFrames.Add(new System.Windows.Media.Animation.EasingDoubleKeyFrame(
+                0.0,
+                System.Windows.Media.Animation.KeyTime.FromPercent(0.84),
+                easeIn));
+
+            var sharpen = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.CoverDuration)
+            };
+            sharpen.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(
+                12.0, System.Windows.Media.Animation.KeyTime.FromPercent(0.18)));
+            sharpen.KeyFrames.Add(new System.Windows.Media.Animation.EasingDoubleKeyFrame(
+                0.0,
+                System.Windows.Media.Animation.KeyTime.FromPercent(1.0),
+                easeOut));
+
+            var defocus = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.CoverDuration)
+            };
+            defocus.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(
+                0.0, System.Windows.Media.Animation.KeyTime.FromPercent(0.0)));
+            defocus.KeyFrames.Add(new System.Windows.Media.Animation.EasingDoubleKeyFrame(
+                9.0,
+                System.Windows.Media.Animation.KeyTime.FromPercent(0.52),
+                easeIn));
+            defocus.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(
+                9.0, System.Windows.Media.Animation.KeyTime.FromPercent(1.0)));
+
+            var inScaleX = new System.Windows.Media.Animation.DoubleAnimation(1.05, 1.0, new Duration(Transition.CoverDuration))
+            {
+                EasingFunction = easeOut,
+                FillBehavior = System.Windows.Media.Animation.FillBehavior.HoldEnd
+            };
+            var inScaleY = new System.Windows.Media.Animation.DoubleAnimation(1.05, 1.0, new Duration(Transition.CoverDuration))
+            {
+                EasingFunction = easeOut,
+                FillBehavior = System.Windows.Media.Animation.FillBehavior.HoldEnd
+            };
+            var outScaleX = new System.Windows.Media.Animation.DoubleAnimation(1.0, 0.965, new Duration(Transition.CoverDuration))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut },
+                FillBehavior = System.Windows.Media.Animation.FillBehavior.HoldEnd
+            };
+            var outScaleY = new System.Windows.Media.Animation.DoubleAnimation(1.0, 0.965, new Duration(Transition.CoverDuration))
+            {
+                EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut },
+                FillBehavior = System.Windows.Media.Animation.FillBehavior.HoldEnd
+            };
+
+            DisplayImage.BeginAnimation(OpacityProperty, incomingFade);
+            PreviousImage.BeginAnimation(OpacityProperty, outgoingFade);
+            incomingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, sharpen);
+            outgoingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, defocus);
+            incomingScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, inScaleX);
+            incomingScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, inScaleY);
+            outgoingScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, outScaleX);
+            outgoingScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, outScaleY);
+        }
+
+        private void StartMosaicCoverTransition(TransitionStyle style)
+        {
+            int generation = ++_fadeGeneration;
+
+            DisplayImage.BeginAnimation(OpacityProperty, null);
+            PreviousImage.BeginAnimation(OpacityProperty, null);
+            DisplayImage.Opacity = 1.0;
+            PreviousImage.Opacity = 1.0;
+            DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
+            PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
+            DisplayImage.Effect = null;
+            PreviousImage.Effect = null;
+            DisplayImage.OpacityMask = null;
+            PreviousImage.OpacityMask = null;
+
+            MosaicMaskState mask = MosaicMask.Create();
+            MosaicMask.SetVisible(mask, true);
+            PreviousImage.OpacityMask = mask.Brush;
+
+            var reveal = MosaicMask.BuildStoryboard(
+                PreviousImage,
+                mask,
+                false,
+                Transition.CoverDuration);
+
+            reveal.Completed += (s, e) =>
+            {
+                MosaicMask.Stop(mask);
+                if (ReferenceEquals(PreviousImage.OpacityMask, mask.Brush))
+                {
+                    PreviousImage.OpacityMask = null;
+                }
+
+                try
+                {
+                    reveal.Remove(PreviousImage);
+                }
+                catch
+                {
+                }
+
+                if (generation != _fadeGeneration)
+                {
+                    return;
+                }
+
+                ClearPreviousCover();
+            };
+
+            reveal.Begin(PreviousImage, System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace, true);
+        }
+
+
+        private async void StartPixelateCoverTransition(TransitionStyle style)
+        {
+            int generation = ++_fadeGeneration;
+
+            ImageSource oldSource = PreviousImage.Source;
+            ImageSource newSource = DisplayImage.Source;
+            if (oldSource == null || newSource == null)
+            {
+                return;
+            }
+
+            BitmapScalingMode oldScaling = RenderOptions.GetBitmapScalingMode(PreviousImage);
+            BitmapScalingMode newScaling = RenderOptions.GetBitmapScalingMode(DisplayImage);
+
+            IReadOnlyList<ImageSource> oldLevels = PixelateFrames.GetCachedOrSource(oldSource);
+            Task<IReadOnlyList<ImageSource>> oldWarm = PixelateFrames.GetLevelsAsync(oldSource);
+            Task<IReadOnlyList<ImageSource>> newWarm = PixelateFrames.GetLevelsAsync(newSource);
+
+            TimeSpan total = Transition.CoverDuration;
+            TimeSpan oldPhase = TimeSpan.FromMilliseconds(total.TotalMilliseconds * 0.48);
+            TimeSpan newPhase = TimeSpan.FromMilliseconds(total.TotalMilliseconds * 0.52);
+            TimeSpan blend = TimeSpan.FromMilliseconds(total.TotalMilliseconds * 0.06);
+            double incomingHold = blend.TotalMilliseconds / Math.Max(1.0, newPhase.TotalMilliseconds);
+
+            DisplayImage.BeginAnimation(OpacityProperty, null);
+            PreviousImage.BeginAnimation(OpacityProperty, null);
+            DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
+            PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
+            DisplayImage.Effect = null;
+            PreviousImage.Effect = null;
+            DisplayImage.OpacityMask = null;
+            PreviousImage.OpacityMask = null;
+
+            PreviousImage.Visibility = Visibility.Visible;
+            PreviousImage.Opacity = 1.0;
+            PreviousImage.BeginAnimation(Image.SourceProperty, null);
+            PreviousImage.Source = oldSource;
+            RenderOptions.SetBitmapScalingMode(PreviousImage, BitmapScalingMode.NearestNeighbor);
+
+            DisplayImage.Visibility = Visibility.Visible;
+            DisplayImage.Opacity = 0.0;
+            DisplayImage.BeginAnimation(Image.SourceProperty, null);
+            DisplayImage.Source = newSource;
+            RenderOptions.SetBitmapScalingMode(DisplayImage, BitmapScalingMode.NearestNeighbor);
+
+            if (oldLevels.Count > 1)
+            {
+                PreviousImage.BeginAnimation(
+                    Image.SourceProperty,
+                    PixelateFrames.BuildOutgoingPhase(oldLevels, oldPhase),
+                    System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
+            }
+            else
+            {
+                _ = UpgradeOutgoingPixelateAsync();
+            }
+
+            async Task UpgradeOutgoingPixelateAsync()
+            {
+                IReadOnlyList<ImageSource> warmed = await oldWarm;
+                if (generation != _fadeGeneration || warmed == null || warmed.Count <= 1)
+                {
+                    return;
+                }
+
+                PreviousImage.BeginAnimation(
+                    Image.SourceProperty,
+                    PixelateFrames.BuildOutgoingPhase(warmed, oldPhase),
+                    System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
+            }
+
+            try
+            {
+                await Task.Delay(oldPhase);
+                if (generation != _fadeGeneration)
+                {
+                    return;
+                }
+
+                IReadOnlyList<ImageSource> newLevels = await newWarm;
+                if (generation != _fadeGeneration)
+                {
+                    return;
+                }
+
+                if (newLevels == null || newLevels.Count == 0)
+                {
+                    newLevels = new[] { newSource };
+                }
+
+                DisplayImage.BeginAnimation(Image.SourceProperty, null);
+                DisplayImage.Source = newLevels[newLevels.Count - 1];
+                DisplayImage.BeginAnimation(
+                    Image.SourceProperty,
+                    PixelateFrames.BuildIncomingPhase(newLevels, newPhase, incomingHold),
+                    System.Windows.Media.Animation.HandoffBehavior.SnapshotAndReplace);
+
+                var fadeIn = new System.Windows.Media.Animation.DoubleAnimation(
+                    0.0, 1.0, new Duration(blend))
+                {
+                    EasingFunction = new System.Windows.Media.Animation.CubicEase
+                    {
+                        EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut
+                    }
+                };
+                var fadeOut = new System.Windows.Media.Animation.DoubleAnimation(
+                    1.0, 0.0, new Duration(blend))
+                {
+                    EasingFunction = new System.Windows.Media.Animation.CubicEase
+                    {
+                        EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut
+                    }
+                };
+
+                DisplayImage.BeginAnimation(OpacityProperty, fadeIn);
+                PreviousImage.BeginAnimation(OpacityProperty, fadeOut);
+
+                await Task.Delay(newPhase);
+                if (generation != _fadeGeneration)
+                {
+                    return;
+                }
+
+                PreviousImage.BeginAnimation(Image.SourceProperty, null);
+                DisplayImage.BeginAnimation(Image.SourceProperty, null);
+                DisplayImage.Source = newSource;
+                RenderOptions.SetBitmapScalingMode(PreviousImage, oldScaling);
+                RenderOptions.SetBitmapScalingMode(DisplayImage, newScaling);
+                DisplayImage.BeginAnimation(OpacityProperty, null);
+                DisplayImage.Opacity = 1.0;
+                ClearPreviousCover();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: Pixelate cover transition failed");
+                if (generation == _fadeGeneration)
+                {
+                    PreviousImage.BeginAnimation(Image.SourceProperty, null);
+                    DisplayImage.BeginAnimation(Image.SourceProperty, null);
+                    DisplayImage.Source = newSource;
+                    RenderOptions.SetBitmapScalingMode(PreviousImage, oldScaling);
+                    RenderOptions.SetBitmapScalingMode(DisplayImage, newScaling);
+                    DisplayImage.Opacity = 1.0;
+                    ClearPreviousCover();
+                }
+            }
+        }
+
+        private void StartZoomCoverTransition(TransitionStyle style)
+        {
+            int generation = ++_fadeGeneration;
+
+            DisplayImage.BeginAnimation(OpacityProperty, null);
+            PreviousImage.BeginAnimation(OpacityProperty, null);
+            DisplayImage.Opacity = 0.0;
+            PreviousImage.Opacity = 1.0;
+
+            DisplayImage.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
+            var incomingScale = new System.Windows.Media.ScaleTransform(1.08, 1.08);
+            DisplayImage.RenderTransform = incomingScale;
+            PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
+
+            var easeOut = new System.Windows.Media.Animation.CubicEase
+            {
+                EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
+            };
+            var easeIn = new System.Windows.Media.Animation.CubicEase
+            {
+                EasingMode = System.Windows.Media.Animation.EasingMode.EaseIn
+            };
+
+            var incomingFade = new System.Windows.Media.Animation.DoubleAnimation(
+                0.0, 1.0, new Duration(Transition.CoverDuration))
+            {
+                EasingFunction = easeOut
+            };
+            incomingFade.Completed += (s, e) =>
+            {
+                if (generation != _fadeGeneration) return;
+                DisplayImage.BeginAnimation(OpacityProperty, null);
+                DisplayImage.Opacity = 1.0;
+                DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
+                PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
+                ClearPreviousCover();
+            };
+
+            var outgoingFade = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.CoverDuration)
+            };
+            outgoingFade.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(
+                1.0, System.Windows.Media.Animation.KeyTime.FromPercent(0.34)));
+            outgoingFade.KeyFrames.Add(new System.Windows.Media.Animation.EasingDoubleKeyFrame(
+                0.0,
+                System.Windows.Media.Animation.KeyTime.FromPercent(0.92),
+                easeIn));
+
+            var zoomX = new System.Windows.Media.Animation.DoubleAnimation(
+                1.0, new Duration(Transition.CoverDuration))
+            {
+                EasingFunction = easeOut,
+                FillBehavior = System.Windows.Media.Animation.FillBehavior.HoldEnd
+            };
+            var zoomY = new System.Windows.Media.Animation.DoubleAnimation(
+                1.0, new Duration(Transition.CoverDuration))
+            {
+                EasingFunction = easeOut,
+                FillBehavior = System.Windows.Media.Animation.FillBehavior.HoldEnd
+            };
+
+            DisplayImage.BeginAnimation(OpacityProperty, incomingFade);
+            PreviousImage.BeginAnimation(OpacityProperty, outgoingFade);
+            incomingScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, zoomX);
+            incomingScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, zoomY);
+        }
+
+        private void StartFocusCoverTransition(TransitionStyle style)
+        {
+            int generation = ++_fadeGeneration;
+
+            DisplayImage.BeginAnimation(OpacityProperty, null);
+            PreviousImage.BeginAnimation(OpacityProperty, null);
+            DisplayImage.Opacity = 0.0;
+            PreviousImage.Opacity = 1.0;
+            DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
+            PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
+
+            var incomingBlur = new System.Windows.Media.Effects.BlurEffect
+            {
+                KernelType = System.Windows.Media.Effects.KernelType.Gaussian,
+                Radius = 26.0,
+                RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
+            };
+            var outgoingBlur = new System.Windows.Media.Effects.BlurEffect
+            {
+                KernelType = System.Windows.Media.Effects.KernelType.Gaussian,
+                Radius = 0.0,
+                RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
+            };
+            DisplayImage.Effect = incomingBlur;
+            PreviousImage.Effect = outgoingBlur;
+
+            var easeOut = new System.Windows.Media.Animation.CubicEase
+            {
+                EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut
+            };
+            var easeIn = new System.Windows.Media.Animation.CubicEase
+            {
+                EasingMode = System.Windows.Media.Animation.EasingMode.EaseIn
+            };
+
+            var incomingFade = new System.Windows.Media.Animation.DoubleAnimation(
+                0.0, 1.0, new Duration(Transition.CoverDuration))
+            {
+                EasingFunction = easeOut
+            };
+            incomingFade.Completed += (s, e) =>
+            {
+                if (generation != _fadeGeneration) return;
+                DisplayImage.BeginAnimation(OpacityProperty, null);
+                DisplayImage.Opacity = 1.0;
+                incomingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, null);
+                outgoingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, null);
+                if (ReferenceEquals(DisplayImage.Effect, incomingBlur))
+                {
+                    DisplayImage.Effect = null;
+                }
+                ClearPreviousCover();
+            };
+
+            var outgoingFade = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.CoverDuration)
+            };
+            outgoingFade.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(
+                1.0, System.Windows.Media.Animation.KeyTime.FromPercent(0.22)));
+            outgoingFade.KeyFrames.Add(new System.Windows.Media.Animation.EasingDoubleKeyFrame(
+                0.0,
+                System.Windows.Media.Animation.KeyTime.FromPercent(0.86),
+                easeIn));
+
+            var sharpen = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.CoverDuration)
+            };
+            sharpen.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(
+                26.0, System.Windows.Media.Animation.KeyTime.FromPercent(0.24)));
+            sharpen.KeyFrames.Add(new System.Windows.Media.Animation.EasingDoubleKeyFrame(
+                0.0,
+                System.Windows.Media.Animation.KeyTime.FromPercent(1.0),
+                easeOut));
+
+            var defocus = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.CoverDuration)
+            };
+            defocus.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(
+                0.0, System.Windows.Media.Animation.KeyTime.FromPercent(0.08)));
+            defocus.KeyFrames.Add(new System.Windows.Media.Animation.EasingDoubleKeyFrame(
+                20.0,
+                System.Windows.Media.Animation.KeyTime.FromPercent(0.48),
+                easeIn));
+            defocus.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(
+                20.0, System.Windows.Media.Animation.KeyTime.FromPercent(1.0)));
+
+            DisplayImage.BeginAnimation(OpacityProperty, incomingFade);
+            PreviousImage.BeginAnimation(OpacityProperty, outgoingFade);
+            incomingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, sharpen);
+            outgoingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, defocus);
         }
 
         private void StartSlideCoverTransition(TransitionStyle style)
@@ -1351,9 +2058,17 @@ namespace ImageRotater.Controls
         private void ClearPreviousCover()
         {
             PreviousImage.BeginAnimation(OpacityProperty, null);
+            PreviousImage.BeginAnimation(Image.SourceProperty, null);
+            DisplayImage.BeginAnimation(Image.SourceProperty, null);
+            RenderOptions.SetBitmapScalingMode(PreviousImage, BitmapScalingMode.Linear);
+            RenderOptions.SetBitmapScalingMode(DisplayImage, BitmapScalingMode.Linear);
             PreviousImage.Opacity = 1.0;
             PreviousImage.RenderTransform = System.Windows.Media.Transform.Identity;
             DisplayImage.RenderTransform = System.Windows.Media.Transform.Identity;
+            PreviousImage.Effect = null;
+            DisplayImage.Effect = null;
+            PreviousImage.OpacityMask = null;
+            DisplayImage.OpacityMask = null;
             PreviousImage.Visibility = Visibility.Collapsed;
             PreviousImage.Source = null;
         }

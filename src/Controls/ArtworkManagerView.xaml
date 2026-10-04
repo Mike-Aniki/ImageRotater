@@ -409,13 +409,13 @@
                                               ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                         <ListView.ContextMenu>
                                             <ContextMenu Opened="ArtworkContextMenu_Opened">
-                                                <MenuItem Header="{DynamicResource LOCImageRotaterManagerSetFixedArtwork}" Click="ContextSetFixed_Click"/>
+                                                <MenuItem x:Name="SetFixedArtworkMenuItem" Header="{DynamicResource LOCImageRotaterManagerSetFixedArtwork}" Click="ContextSetFixed_Click"/>
                                                 <MenuItem x:Name="ToggleExcludeMenuItem" Header="{DynamicResource LOCImageRotaterManagerExcludeRotation}" Click="ContextToggleExclude_Click"/>
                                                 <Separator/>
-                                                <MenuItem Header="{DynamicResource LOCImageRotaterManagerMoveUp}" Click="ContextMoveUp_Click"/>
-                                                <MenuItem Header="{DynamicResource LOCImageRotaterManagerMoveDown}" Click="ContextMoveDown_Click"/>
-                                                <MenuItem Header="{DynamicResource LOCImageRotaterManagerMoveTop}" Click="ContextMoveTop_Click"/>
-                                                <MenuItem Header="{DynamicResource LOCImageRotaterManagerMoveBottom}" Click="ContextMoveBottom_Click"/>
+                                                <MenuItem x:Name="MoveUpMenuItem" Header="{DynamicResource LOCImageRotaterManagerMoveUp}" Click="ContextMoveUp_Click"/>
+                                                <MenuItem x:Name="MoveDownMenuItem" Header="{DynamicResource LOCImageRotaterManagerMoveDown}" Click="ContextMoveDown_Click"/>
+                                                <MenuItem x:Name="MoveTopMenuItem" Header="{DynamicResource LOCImageRotaterManagerMoveTop}" Click="ContextMoveTop_Click"/>
+                                                <MenuItem x:Name="MoveBottomMenuItem" Header="{DynamicResource LOCImageRotaterManagerMoveBottom}" Click="ContextMoveBottom_Click"/>
                                                 <Separator/>
                                                 <MenuItem Header="{DynamicResource LOCImageRotaterManagerOpenFileLocation}" Click="ContextOpenFileLocation_Click"/>
                                                 <MenuItem x:Name="DeleteArtworkMenuItem" Header="{DynamicResource LOCImageRotaterManagerDeleteArtwork}" Click="ContextDelete_Click"/>
@@ -438,6 +438,11 @@
                                                         <Grid>
                                                             <Image Source="{Binding ThumbnailSource}"
                                                                    Stretch="UniformToFill"/>
+                                                            <Border Visibility="{Binding OriginalBadgeVisibility}"
+                                                                    BorderBrush="{StaticResource ManagerGoldBrush}"
+                                                                    BorderThickness="2"
+                                                                    CornerRadius="6"
+                                                                    IsHitTestVisible="False"/>
                                                             <Border Background="#99000000"
                                                                     CornerRadius="4"
                                                                     Padding="5,2"
@@ -466,6 +471,9 @@
                                                             <StackPanel Grid.Column="0" Orientation="Horizontal">
                                                                 <Border Background="#202C33" BorderBrush="#52616A" BorderThickness="1" CornerRadius="4" Padding="5,1" Margin="0,0,6,0">
                                                                     <TextBlock Text="{Binding OrderLabel}" Foreground="#CAD4D9" FontSize="9" FontWeight="Bold"/>
+                                                                </Border>
+                                                                <Border Visibility="{Binding OriginalBadgeVisibility}" Background="#332A2112" BorderBrush="{StaticResource ManagerGoldBrush}" BorderThickness="1" CornerRadius="4" Padding="5,1" Margin="0,0,6,0">
+                                                                    <TextBlock Text="{DynamicResource LOCImageRotaterManagerOriginal}" Foreground="{StaticResource ManagerGoldBrush}" FontSize="9" FontWeight="Bold"/>
                                                                 </Border>
                                                                 <Border Visibility="{Binding FixedBadgeVisibility}" Background="#173640" BorderBrush="{StaticResource ManagerAccentBrush}" BorderThickness="1" CornerRadius="4" Padding="5,1" Margin="0,0,6,0">
                                                                     <TextBlock Text="{DynamicResource LOCImageRotaterFixedArtwork}" Foreground="{StaticResource ManagerAccentBrush}" FontSize="9" FontWeight="Bold"/>

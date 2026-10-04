@@ -1,12 +1,14 @@
 ﻿using System;
 using System.ComponentModel;
-using System.Runtime.CompilerServices;
+using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using Playnite.SDK;
@@ -43,6 +45,22 @@ namespace ImageRotater.Services
     // anything makes this a silent no-op rather than a break.
     public static class FadeImageTuner
     {
+        private static readonly ConditionalWeakTable<Image, BlurEffect> FocusBlurEffects =
+            new ConditionalWeakTable<Image, BlurEffect>();
+
+        private sealed class SideRevealMaskState
+        {
+            public LinearGradientBrush Brush;
+            public GradientStop First;
+            public GradientStop Second;
+        }
+
+        private static readonly ConditionalWeakTable<Image, SideRevealMaskState> SideRevealMasks =
+            new ConditionalWeakTable<Image, SideRevealMaskState>();
+
+        private static readonly ConditionalWeakTable<Image, MosaicMaskState> MosaicMasks =
+            new ConditionalWeakTable<Image, MosaicMaskState>();
+
         private static readonly ILogger Logger = LogManager.GetLogger();
 
         private const string FadeImageTypeName = "Playnite.Controls.FadeImage";
@@ -256,6 +274,13 @@ namespace ImageRotater.Services
             bool known = Patched.TryGetValue(fadeImage, out Tune tune);
 
             bool isSlide = Transition.BackgroundStyle == TransitionStyle.SlideFromRight;
+            bool isZoom = Transition.BackgroundStyle == TransitionStyle.Zoom;
+            bool isFocus = Transition.BackgroundStyle == TransitionStyle.Focus;
+            bool isSideReveal = Transition.BackgroundStyle == TransitionStyle.SideReveal;
+            bool isDiagonalReveal = Transition.BackgroundStyle == TransitionStyle.DiagonalReveal;
+            bool isDepthShift = Transition.BackgroundStyle == TransitionStyle.DepthShift;
+            bool isMosaic = Transition.BackgroundStyle == TransitionStyle.Mosaic;
+            bool isPixelate = Transition.BackgroundStyle == TransitionStyle.Pixelate;
 
             TimeSpan requestedDuration =
                 Transition.BackgroundStyle == TransitionStyle.Cut
@@ -280,18 +305,58 @@ namespace ImageRotater.Services
             {
                 // Slide transitions must replace Playnite's private fade
                 // storyboards, not merely retime the public resource copies.
-                // This is the same extension point used by CustomFadeAnim and
-                // is why the first implementation appeared to do nothing in
-                // Desktop mode: only ImageRotater-hosted controls knew how to
-                // slide, while Playnite's native FadeImage still ran its stock
-                // crossfade.
+                // Otherwise only ImageRotater-hosted controls would slide while
+                // Playnite's native FadeImage kept running its stock crossfade.
                 bool ok;
+                if (!(isFocus || isDepthShift))
+                {
+                    ResetFocusEffects(fadeImage);
+                }
+                if (!(isSideReveal || isDiagonalReveal))
+                {
+                    ResetSideRevealMasks(fadeImage);
+                }
+                if (!isMosaic)
+                {
+                    ResetMosaicMasks(fadeImage);
+                }
+
                 if (isSlide)
                 {
                     ok = ApplySlideStoryboards(fadeImage, requestedDirection, Transition.BackgroundDuration);
                 }
+                else if (isSideReveal)
+                {
+                    ok = ApplySideRevealStoryboards(fadeImage, Transition.BackgroundDuration);
+                }
+                else if (isDiagonalReveal)
+                {
+                    ok = ApplyDiagonalRevealStoryboards(fadeImage, Transition.BackgroundDuration);
+                }
+                else if (isDepthShift)
+                {
+                    ok = ApplyDepthShiftStoryboards(fadeImage, Transition.BackgroundDuration);
+                }
+                else if (isMosaic)
+                {
+                    ok = ApplyMosaicStoryboards(fadeImage, Transition.BackgroundDuration);
+                }
+                else if (isPixelate)
+                {
+                    ok = ApplyPixelateStoryboards(fadeImage, Transition.BackgroundDuration);
+                }
+                else if (isZoom)
+                {
+                    ok = ApplyZoomStoryboards(fadeImage, Transition.BackgroundDuration);
+                }
+                else if (isFocus)
+                {
+                    ok = ApplyFocusStoryboards(fadeImage, Transition.BackgroundDuration);
+                }
                 else
                 {
+                    ResetMotionScale(fadeImage);
+
                     // Cut and flash hide the native dissolve. The overlay is the visible transition in flash modes.
                     TimeSpan duration = requestedDuration;
                     ok =
@@ -316,6 +381,9 @@ namespace ImageRotater.Services
                     tune.OnUnloaded = (s, e) =>
                     {
                         RemoveVeil(fadeImage, tune);
+                        ResetFocusEffects(fadeImage);
+                        ResetSideRevealMasks(fadeImage);
+                        ResetMosaicMasks(fadeImage);
                         fadeImage.Unloaded -= tune.OnUnloaded;
                         Patched.Remove(fadeImage);
                     };
@@ -362,13 +430,17 @@ namespace ImageRotater.Services
                     return false;
                 }
 
-                EnsureSlideTransform(image1);
-                EnsureSlideTransform(image2);
+                EnsureMotionTransform(image1);
+                EnsureMotionTransform(image2);
 
-                Storyboard in1 = BuildSlideStoryboard(image1, true, direction, duration);
-                Storyboard in2 = BuildSlideStoryboard(image2, true, direction, duration);
-                Storyboard out1 = BuildSlideStoryboard(image1, false, direction, duration);
-                Storyboard out2 = BuildSlideStoryboard(image2, false, direction, duration);
+                const double slideDistance = 40.0;
+                ApplyFixedSlideOverscan(image1, slideDistance, direction);
+                ApplyFixedSlideOverscan(image2, slideDistance, direction);
+
+                Storyboard in1 = BuildSlideStoryboard(image1, true, direction, duration, slideDistance);
+                Storyboard in2 = BuildSlideStoryboard(image2, true, direction, duration, slideDistance);
+                Storyboard out1 = BuildSlideStoryboard(image1, false, direction, duration, slideDistance);
+                Storyboard out2 = BuildSlideStoryboard(image2, false, direction, duration, slideDistance);
 
                 FieldInfo fIn1 = type.GetField("Image1FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
                 FieldInfo fIn2 = type.GetField("Image2FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -392,7 +464,922 @@ namespace ImageRotater.Services
             }
         }
 
-        private static void EnsureSlideTransform(Image image)
+        private static bool ApplyZoomStoryboards(UserControl fadeImage, TimeSpan duration)
+        {
+            try
+            {
+                Type type = fadeImage.GetType();
+                Image image1 = fadeImage.FindName("Image1") as Image;
+                Image image2 = fadeImage.FindName("Image2") as Image;
+                if (image1 == null || image2 == null)
+                {
+                    return false;
+                }
+
+                ResetMotionScale(fadeImage);
+                EnsureMotionTransform(image1);
+                EnsureMotionTransform(image2);
+
+                Storyboard in1 = BuildZoomStoryboard(image1, true, duration);
+                Storyboard in2 = BuildZoomStoryboard(image2, true, duration);
+                Storyboard out1 = BuildZoomStoryboard(image1, false, duration);
+                Storyboard out2 = BuildZoomStoryboard(image2, false, duration);
+
+                FieldInfo fIn1 = type.GetField("Image1FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fIn2 = type.GetField("Image2FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut1 = type.GetField("Image1FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut2 = type.GetField("Image2FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (fIn1 == null || fIn2 == null || fOut1 == null || fOut2 == null)
+                {
+                    return false;
+                }
+
+                fIn1.SetValue(fadeImage, in1);
+                fIn2.SetValue(fadeImage, in2);
+                fOut1.SetValue(fadeImage, out1);
+                fOut2.SetValue(fadeImage, out2);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: could not install background zoom storyboards");
+                return false;
+            }
+        }
+
+        private static bool ApplySideRevealStoryboards(UserControl fadeImage, TimeSpan duration)
+        {
+            try
+            {
+                Type type = fadeImage.GetType();
+                Image image1 = fadeImage.FindName("Image1") as Image;
+                Image image2 = fadeImage.FindName("Image2") as Image;
+                if (image1 == null || image2 == null)
+                {
+                    return false;
+                }
+
+                ResetMotionScale(fadeImage);
+                ResetFocusEffects(fadeImage);
+
+                SideRevealMaskState mask1 = EnsureSideRevealMask(image1);
+                SideRevealMaskState mask2 = EnsureSideRevealMask(image2);
+                if (mask1 == null || mask2 == null)
+                {
+                    ResetSideRevealMasks(fadeImage);
+                    return false;
+                }
+
+                Storyboard in1 = BuildSideRevealStoryboard(image1, mask1, true, duration);
+                Storyboard in2 = BuildSideRevealStoryboard(image2, mask2, true, duration);
+                Storyboard out1 = BuildSideRevealStoryboard(image1, mask1, false, duration);
+                Storyboard out2 = BuildSideRevealStoryboard(image2, mask2, false, duration);
+
+                FieldInfo fIn1 = type.GetField("Image1FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fIn2 = type.GetField("Image2FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut1 = type.GetField("Image1FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut2 = type.GetField("Image2FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (fIn1 == null || fIn2 == null || fOut1 == null || fOut2 == null)
+                {
+                    ResetSideRevealMasks(fadeImage);
+                    return false;
+                }
+
+                fIn1.SetValue(fadeImage, in1);
+                fIn2.SetValue(fadeImage, in2);
+                fOut1.SetValue(fadeImage, out1);
+                fOut2.SetValue(fadeImage, out2);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ResetSideRevealMasks(fadeImage);
+                Logger.Warn(ex, "ImageRotater: could not install background side reveal storyboards");
+                return false;
+            }
+        }
+
+        private static Storyboard BuildSideRevealStoryboard(
+            Image image,
+            SideRevealMaskState state,
+            bool incoming,
+            TimeSpan duration)
+        {
+            var storyboard = new Storyboard();
+            var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
+
+            Timeline opacity;
+            if (incoming)
+            {
+                opacity = new DoubleAnimation(1.0, 1.0, new Duration(duration));
+            }
+            else
+            {
+                var hideAtEnd = new DoubleAnimationUsingKeyFrames
+                {
+                    Duration = new Duration(duration)
+                };
+                hideAtEnd.KeyFrames.Add(new LinearDoubleKeyFrame(
+                    1.0, KeyTime.FromPercent(0.97)));
+                hideAtEnd.KeyFrames.Add(new DiscreteDoubleKeyFrame(
+                    0.0, KeyTime.FromPercent(1.0)));
+                opacity = hideAtEnd;
+            }
+
+            Storyboard.SetTarget(opacity, image);
+            Storyboard.SetTargetProperty(opacity, new PropertyPath(UIElement.OpacityProperty));
+            storyboard.Children.Add(opacity);
+
+            Color firstColor = incoming ? Colors.Transparent : Colors.White;
+            Color secondColor = incoming ? Colors.White : Colors.Transparent;
+
+            var firstColorAnimation = new ColorAnimation(
+                firstColor, firstColor, new Duration(duration));
+            var secondColorAnimation = new ColorAnimation(
+                secondColor, secondColor, new Duration(duration));
+            Storyboard.SetTarget(firstColorAnimation, state.First);
+            Storyboard.SetTarget(secondColorAnimation, state.Second);
+            Storyboard.SetTargetProperty(firstColorAnimation,
+                new PropertyPath(GradientStop.ColorProperty));
+            Storyboard.SetTargetProperty(secondColorAnimation,
+                new PropertyPath(GradientStop.ColorProperty));
+            storyboard.Children.Add(firstColorAnimation);
+            storyboard.Children.Add(secondColorAnimation);
+
+            var startMove = new PointAnimation
+            {
+                From = new Point(1.0, 0.5),
+                To = new Point(-0.34, 0.5),
+                Duration = new Duration(duration),
+                EasingFunction = ease
+            };
+            var endMove = new PointAnimation
+            {
+                From = new Point(1.34, 0.5),
+                To = new Point(0.0, 0.5),
+                Duration = new Duration(duration),
+                EasingFunction = ease
+            };
+
+            Storyboard.SetTarget(startMove, state.Brush);
+            Storyboard.SetTarget(endMove, state.Brush);
+            Storyboard.SetTargetProperty(startMove,
+                new PropertyPath(LinearGradientBrush.StartPointProperty));
+            Storyboard.SetTargetProperty(endMove,
+                new PropertyPath(LinearGradientBrush.EndPointProperty));
+            storyboard.Children.Add(startMove);
+            storyboard.Children.Add(endMove);
+
+            return storyboard;
+        }
+
+        private static SideRevealMaskState EnsureSideRevealMask(Image image)
+        {
+            if (image == null)
+            {
+                return null;
+            }
+
+            if (SideRevealMasks.TryGetValue(image, out SideRevealMaskState existing))
+            {
+                if (!ReferenceEquals(image.OpacityMask, existing.Brush))
+                {
+                    image.OpacityMask = existing.Brush;
+                }
+                return existing;
+            }
+
+            var first = new GradientStop(Colors.White, 0.0);
+            var second = new GradientStop(Colors.White, 1.0);
+            var brush = new LinearGradientBrush
+            {
+                MappingMode = BrushMappingMode.RelativeToBoundingBox,
+                StartPoint = new Point(-0.34, 0.5),
+                EndPoint = new Point(0.0, 0.5),
+                SpreadMethod = GradientSpreadMethod.Pad
+            };
+            brush.GradientStops.Add(first);
+            brush.GradientStops.Add(second);
+
+            var state = new SideRevealMaskState
+            {
+                Brush = brush,
+                First = first,
+                Second = second
+            };
+            image.OpacityMask = brush;
+            SideRevealMasks.Add(image, state);
+            return state;
+        }
+
+        private static void ResetSideRevealMasks(UserControl fadeImage)
+        {
+            ResetSideRevealMask(fadeImage?.FindName("Image1") as Image);
+            ResetSideRevealMask(fadeImage?.FindName("Image2") as Image);
+        }
+
+        private static void ResetSideRevealMask(Image image)
+        {
+            if (image == null ||
+                !SideRevealMasks.TryGetValue(image, out SideRevealMaskState state))
+            {
+                return;
+            }
+
+            state.Brush.BeginAnimation(LinearGradientBrush.StartPointProperty, null);
+            state.Brush.BeginAnimation(LinearGradientBrush.EndPointProperty, null);
+            state.First.BeginAnimation(GradientStop.ColorProperty, null);
+            state.Second.BeginAnimation(GradientStop.ColorProperty, null);
+            if (ReferenceEquals(image.OpacityMask, state.Brush))
+            {
+                image.OpacityMask = null;
+            }
+            SideRevealMasks.Remove(image);
+        }
+
+        private static bool ApplyDiagonalRevealStoryboards(UserControl fadeImage, TimeSpan duration)
+        {
+            try
+            {
+                Type type = fadeImage.GetType();
+                Image image1 = fadeImage.FindName("Image1") as Image;
+                Image image2 = fadeImage.FindName("Image2") as Image;
+                if (image1 == null || image2 == null)
+                {
+                    return false;
+                }
+
+                ResetMotionScale(fadeImage);
+                ResetFocusEffects(fadeImage);
+
+                SideRevealMaskState mask1 = EnsureSideRevealMask(image1);
+                SideRevealMaskState mask2 = EnsureSideRevealMask(image2);
+                if (mask1 == null || mask2 == null)
+                {
+                    ResetSideRevealMasks(fadeImage);
+                    return false;
+                }
+
+                Storyboard in1 = BuildDiagonalRevealStoryboard(image1, mask1, true, duration);
+                Storyboard in2 = BuildDiagonalRevealStoryboard(image2, mask2, true, duration);
+                Storyboard out1 = BuildDiagonalRevealStoryboard(image1, mask1, false, duration);
+                Storyboard out2 = BuildDiagonalRevealStoryboard(image2, mask2, false, duration);
+
+                FieldInfo fIn1 = type.GetField("Image1FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fIn2 = type.GetField("Image2FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut1 = type.GetField("Image1FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut2 = type.GetField("Image2FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (fIn1 == null || fIn2 == null || fOut1 == null || fOut2 == null)
+                {
+                    ResetSideRevealMasks(fadeImage);
+                    return false;
+                }
+
+                fIn1.SetValue(fadeImage, in1);
+                fIn2.SetValue(fadeImage, in2);
+                fOut1.SetValue(fadeImage, out1);
+                fOut2.SetValue(fadeImage, out2);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ResetSideRevealMasks(fadeImage);
+                Logger.Warn(ex, "ImageRotater: could not install background diagonal reveal storyboards");
+                return false;
+            }
+        }
+
+        private static Storyboard BuildDiagonalRevealStoryboard(
+            Image image,
+            SideRevealMaskState state,
+            bool incoming,
+            TimeSpan duration)
+        {
+            var storyboard = new Storyboard();
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+            Timeline opacity;
+            if (incoming)
+            {
+                opacity = new DoubleAnimation(1.0, 1.0, new Duration(duration));
+            }
+            else
+            {
+                var hideAtEnd = new DoubleAnimationUsingKeyFrames
+                {
+                    Duration = new Duration(duration)
+                };
+                hideAtEnd.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromPercent(0.97)));
+                hideAtEnd.KeyFrames.Add(new DiscreteDoubleKeyFrame(0.0, KeyTime.FromPercent(1.0)));
+                opacity = hideAtEnd;
+            }
+
+            Storyboard.SetTarget(opacity, image);
+            Storyboard.SetTargetProperty(opacity, new PropertyPath(UIElement.OpacityProperty));
+            storyboard.Children.Add(opacity);
+
+            Color firstColor = incoming ? Colors.Transparent : Colors.White;
+            Color secondColor = incoming ? Colors.White : Colors.Transparent;
+
+            var firstColorAnimation = new ColorAnimation(
+                firstColor, firstColor, new Duration(duration));
+            var secondColorAnimation = new ColorAnimation(
+                secondColor, secondColor, new Duration(duration));
+            Storyboard.SetTarget(firstColorAnimation, state.First);
+            Storyboard.SetTarget(secondColorAnimation, state.Second);
+            Storyboard.SetTargetProperty(firstColorAnimation, new PropertyPath(GradientStop.ColorProperty));
+            Storyboard.SetTargetProperty(secondColorAnimation, new PropertyPath(GradientStop.ColorProperty));
+            storyboard.Children.Add(firstColorAnimation);
+            storyboard.Children.Add(secondColorAnimation);
+
+            var startMove = new PointAnimation
+            {
+                From = new Point(0.94, -0.04),
+                To = new Point(-0.82, 1.42),
+                Duration = new Duration(duration),
+                EasingFunction = ease
+            };
+            var endMove = new PointAnimation
+            {
+                From = new Point(1.28, 0.30),
+                To = new Point(-0.48, 1.76),
+                Duration = new Duration(duration),
+                EasingFunction = ease
+            };
+
+            Storyboard.SetTarget(startMove, state.Brush);
+            Storyboard.SetTarget(endMove, state.Brush);
+            Storyboard.SetTargetProperty(startMove, new PropertyPath(LinearGradientBrush.StartPointProperty));
+            Storyboard.SetTargetProperty(endMove, new PropertyPath(LinearGradientBrush.EndPointProperty));
+            storyboard.Children.Add(startMove);
+            storyboard.Children.Add(endMove);
+
+            return storyboard;
+        }
+
+        private static bool ApplyDepthShiftStoryboards(UserControl fadeImage, TimeSpan duration)
+        {
+            try
+            {
+                Type type = fadeImage.GetType();
+                Image image1 = fadeImage.FindName("Image1") as Image;
+                Image image2 = fadeImage.FindName("Image2") as Image;
+                if (image1 == null || image2 == null)
+                {
+                    return false;
+                }
+
+                ResetMotionScale(fadeImage);
+                EnsureMotionTransform(image1);
+                EnsureMotionTransform(image2);
+                BlurEffect blur1 = EnsureFocusEffect(image1);
+                BlurEffect blur2 = EnsureFocusEffect(image2);
+                if (blur1 == null || blur2 == null)
+                {
+                    ResetFocusEffects(fadeImage);
+                    return false;
+                }
+
+                Storyboard in1 = BuildDepthShiftStoryboard(image1, blur1, true, duration);
+                Storyboard in2 = BuildDepthShiftStoryboard(image2, blur2, true, duration);
+                Storyboard out1 = BuildDepthShiftStoryboard(image1, blur1, false, duration);
+                Storyboard out2 = BuildDepthShiftStoryboard(image2, blur2, false, duration);
+
+                FieldInfo fIn1 = type.GetField("Image1FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fIn2 = type.GetField("Image2FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut1 = type.GetField("Image1FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut2 = type.GetField("Image2FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (fIn1 == null || fIn2 == null || fOut1 == null || fOut2 == null)
+                {
+                    ResetFocusEffects(fadeImage);
+                    return false;
+                }
+
+                fIn1.SetValue(fadeImage, in1);
+                fIn2.SetValue(fadeImage, in2);
+                fOut1.SetValue(fadeImage, out1);
+                fOut2.SetValue(fadeImage, out2);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ResetFocusEffects(fadeImage);
+                Logger.Warn(ex, "ImageRotater: could not install background depth shift storyboards");
+                return false;
+            }
+        }
+
+        private static Storyboard BuildDepthShiftStoryboard(
+            Image image,
+            BlurEffect blur,
+            bool incoming,
+            TimeSpan duration)
+        {
+            var storyboard = new Storyboard();
+
+            Timeline opacity;
+            if (incoming)
+            {
+                opacity = new DoubleAnimation(0.0, 1.0, new Duration(duration))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+            }
+            else
+            {
+                var fade = new DoubleAnimationUsingKeyFrames
+                {
+                    Duration = new Duration(duration)
+                };
+                fade.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromPercent(0.20)));
+                fade.KeyFrames.Add(new EasingDoubleKeyFrame(0.0, KeyTime.FromPercent(0.84),
+                    new CubicEase { EasingMode = EasingMode.EaseIn }));
+                opacity = fade;
+            }
+            Storyboard.SetTarget(opacity, image);
+            Storyboard.SetTargetProperty(opacity, new PropertyPath(UIElement.OpacityProperty));
+            storyboard.Children.Add(opacity);
+
+            Timeline blurAnim;
+            if (incoming)
+            {
+                var sharpen = new DoubleAnimationUsingKeyFrames
+                {
+                    Duration = new Duration(duration)
+                };
+                sharpen.KeyFrames.Add(new LinearDoubleKeyFrame(12.0, KeyTime.FromPercent(0.0)));
+                sharpen.KeyFrames.Add(new LinearDoubleKeyFrame(12.0, KeyTime.FromPercent(0.18)));
+                sharpen.KeyFrames.Add(new EasingDoubleKeyFrame(0.0, KeyTime.FromPercent(1.0),
+                    new CubicEase { EasingMode = EasingMode.EaseOut }));
+                blurAnim = sharpen;
+            }
+            else
+            {
+                var blurOut = new DoubleAnimationUsingKeyFrames
+                {
+                    Duration = new Duration(duration)
+                };
+                blurOut.KeyFrames.Add(new LinearDoubleKeyFrame(0.0, KeyTime.FromPercent(0.0)));
+                blurOut.KeyFrames.Add(new EasingDoubleKeyFrame(9.0, KeyTime.FromPercent(0.52),
+                    new CubicEase { EasingMode = EasingMode.EaseIn }));
+                blurOut.KeyFrames.Add(new LinearDoubleKeyFrame(9.0, KeyTime.FromPercent(1.0)));
+                blurAnim = blurOut;
+            }
+            Storyboard.SetTarget(blurAnim, blur);
+            Storyboard.SetTargetProperty(blurAnim, new PropertyPath(BlurEffect.RadiusProperty));
+            storyboard.Children.Add(blurAnim);
+
+            double fromScale = incoming ? 1.05 : 1.0;
+            double toScale = incoming ? 1.0 : 0.965;
+            var ease = new CubicEase { EasingMode = incoming ? EasingMode.EaseOut : EasingMode.EaseInOut };
+            var scaleX = new DoubleAnimation(fromScale, toScale, new Duration(duration))
+            {
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.Stop
+            };
+            var scaleY = new DoubleAnimation(fromScale, toScale, new Duration(duration))
+            {
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.Stop
+            };
+            Storyboard.SetTarget(scaleX, image);
+            Storyboard.SetTarget(scaleY, image);
+            Storyboard.SetTargetProperty(scaleX, new PropertyPath(
+                "(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleX)"));
+            Storyboard.SetTargetProperty(scaleY, new PropertyPath(
+                "(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleY)"));
+            storyboard.Children.Add(scaleX);
+            storyboard.Children.Add(scaleY);
+
+            return storyboard;
+        }
+
+        private static bool ApplyMosaicStoryboards(UserControl fadeImage, TimeSpan duration)
+        {
+            try
+            {
+                Type type = fadeImage.GetType();
+                Image image1 = fadeImage.FindName("Image1") as Image;
+                Image image2 = fadeImage.FindName("Image2") as Image;
+                if (image1 == null || image2 == null)
+                {
+                    return false;
+                }
+
+                ResetMotionScale(fadeImage);
+                ResetFocusEffects(fadeImage);
+                ResetSideRevealMasks(fadeImage);
+
+                MosaicMaskState mask1 = EnsureMosaicMask(image1);
+                MosaicMaskState mask2 = EnsureMosaicMask(image2);
+                if (mask1 == null || mask2 == null)
+                {
+                    ResetMosaicMasks(fadeImage);
+                    return false;
+                }
+
+                Storyboard in1 = MosaicMask.BuildStoryboard(image1, mask1, true, duration);
+                Storyboard in2 = MosaicMask.BuildStoryboard(image2, mask2, true, duration);
+                Storyboard out1 = MosaicMask.BuildStoryboard(image1, mask1, false, duration);
+                Storyboard out2 = MosaicMask.BuildStoryboard(image2, mask2, false, duration);
+
+                FieldInfo fIn1 = type.GetField("Image1FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fIn2 = type.GetField("Image2FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut1 = type.GetField("Image1FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut2 = type.GetField("Image2FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (fIn1 == null || fIn2 == null || fOut1 == null || fOut2 == null)
+                {
+                    ResetMosaicMasks(fadeImage);
+                    return false;
+                }
+
+                fIn1.SetValue(fadeImage, in1);
+                fIn2.SetValue(fadeImage, in2);
+                fOut1.SetValue(fadeImage, out1);
+                fOut2.SetValue(fadeImage, out2);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ResetMosaicMasks(fadeImage);
+                Logger.Warn(ex, "ImageRotater: could not install background pixel reveal storyboards");
+                return false;
+            }
+        }
+
+        private static MosaicMaskState EnsureMosaicMask(Image image)
+        {
+            if (image == null)
+            {
+                return null;
+            }
+
+            if (MosaicMasks.TryGetValue(image, out MosaicMaskState existing))
+            {
+                MosaicMask.Stop(existing);
+                if (!ReferenceEquals(image.OpacityMask, existing.Brush))
+                {
+                    image.OpacityMask = existing.Brush;
+                }
+                return existing;
+            }
+
+            MosaicMaskState state = MosaicMask.Create();
+            image.OpacityMask = state.Brush;
+            MosaicMasks.Add(image, state);
+            return state;
+        }
+
+        private static void ResetMosaicMasks(UserControl fadeImage)
+        {
+            ResetMosaicMask(fadeImage?.FindName("Image1") as Image);
+            ResetMosaicMask(fadeImage?.FindName("Image2") as Image);
+        }
+
+        private static void ResetMosaicMask(Image image)
+        {
+            if (image == null ||
+                !MosaicMasks.TryGetValue(image, out MosaicMaskState state))
+            {
+                return;
+            }
+
+            MosaicMask.Stop(state);
+            if (ReferenceEquals(image.OpacityMask, state.Brush))
+            {
+                image.OpacityMask = null;
+            }
+            MosaicMasks.Remove(image);
+        }
+
+
+        private static bool ApplyPixelateStoryboards(UserControl fadeImage, TimeSpan duration)
+        {
+            try
+            {
+                Type type = fadeImage.GetType();
+                Image image1 = fadeImage.FindName("Image1") as Image;
+                Image image2 = fadeImage.FindName("Image2") as Image;
+                if (image1 == null || image2 == null)
+                {
+                    return false;
+                }
+
+                Storyboard in1 = BuildPixelateFadeInStoryboard(image1, image2, duration);
+                Storyboard in2 = BuildPixelateFadeInStoryboard(image2, image1, duration);
+                Storyboard out1 = BuildPixelateFadeOutStoryboard(image1, duration);
+                Storyboard out2 = BuildPixelateFadeOutStoryboard(image2, duration);
+
+                FieldInfo fIn1 = type.GetField("Image1FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fIn2 = type.GetField("Image2FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut1 = type.GetField("Image1FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut2 = type.GetField("Image2FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (fIn1 == null || fIn2 == null || fOut1 == null || fOut2 == null)
+                {
+                    return false;
+                }
+
+                fIn1.SetValue(fadeImage, in1);
+                fIn2.SetValue(fadeImage, in2);
+                fOut1.SetValue(fadeImage, out1);
+                fOut2.SetValue(fadeImage, out2);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: could not install background Pixelate storyboards");
+                return false;
+            }
+        }
+
+        private static Storyboard BuildPixelateFadeInStoryboard(Image incoming, Image outgoing, TimeSpan duration)
+        {
+            var storyboard = new Storyboard();
+            ImageSource oldSource = outgoing?.Source;
+            ImageSource newSource = incoming?.Source;
+            var oldLevels = PixelateFrames.GetCachedOrSource(oldSource);
+            var newLevels = PixelateFrames.GetCachedOrSource(newSource);
+
+            incoming.BeginAnimation(Image.SourceProperty, null);
+            if (oldSource != null)
+            {
+                incoming.Source = oldSource;
+            }
+            RenderOptions.SetBitmapScalingMode(incoming, BitmapScalingMode.NearestNeighbor);
+
+            var opacity = new DoubleAnimation(1.0, 1.0, new Duration(duration));
+            Storyboard.SetTarget(opacity, incoming);
+            Storyboard.SetTargetProperty(opacity, new PropertyPath(UIElement.OpacityProperty));
+            storyboard.Children.Add(opacity);
+
+            if (oldLevels.Count > 0 && newLevels.Count > 0)
+            {
+                var sourceAnimation = PixelateFrames.BuildCombinedSourceAnimation(oldLevels, newLevels, duration);
+                sourceAnimation.Completed += (s, e) =>
+                {
+                    incoming.BeginAnimation(Image.SourceProperty, null);
+                    if (newSource != null)
+                    {
+                        incoming.Source = newSource;
+                    }
+                    RenderOptions.SetBitmapScalingMode(incoming, BitmapScalingMode.Fant);
+                };
+                Storyboard.SetTarget(sourceAnimation, incoming);
+                Storyboard.SetTargetProperty(sourceAnimation, new PropertyPath(Image.SourceProperty));
+                storyboard.Children.Add(sourceAnimation);
+            }
+
+            return storyboard;
+        }
+
+        private static Storyboard BuildPixelateFadeOutStoryboard(Image outgoing, TimeSpan duration)
+        {
+            var storyboard = new Storyboard();
+            var opacity = new DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(duration)
+            };
+            opacity.KeyFrames.Add(new DiscreteDoubleKeyFrame(0.0, KeyTime.FromPercent(0.0)));
+            Storyboard.SetTarget(opacity, outgoing);
+            Storyboard.SetTargetProperty(opacity, new PropertyPath(UIElement.OpacityProperty));
+            storyboard.Children.Add(opacity);
+            return storyboard;
+        }
+
+        private static bool ApplyFocusStoryboards(UserControl fadeImage, TimeSpan duration)
+        {
+            try
+            {
+                Type type = fadeImage.GetType();
+                Image image1 = fadeImage.FindName("Image1") as Image;
+                Image image2 = fadeImage.FindName("Image2") as Image;
+                if (image1 == null || image2 == null)
+                {
+                    return false;
+                }
+
+                ResetMotionScale(fadeImage);
+                BlurEffect blur1 = EnsureFocusEffect(image1);
+                BlurEffect blur2 = EnsureFocusEffect(image2);
+                if (blur1 == null || blur2 == null)
+                {
+                    ResetFocusEffects(fadeImage);
+                    return false;
+                }
+
+                Storyboard in1 = BuildFocusStoryboard(image1, blur1, true, duration);
+                Storyboard in2 = BuildFocusStoryboard(image2, blur2, true, duration);
+                Storyboard out1 = BuildFocusStoryboard(image1, blur1, false, duration);
+                Storyboard out2 = BuildFocusStoryboard(image2, blur2, false, duration);
+
+                FieldInfo fIn1 = type.GetField("Image1FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fIn2 = type.GetField("Image2FadeIn", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut1 = type.GetField("Image1FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                FieldInfo fOut2 = type.GetField("Image2FadeOut", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (fIn1 == null || fIn2 == null || fOut1 == null || fOut2 == null)
+                {
+                    ResetFocusEffects(fadeImage);
+                    return false;
+                }
+
+                fIn1.SetValue(fadeImage, in1);
+                fIn2.SetValue(fadeImage, in2);
+                fOut1.SetValue(fadeImage, out1);
+                fOut2.SetValue(fadeImage, out2);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ResetFocusEffects(fadeImage);
+                Logger.Warn(ex, "ImageRotater: could not install background focus storyboards");
+                return false;
+            }
+        }
+
+        private static Storyboard BuildFocusStoryboard(
+            Image image,
+            BlurEffect blur,
+            bool incoming,
+            TimeSpan duration)
+        {
+            var storyboard = new Storyboard();
+
+            Timeline opacity;
+            if (incoming)
+            {
+                opacity = new DoubleAnimation(0.0, 1.0, new Duration(duration))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+            }
+            else
+            {
+                var fade = new DoubleAnimationUsingKeyFrames
+                {
+                    Duration = new Duration(duration)
+                };
+                fade.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromPercent(0.22)));
+                fade.KeyFrames.Add(new EasingDoubleKeyFrame(0.0, KeyTime.FromPercent(0.86),
+                    new CubicEase { EasingMode = EasingMode.EaseIn }));
+                opacity = fade;
+            }
+
+            Storyboard.SetTarget(opacity, image);
+            Storyboard.SetTargetProperty(opacity, new PropertyPath(UIElement.OpacityProperty));
+            storyboard.Children.Add(opacity);
+
+            Timeline focusBlur;
+            if (incoming)
+            {
+                var sharpen = new DoubleAnimationUsingKeyFrames
+                {
+                    Duration = new Duration(duration)
+                };
+                sharpen.KeyFrames.Add(new LinearDoubleKeyFrame(
+                    26.0, KeyTime.FromPercent(0.0)));
+                sharpen.KeyFrames.Add(new LinearDoubleKeyFrame(
+                    26.0, KeyTime.FromPercent(0.24)));
+                sharpen.KeyFrames.Add(new EasingDoubleKeyFrame(
+                    0.0,
+                    KeyTime.FromPercent(1.0),
+                    new CubicEase { EasingMode = EasingMode.EaseOut }));
+                focusBlur = sharpen;
+            }
+            else
+            {
+                var defocus = new DoubleAnimationUsingKeyFrames
+                {
+                    Duration = new Duration(duration)
+                };
+                defocus.KeyFrames.Add(new LinearDoubleKeyFrame(
+                    0.0, KeyTime.FromPercent(0.08)));
+                defocus.KeyFrames.Add(new EasingDoubleKeyFrame(
+                    20.0,
+                    KeyTime.FromPercent(0.48),
+                    new CubicEase { EasingMode = EasingMode.EaseIn }));
+                defocus.KeyFrames.Add(new LinearDoubleKeyFrame(
+                    20.0, KeyTime.FromPercent(1.0)));
+                focusBlur = defocus;
+            }
+
+            Storyboard.SetTarget(focusBlur, blur);
+            Storyboard.SetTargetProperty(focusBlur, new PropertyPath(BlurEffect.RadiusProperty));
+            storyboard.Children.Add(focusBlur);
+
+            return storyboard;
+        }
+
+        private static BlurEffect EnsureFocusEffect(Image image)
+        {
+            if (image == null)
+            {
+                return null;
+            }
+
+            if (FocusBlurEffects.TryGetValue(image, out BlurEffect existing))
+            {
+                if (!ReferenceEquals(image.Effect, existing))
+                {
+                    image.Effect = existing;
+                }
+                existing.BeginAnimation(BlurEffect.RadiusProperty, null);
+                existing.Radius = 0.0;
+                return existing;
+            }
+
+            if (image.Effect != null)
+            {
+                return null;
+            }
+
+            var blur = new BlurEffect
+            {
+                KernelType = KernelType.Gaussian,
+                Radius = 0.0,
+                RenderingBias = RenderingBias.Performance
+            };
+            image.Effect = blur;
+            FocusBlurEffects.Add(image, blur);
+            return blur;
+        }
+
+        private static void ResetFocusEffects(UserControl fadeImage)
+        {
+            ResetFocusEffect(fadeImage?.FindName("Image1") as Image);
+            ResetFocusEffect(fadeImage?.FindName("Image2") as Image);
+        }
+
+        private static void ResetFocusEffect(Image image)
+        {
+            if (image == null || !FocusBlurEffects.TryGetValue(image, out BlurEffect blur))
+            {
+                return;
+            }
+
+            blur.BeginAnimation(BlurEffect.RadiusProperty, null);
+            if (ReferenceEquals(image.Effect, blur))
+            {
+                image.Effect = null;
+            }
+            FocusBlurEffects.Remove(image);
+        }
+
+        private static Storyboard BuildZoomStoryboard(Image image, bool incoming, TimeSpan duration)
+        {
+            var storyboard = new Storyboard();
+
+            Timeline opacity;
+            if (incoming)
+            {
+                opacity = new DoubleAnimation(0.0, 1.0, new Duration(duration))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+            }
+            else
+            {
+                var fade = new DoubleAnimationUsingKeyFrames
+                {
+                    Duration = new Duration(duration)
+                };
+                fade.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromPercent(0.34)));
+                fade.KeyFrames.Add(new EasingDoubleKeyFrame(0.0, KeyTime.FromPercent(0.92),
+                    new CubicEase { EasingMode = EasingMode.EaseIn }));
+                opacity = fade;
+            }
+
+            Storyboard.SetTarget(opacity, image);
+            Storyboard.SetTargetProperty(opacity, new PropertyPath(UIElement.OpacityProperty));
+            storyboard.Children.Add(opacity);
+
+            if (incoming)
+            {
+                var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+                var scaleX = new DoubleAnimation(1.08, 1.0, new Duration(duration))
+                {
+                    EasingFunction = ease,
+                    FillBehavior = FillBehavior.Stop
+                };
+                var scaleY = new DoubleAnimation(1.08, 1.0, new Duration(duration))
+                {
+                    EasingFunction = ease,
+                    FillBehavior = FillBehavior.Stop
+                };
+
+                Storyboard.SetTarget(scaleX, image);
+                Storyboard.SetTarget(scaleY, image);
+                Storyboard.SetTargetProperty(scaleX, new PropertyPath(
+                    "(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleX)"));
+                Storyboard.SetTargetProperty(scaleY, new PropertyPath(
+                    "(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleY)"));
+                storyboard.Children.Add(scaleX);
+                storyboard.Children.Add(scaleY);
+            }
+
+            return storyboard;
+        }
+
+        private static void EnsureMotionTransform(Image image)
         {
             if (image == null)
             {
@@ -400,10 +1387,12 @@ namespace ImageRotater.Services
             }
 
             // FadeImage backgrounds do not normally carry a RenderTransform.
-            // Keep a stable TransformGroup so the private storyboards can move
-            // only the translation component and never disturb layout/blur.
+            // Keep a stable TransformGroup so transition storyboards can animate
+            // scale and translation without disturbing layout or blur.
             if (image.RenderTransform is TransformGroup group &&
-                group.Children.Count >= 2 && group.Children[1] is TranslateTransform)
+                group.Children.Count >= 2 &&
+                group.Children[0] is ScaleTransform &&
+                group.Children[1] is TranslateTransform)
             {
                 return;
             }
@@ -419,10 +1408,10 @@ namespace ImageRotater.Services
             Image image,
             bool incoming,
             TransitionDirection direction,
-            TimeSpan duration)
+            TimeSpan duration,
+            double distance)
         {
             var storyboard = new Storyboard();
-            double distance = Math.Max(90.0, Math.Min(220.0, image.ActualWidth * 0.10));
             bool horizontal = direction == TransitionDirection.FromLeft || direction == TransitionDirection.FromRight;
             double sign = direction == TransitionDirection.FromLeft || direction == TransitionDirection.FromTop ? -1.0 : 1.0;
 
@@ -454,7 +1443,79 @@ namespace ImageRotater.Services
                     ? "(UIElement.RenderTransform).(TransformGroup.Children)[1].(TranslateTransform.X)"
                     : "(UIElement.RenderTransform).(TransformGroup.Children)[1].(TranslateTransform.Y)"));
             storyboard.Children.Add(move);
+
             return storyboard;
+        }
+
+        private static void ApplyFixedSlideOverscan(
+            Image image,
+            double slideDistance,
+            TransitionDirection direction)
+        {
+            var group = image?.RenderTransform as TransformGroup;
+            if (group == null)
+            {
+                return;
+            }
+
+            ScaleTransform scale = group.Children.OfType<ScaleTransform>().FirstOrDefault();
+            if (scale == null)
+            {
+                return;
+            }
+
+            bool horizontal = direction == TransitionDirection.FromLeft ||
+                              direction == TransitionDirection.FromRight;
+            double extent = horizontal ? image.ActualWidth : image.ActualHeight;
+
+            void apply()
+            {
+                double currentExtent = horizontal ? image.ActualWidth : image.ActualHeight;
+                if (currentExtent <= 0.0)
+                {
+                    return;
+                }
+
+                double factor = (currentExtent + (2.0 * Math.Abs(slideDistance))) / currentExtent;
+                scale.ScaleX = factor;
+                scale.ScaleY = factor;
+            }
+
+            if (extent > 0.0)
+            {
+                apply();
+                return;
+            }
+
+            SizeChangedEventHandler once = null;
+            once = (s, e) =>
+            {
+                image.SizeChanged -= once;
+                if (Transition.BackgroundStyle == TransitionStyle.SlideFromRight)
+                {
+                    apply();
+                }
+            };
+            image.SizeChanged += once;
+        }
+
+        private static void ResetMotionScale(UserControl fadeImage)
+        {
+            ResetImageScale(fadeImage?.FindName("Image1") as Image);
+            ResetImageScale(fadeImage?.FindName("Image2") as Image);
+        }
+
+        private static void ResetImageScale(Image image)
+        {
+            if (image?.RenderTransform is TransformGroup group)
+            {
+                ScaleTransform scale = group.Children.OfType<ScaleTransform>().FirstOrDefault();
+                if (scale != null)
+                {
+                    scale.ScaleX = 1.0;
+                    scale.ScaleY = 1.0;
+                }
+            }
         }
 
         private static bool Ease(UserControl fadeImage, string key, EasingMode mode, TimeSpan duration)

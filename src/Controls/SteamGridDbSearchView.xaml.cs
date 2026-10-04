@@ -990,6 +990,8 @@ namespace ImageRotater.Controls
             _downloader.ConvertGifsToMp4 = ConvertGifsBox.IsChecked == true;
 
             int saved = 0;
+            int resized = 0;
+            int optimised = 0;
             bool failed = false;
             try
             {
@@ -998,9 +1000,52 @@ namespace ImageRotater.Controls
                 {
                     current++;
                     DownloadFeedbackText.Text = Loc.Format("LOCImageRotaterDownloadingProgress", current, chosen.Count);
+                    DownloadFeedbackIcon.Text = "↓";
                     DownloadProgress.Value = current - 1;
 
-                    if (await _downloader.DownloadAsync(_gameId, artwork, _kind) != null)
+                    Action<ArtworkDownloadProgress> report = progress =>
+                    {
+                        Action updateUi = () =>
+                        {
+                            if (progress.Stage == ArtworkDownloadStage.Resizing)
+                            {
+                                DownloadFeedbackText.Text = Loc.Format(
+                                    "LOCImageRotaterResizingDownloadProgress",
+                                    current,
+                                    chosen.Count);
+                                DownloadFeedbackIcon.Text = "↙";
+                            }
+                            else if (progress.Stage == ArtworkDownloadStage.ResizeFinished
+                                && progress.Resized)
+                            {
+                                resized++;
+                            }
+                            else if (progress.Stage == ArtworkDownloadStage.Optimising)
+                            {
+                                DownloadFeedbackText.Text = Loc.Format(
+                                    "LOCImageRotaterOptimisingDownloadProgress",
+                                    current,
+                                    chosen.Count);
+                                DownloadFeedbackIcon.Text = "⚙";
+                            }
+                            else if (progress.Stage == ArtworkDownloadStage.OptimisationFinished
+                                && progress.Optimised)
+                            {
+                                optimised++;
+                            }
+                        };
+
+                        if (Dispatcher.CheckAccess())
+                        {
+                            updateUi();
+                        }
+                        else
+                        {
+                            Dispatcher.Invoke(updateUi);
+                        }
+                    };
+
+                    if (await _downloader.DownloadAsync(_gameId, artwork, _kind, report) != null)
                     {
                         saved++;
                     }
@@ -1042,6 +1087,16 @@ namespace ImageRotater.Controls
             else
             {
                 feedback = Loc.Get("LOCImageRotaterDownloadFailed");
+            }
+
+            if (resized > 0)
+            {
+                feedback += Loc.Format("LOCImageRotaterDownloadResizedCount", resized);
+            }
+
+            if (optimised > 0)
+            {
+                feedback += Loc.Format("LOCImageRotaterDownloadOptimisedCount", optimised);
             }
 
             // Rotation needs something to rotate TO. Keep this useful hint, but

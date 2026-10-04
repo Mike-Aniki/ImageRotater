@@ -162,26 +162,6 @@
                         </Border>
                     </Grid>
 
-                    <!-- Optional capabilities stay last: useful, but not required for basic use. -->
-                    <Border Style="{StaticResource IrToolsCalloutCard}" Margin="0,4,0,14">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,20,0">
-                                <TextBlock Text="{DynamicResource LOCImageRotaterToolsCalloutEyebrow}" Style="{StaticResource IrEyebrow}"/>
-                                <TextBlock Text="{DynamicResource LOCImageRotaterToolsCalloutTitle}" Style="{StaticResource IrCardTitle}" Margin="0,2,0,5"/>
-                                <TextBlock Text="{DynamicResource LOCImageRotaterToolsCalloutText}" Style="{StaticResource IrHintFlush}" Margin="0,0,0,3"/>
-                                <TextBlock Text="{DynamicResource LOCImageRotaterToolsCalloutNote}" Style="{StaticResource IrHintFlush}" Margin="0,0,0,0"/>
-                            </StackPanel>
-                            <Button Grid.Column="1"
-                                    Style="{StaticResource IrButton}"
-                                    Content="{DynamicResource LOCImageRotaterOpenTools}"
-                                    VerticalAlignment="Center"
-                                    Click="OpenTools_Click"/>
-                        </Grid>
-                    </Border>
                 </StackPanel>
             </ScrollViewer>
         </TabItem>
@@ -260,7 +240,7 @@
                     </ScrollViewer>
                 </TabItem>
 
-                <TabItem Header="{DynamicResource LOCImageRotaterTabAnimation}">
+                <TabItem Header="{DynamicResource LOCImageRotaterTabDisplay}">
                     <ScrollViewer Style="{StaticResource IrPage}">
                         <StackPanel MaxWidth="820" HorizontalAlignment="Stretch" Margin="0,16,0,0">
                                 <TextBlock Text="{DynamicResource LOCImageRotaterBackgrounds}" Style="{StaticResource IrPageTitle}"/>
@@ -281,9 +261,57 @@
                                         <TextBlock Style="{StaticResource IrHint}" Text="{DynamicResource LOCImageRotaterLevelBackgroundsHint}"/>
                                     </StackPanel>
                                 </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="{DynamicResource LOCImageRotaterTabAnimation}">
+                    <ScrollViewer Style="{StaticResource IrPage}">
+                        <StackPanel MaxWidth="820" HorizontalAlignment="Stretch" Margin="0,16,0,0">
+                                <TextBlock Text="{DynamicResource LOCImageRotaterBackgrounds}" Style="{StaticResource IrPageTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterBackgroundIntro}" Style="{StaticResource IrPageSubtitle}"/>
 
                                 <Border Style="{StaticResource IrSectionBar}">
                                     <TextBlock Text="{DynamicResource LOCImageRotaterTransition}" Style="{StaticResource IrSectionTitle}"/>
+                                </Border>
+
+
+                                <Border Style="{StaticResource IrCard}" Margin="0,0,0,14">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="18"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0"
+                                                Width="300" Height="169"
+                                                Background="#12000000"
+                                                BorderBrush="{StaticResource IrStroke}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                ClipToBounds="True">
+                                            <AdornerDecorator ClipToBounds="True">
+                                                <Grid ClipToBounds="True">
+                                                    <Image x:Name="BackgroundAnimationPreviewPrevious"
+                                                           Stretch="UniformToFill"
+                                                           RenderOptions.BitmapScalingMode="Fant"
+                                                           IsHitTestVisible="False"/>
+                                                    <Image x:Name="BackgroundAnimationPreview"
+                                                           Stretch="UniformToFill"
+                                                           RenderOptions.BitmapScalingMode="Fant"
+                                                           IsHitTestVisible="False"/>
+                                                </Grid>
+                                            </AdornerDecorator>
+                                        </Border>
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                            <TextBlock Text="{DynamicResource LOCImageRotaterAnimationPreview}" Style="{StaticResource IrCardTitle}"/>
+                                            <TextBlock Text="{DynamicResource LOCImageRotaterAnimationPreviewHint}" Style="{StaticResource IrHintFlush}" Margin="0,3,0,12"/>
+                                            <Button Style="{StaticResource IrButtonSecondary}"
+                                                    Content="{DynamicResource LOCImageRotaterReplay}"
+                                                    HorizontalAlignment="Left"
+                                                    Click="ReplayBackgroundPreview_Click"/>
+                                        </StackPanel>
+                                    </Grid>
                                 </Border>
 
                                 <Border Style="{StaticResource IrCard}">
@@ -292,14 +320,40 @@
                                         <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterBackgroundTransitionHint}"/>
                                         <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCrossfade}" GroupName="BackgroundTransition"
                                                      IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Crossfade}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterCrossfadeHint}"/>
                                         <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeBlack}" GroupName="BackgroundTransition"
                                                      IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughBlack}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterFadeBlackHint}"/>
                                         <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeWhite}" GroupName="BackgroundTransition"
                                                      IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughWhite}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterFadeWhiteHint}"/>
                                         <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterSlideRight}" GroupName="BackgroundTransition"
                                                      IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=SlideFromRight}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterSlideRightHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterSideReveal}" GroupName="BackgroundTransition"
+                                                     IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=SideReveal}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterSideRevealHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterDiagonalReveal}" GroupName="BackgroundTransition"
+                                                     IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=DiagonalReveal}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterDiagonalRevealHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterDepthShift}" GroupName="BackgroundTransition"
+                                                     IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=DepthShift}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterDepthShiftHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterMosaic}" GroupName="BackgroundTransition"
+                                                     IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Mosaic}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterMosaicHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPixelate}" GroupName="BackgroundTransition"
+                                                     IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Pixelate}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterPixelateHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterZoom}" GroupName="BackgroundTransition"
+                                                     IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Zoom}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterZoomHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFocus}" GroupName="BackgroundTransition"
+                                                     IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Focus}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterFocusHint}"/>
                                         <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCut}" GroupName="BackgroundTransition"
                                                      IsChecked="{Binding Settings.BackgroundTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Cut}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterCutHint}"/>
                                     </StackPanel>
                                 </Border>
                         </StackPanel>
@@ -382,21 +436,21 @@
                     </ScrollViewer>
                 </TabItem>
 
-                <TabItem Header="{DynamicResource LOCImageRotaterTabAnimation}">
+                <TabItem Header="{DynamicResource LOCImageRotaterTabDisplay}">
                     <ScrollViewer Style="{StaticResource IrPage}">
                         <StackPanel MaxWidth="820" HorizontalAlignment="Stretch" Margin="0,16,0,0">
                                 <TextBlock Text="{DynamicResource LOCImageRotaterCovers}" Style="{StaticResource IrPageTitle}"/>
                                 <TextBlock Text="{DynamicResource LOCImageRotaterCoverIntro}" Style="{StaticResource IrPageSubtitle}"/>
 
                                 <Border Style="{StaticResource IrSectionBar}">
-                                    <TextBlock Text="{DynamicResource LOCImageRotaterAnimationAndPerformance}" Style="{StaticResource IrSectionTitle}"/>
+                                    <TextBlock Text="{DynamicResource LOCImageRotaterAnimatedCovers}" Style="{StaticResource IrSectionTitle}"/>
                                 </Border>
 
-                                <Border Style="{StaticResource IrCardWarn}">
+                                <Border Style="{StaticResource IrCard}">
                                     <StackPanel>
                                         <CheckBox Style="{StaticResource IrToggle}" Content="{DynamicResource LOCImageRotaterAnimateUnfocused}"
                                                   IsChecked="{Binding Settings.AnimateUnfocusedCovers}"/>
-                                        <TextBlock Style="{StaticResource IrWarning}" Text="{DynamicResource LOCImageRotaterAnimateUnfocusedHint}"/>
+                                        <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterAnimateUnfocusedHint}"/>
                                     </StackPanel>
                                 </Border>
 
@@ -411,6 +465,58 @@
                                         <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterVideoStartRandomHint}"/>
                                     </StackPanel>
                                 </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="{DynamicResource LOCImageRotaterTabAnimation}">
+                    <ScrollViewer Style="{StaticResource IrPage}">
+                        <StackPanel MaxWidth="820" HorizontalAlignment="Stretch" Margin="0,16,0,0">
+                                <TextBlock Text="{DynamicResource LOCImageRotaterCovers}" Style="{StaticResource IrPageTitle}"/>
+                                <TextBlock Text="{DynamicResource LOCImageRotaterCoverIntro}" Style="{StaticResource IrPageSubtitle}"/>
+
+                                <Border Style="{StaticResource IrSectionBar}">
+                                    <TextBlock Text="{DynamicResource LOCImageRotaterTransition}" Style="{StaticResource IrSectionTitle}"/>
+                                </Border>
+
+
+                                <Border Style="{StaticResource IrCard}" Margin="0,0,0,14">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="18"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0"
+                                                Width="150" Height="150"
+                                                Background="#12000000"
+                                                BorderBrush="{StaticResource IrStroke}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                ClipToBounds="True">
+                                            <AdornerDecorator ClipToBounds="True">
+                                                <Grid ClipToBounds="True">
+                                                    <Image x:Name="CoverAnimationPreviewPrevious"
+                                                           Stretch="UniformToFill"
+                                                           RenderOptions.BitmapScalingMode="Fant"
+                                                           IsHitTestVisible="False"/>
+                                                    <Image x:Name="CoverAnimationPreview"
+                                                           Stretch="UniformToFill"
+                                                           RenderOptions.BitmapScalingMode="Fant"
+                                                           IsHitTestVisible="False"/>
+                                                </Grid>
+                                            </AdornerDecorator>
+                                        </Border>
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                            <TextBlock Text="{DynamicResource LOCImageRotaterAnimationPreview}" Style="{StaticResource IrCardTitle}"/>
+                                            <TextBlock Text="{DynamicResource LOCImageRotaterAnimationPreviewHint}" Style="{StaticResource IrHintFlush}" Margin="0,3,0,12"/>
+                                            <Button Style="{StaticResource IrButtonSecondary}"
+                                                    Content="{DynamicResource LOCImageRotaterReplay}"
+                                                    HorizontalAlignment="Left"
+                                                    Click="ReplayCoverPreview_Click"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
 
                                 <Border Style="{StaticResource IrCard}">
                                     <StackPanel>
@@ -418,14 +524,40 @@
                                         <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterCoverTransitionHint}"/>
                                         <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCrossfade}" GroupName="CoverTransition"
                                                      IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Crossfade}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterCrossfadeHint}"/>
                                         <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeBlack}" GroupName="CoverTransition"
                                                      IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughBlack}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterFadeBlackHint}"/>
                                         <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFadeWhite}" GroupName="CoverTransition"
                                                      IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=FadeThroughWhite}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterFadeWhiteHint}"/>
                                         <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterSlideRight}" GroupName="CoverTransition"
                                                      IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=SlideFromRight}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterSlideRightHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterSideReveal}" GroupName="CoverTransition"
+                                                     IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=SideReveal}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterSideRevealHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterDiagonalReveal}" GroupName="CoverTransition"
+                                                     IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=DiagonalReveal}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterDiagonalRevealHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterDepthShift}" GroupName="CoverTransition"
+                                                     IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=DepthShift}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterDepthShiftHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterMosaic}" GroupName="CoverTransition"
+                                                     IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Mosaic}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterMosaicHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterPixelate}" GroupName="CoverTransition"
+                                                     IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Pixelate}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterPixelateHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterZoom}" GroupName="CoverTransition"
+                                                     IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Zoom}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterZoomHint}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterFocus}" GroupName="CoverTransition"
+                                                     IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Focus}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterFocusHint}"/>
                                         <RadioButton Style="{StaticResource IrRadio}" Content="{DynamicResource LOCImageRotaterCut}" GroupName="CoverTransition"
                                                      IsChecked="{Binding Settings.CoverTransition, Converter={StaticResource EnumRadio}, ConverterParameter=Cut}"/>
+                                        <TextBlock Style="{StaticResource IrRadioHint}" Text="{DynamicResource LOCImageRotaterCutHint}"/>
                                     </StackPanel>
                                 </Border>
                         </StackPanel>
@@ -434,15 +566,15 @@
             </TabControl>
         </TabItem>
 
-        <!-- ================================ TOOLS ================================ -->
-        <TabItem x:Name="ToolsTab" Header="{DynamicResource LOCImageRotaterTools}">
+        <!-- ================================ ONLINE ARTWORK ================================ -->
+        <TabItem Header="{DynamicResource LOCImageRotaterOnlineArtwork}">
             <ScrollViewer Style="{StaticResource IrPage}">
                 <StackPanel MaxWidth="820" HorizontalAlignment="Stretch" Margin="0,16,0,0">
-                    <TextBlock Text="{DynamicResource LOCImageRotaterTools}" Style="{StaticResource IrPageTitle}"/>
-                    <TextBlock Text="{DynamicResource LOCImageRotaterSetupIntro}" Style="{StaticResource IrPageSubtitle}"/>
+                    <TextBlock Text="{DynamicResource LOCImageRotaterOnlineArtwork}" Style="{StaticResource IrPageTitle}"/>
+                    <TextBlock Text="{DynamicResource LOCImageRotaterOnlineArtworkIntro}" Style="{StaticResource IrPageSubtitle}"/>
 
                     <Border Style="{StaticResource IrSectionBar}">
-                        <TextBlock Text="{DynamicResource LOCImageRotaterOnlineArtwork}" Style="{StaticResource IrSectionTitle}"/>
+                        <TextBlock Text="{DynamicResource LOCImageRotaterOnlineSearch}" Style="{StaticResource IrSectionTitle}"/>
                     </Border>
 
                     <Border Style="{StaticResource IrCard}">
@@ -486,6 +618,56 @@
                             <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,9,0,0" Text="{DynamicResource LOCImageRotaterWebSearchTermsExample}"/>
                         </StackPanel>
                     </Border>
+
+                    <Border Style="{StaticResource IrSectionBar}">
+                        <TextBlock Text="{DynamicResource LOCImageRotaterDownloads}" Style="{StaticResource IrSectionTitle}"/>
+                    </Border>
+
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterDownloadOptimisation}" Style="{StaticResource IrCardTitle}"/>
+                            <CheckBox Style="{StaticResource IrToggle}"
+                                      Content="{DynamicResource LOCImageRotaterOptimiseDownloads}"
+                                      IsChecked="{Binding Settings.OptimiseDownloadedImages}"/>
+                            <TextBlock Style="{StaticResource IrHint}" Text="{DynamicResource LOCImageRotaterOptimiseDownloadsHint}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource IrCard}">
+                        <StackPanel>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterResizeDownloadedBackgrounds}" Style="{StaticResource IrCardTitle}"/>
+                            <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterResizeDownloadedBackgroundsHint}"/>
+                            <CheckBox Style="{StaticResource IrToggle}"
+                                      Content="{DynamicResource LOCImageRotaterResizeDownloadedBackgroundsToggle}"
+                                      IsChecked="{Binding Settings.ResizeDownloadedBackgrounds}"
+                                      Margin="0,8,0,0"/>
+                            <StackPanel Margin="24,8,0,0" IsEnabled="{Binding Settings.ResizeDownloadedBackgrounds}">
+                                <TextBlock Style="{StaticResource IrCardTitle}" FontSize="13" Text="{DynamicResource LOCImageRotaterMaximumResolution}"/>
+                                <RadioButton Style="{StaticResource IrRadio}"
+                                             Content="{DynamicResource LOCImageRotaterResolution1080p}"
+                                             GroupName="BackgroundDownloadResizePreset"
+                                             IsChecked="{Binding Settings.DownloadedBackgroundResizePreset, Converter={StaticResource EnumRadio}, ConverterParameter=FullHd1080p}"/>
+                                <RadioButton Style="{StaticResource IrRadio}"
+                                             Content="{DynamicResource LOCImageRotaterResolution1440p}"
+                                             GroupName="BackgroundDownloadResizePreset"
+                                             IsChecked="{Binding Settings.DownloadedBackgroundResizePreset, Converter={StaticResource EnumRadio}, ConverterParameter=Qhd1440p}"/>
+                                <RadioButton Style="{StaticResource IrRadio}"
+                                             Content="{DynamicResource LOCImageRotaterResolution4K}"
+                                             GroupName="BackgroundDownloadResizePreset"
+                                             IsChecked="{Binding Settings.DownloadedBackgroundResizePreset, Converter={StaticResource EnumRadio}, ConverterParameter=Uhd4K}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- ================================ TOOLS ================================ -->
+        <TabItem x:Name="ToolsTab" Header="{DynamicResource LOCImageRotaterTools}">
+            <ScrollViewer Style="{StaticResource IrPage}">
+                <StackPanel MaxWidth="820" HorizontalAlignment="Stretch" Margin="0,16,0,0">
+                    <TextBlock Text="{DynamicResource LOCImageRotaterTools}" Style="{StaticResource IrPageTitle}"/>
+                    <TextBlock Text="{DynamicResource LOCImageRotaterSetupIntro}" Style="{StaticResource IrPageSubtitle}"/>
 
                     <Border Style="{StaticResource IrSectionBar}">
                         <TextBlock Text="{DynamicResource LOCImageRotaterVideoTools}" Style="{StaticResource IrSectionTitle}"/>
@@ -562,6 +744,31 @@
                                     <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterOptimiseImagesHint}"/>
                                     <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterOptimiseImagesButton}"
                                             Command="{Binding OptimiseImages}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource IrCard}">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource LOCImageRotaterResizeStoredBackgrounds}" Style="{StaticResource IrCardTitle}"/>
+                                    <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterResizeStoredBackgroundsHint}"/>
+                                    <StackPanel Margin="0,8,0,0">
+                                        <TextBlock Style="{StaticResource IrCardTitle}" FontSize="13" Text="{DynamicResource LOCImageRotaterMaximumResolution}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}"
+                                                     Content="{DynamicResource LOCImageRotaterResolution1080p}"
+                                                     GroupName="StoredBackgroundResizePreset"
+                                                     IsChecked="{Binding Settings.StoredBackgroundResizePreset, Converter={StaticResource EnumRadio}, ConverterParameter=FullHd1080p}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}"
+                                                     Content="{DynamicResource LOCImageRotaterResolution1440p}"
+                                                     GroupName="StoredBackgroundResizePreset"
+                                                     IsChecked="{Binding Settings.StoredBackgroundResizePreset, Converter={StaticResource EnumRadio}, ConverterParameter=Qhd1440p}"/>
+                                        <RadioButton Style="{StaticResource IrRadio}"
+                                                     Content="{DynamicResource LOCImageRotaterResolution4K}"
+                                                     GroupName="StoredBackgroundResizePreset"
+                                                     IsChecked="{Binding Settings.StoredBackgroundResizePreset, Converter={StaticResource EnumRadio}, ConverterParameter=Uhd4K}"/>
+                                    </StackPanel>
+                                    <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterResizeStoredBackgroundsButton}"
+                                            Command="{Binding ResizeStoredBackgrounds}"
+                                            Margin="0,10,0,0"/>
                                 </StackPanel>
                             </Border>
 

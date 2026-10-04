@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -61,6 +62,12 @@ namespace ImageRotater.Controls
         private readonly FileLogger _fileLogger;
         private readonly Func<string, string> _resolveFullPath;
         private readonly Func<IEnumerable<Game>> _filteredGames;
+
+        // Theme Integration renders Playnite's native background inside this
+        // control when a game has no ImageRotater backgrounds. GameContext does
+        // not change when the user replaces that native artwork, so listen to
+        // the selected Game itself and refresh only when BackgroundImage changes.
+        private Game _observedNativeBackgroundGame;
 
         private readonly HashSet<string> _loggedFailures =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -192,6 +199,7 @@ namespace ImageRotater.Controls
             SizeChanged += OnSizeChanged;
             BackgroundRotated += OnBackgroundRotated;
             PlaybackPolicyChanged += OnPlaybackPolicyChanged;
+            ObserveNativeBackground(GameContext);
 
             _initialLayoutReady = false;
             _initialLayoutAttempts = 0;
@@ -203,6 +211,7 @@ namespace ImageRotater.Controls
             SizeChanged -= OnSizeChanged;
             BackgroundRotated -= OnBackgroundRotated;
             PlaybackPolicyChanged -= OnPlaybackPolicyChanged;
+            ObserveNativeBackground(null);
 
             _rapidSelectionTimer.Stop();
             _initialLayoutTimer.Stop();
@@ -347,8 +356,63 @@ namespace ImageRotater.Controls
             Refresh();
         }
 
+        private void ObserveNativeBackground(Game game)
+        {
+            if (ReferenceEquals(_observedNativeBackgroundGame, game))
+            {
+                return;
+            }
+
+            if (_observedNativeBackgroundGame != null)
+            {
+                _observedNativeBackgroundGame.PropertyChanged -= OnObservedGamePropertyChanged;
+            }
+
+            _observedNativeBackgroundGame = game;
+
+            if (_observedNativeBackgroundGame != null)
+            {
+                _observedNativeBackgroundGame.PropertyChanged += OnObservedGamePropertyChanged;
+            }
+        }
+
+        private void OnObservedGamePropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(() => OnObservedGamePropertyChanged(sender, e)));
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(e?.PropertyName) &&
+                !string.Equals(e.PropertyName, nameof(Game.BackgroundImage), StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            Game game = sender as Game;
+            if (!IsLoaded || game == null || GameContext == null || game.Id != GameContext.Id)
+            {
+                return;
+            }
+
+            // Compatibility mode owns Game.BackgroundImage while rotating and
+            // already has its own refresh path. Reacting to those writes here
+            // would only duplicate work. This listener exists for the live
+            // Playnite fallback used by Theme Integration.
+            ImageRotaterSettings settings = _settings != null ? _settings() : null;
+            if (settings?.UseThemeIntegration != true)
+            {
+                return;
+            }
+
+            Refresh();
+        }
+
         public override void GameContextChanged(Game oldContext, Game newContext)
         {
+            ObserveNativeBackground(IsLoaded ? newContext : null);
+
             // Keep the outgoing slot mounted until the incoming media is ready.
             _previousPick = null;
 
@@ -544,6 +608,20 @@ namespace ImageRotater.Controls
                     return;
                 }
 
+                // The file can be removed manually after the candidate list was
+                // built but before this control gets to render it. Do not flash a
+                // placeholder or let the load fail: move directly to another
+                // candidate that still exists. The next folder rebuild will also
+                // remove the missing path from the pool permanently.
+                if (!IsUsable(path))
+                {
+                    path = isNativeFallback ? null : FirstUsable(candidates, path);
+                    if (!isNativeFallback)
+                    {
+                        _previousPick = path;
+                    }
+                }
+
                 if (string.IsNullOrEmpty(path))
                 {
                     TransitionToNothing(token);
@@ -628,6 +706,42 @@ namespace ImageRotater.Controls
             }
         }
 
+        private static bool IsUsable(string path)
+        {
+            try
+            {
+                return !string.IsNullOrEmpty(path) && File.Exists(path);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string FirstUsable(IReadOnlyList<string> candidates, string skip)
+        {
+            if (candidates == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                string candidate = candidates[i];
+                if (string.Equals(candidate, skip, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (IsUsable(candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
         private string ResolveNativeBackground(Game game)
         {
             if (game == null || string.IsNullOrEmpty(game.BackgroundImage) || _resolveFullPath == null)
@@ -689,6 +803,10 @@ namespace ImageRotater.Controls
             PrepareSlotBase(incoming, game, path, SlotKind.Still, token, bucket);
             incoming.Image.Source = bitmap;
             incoming.Image.Visibility = Visibility.Visible;
+            if (Transition.BackgroundStyle == TransitionStyle.Pixelate)
+            {
+                PixelateFrames.QueuePrewarm(bitmap);
+            }
 
             if (watch != null)
             {
@@ -983,6 +1101,18 @@ namespace ImageRotater.Controls
 
             if (outgoing == incoming)
             {
+                if (Transition.BackgroundStyle == TransitionStyle.SlideFromRight)
+                {
+                    // Keep the already-active image at the same static overscan used
+                    // by subsequent slides. Applying it here prevents the first real
+                    // transition from visibly snapping the current image larger.
+                    ApplyFixedSlideOverscan(incoming, 54.0, TransitionDirection.FromRight);
+                }
+                else
+                {
+                    ResetSlotMediaScale(incoming);
+                }
+
                 incoming.Container.BeginAnimation(OpacityProperty, null);
                 incoming.Container.Opacity = 1.0;
                 incoming.Container.Visibility = Visibility.Visible;
@@ -1010,11 +1140,37 @@ namespace ImageRotater.Controls
 
             TransitionStyle style = Transition.BackgroundStyle;
 
+            ResetSlotFocusEffect(incoming);
+            ResetSlotFocusEffect(outgoing);
+            if (incoming?.Container != null)
+            {
+                incoming.Container.OpacityMask = null;
+            }
+            if (outgoing?.Container != null)
+            {
+                outgoing.Container.OpacityMask = null;
+            }
+
+            if (style != TransitionStyle.SlideFromRight)
+            {
+                ResetSlotMediaScale(incoming);
+                ResetSlotMediaScale(outgoing);
+            }
+
             if (outgoing == null || style == TransitionStyle.Cut)
             {
                 if (outgoing != null)
                 {
                     ClearSlot(outgoing);
+                }
+
+                // The first image has no transition to hide a scale change. Prepare
+                // the slide overscan now, in the same UI pass that makes it visible,
+                // so the first later slide starts from the exact same scale as all
+                // following ones and never produces a one-off zoom.
+                if (outgoing == null && style == TransitionStyle.SlideFromRight)
+                {
+                    ApplyFixedSlideOverscan(incoming, 54.0, TransitionDirection.FromRight);
                 }
 
                 incoming.Container.Opacity = 1.0;
@@ -1033,6 +1189,48 @@ namespace ImageRotater.Controls
             if (style == TransitionStyle.SlideFromRight)
             {
                 StartSlideTransition(outgoing, incoming, style, transitionToken);
+                return;
+            }
+
+            if (style == TransitionStyle.SideReveal)
+            {
+                StartSideRevealTransition(outgoing, incoming, style, transitionToken);
+                return;
+            }
+
+            if (style == TransitionStyle.DiagonalReveal)
+            {
+                StartDiagonalRevealTransition(outgoing, incoming, style, transitionToken);
+                return;
+            }
+
+            if (style == TransitionStyle.DepthShift)
+            {
+                StartDepthShiftTransition(outgoing, incoming, style, transitionToken);
+                return;
+            }
+
+            if (style == TransitionStyle.Mosaic)
+            {
+                StartMosaicTransition(outgoing, incoming, style, transitionToken);
+                return;
+            }
+
+            if (style == TransitionStyle.Pixelate)
+            {
+                StartPixelateTransition(outgoing, incoming, style, transitionToken);
+                return;
+            }
+
+            if (style == TransitionStyle.Zoom)
+            {
+                StartZoomTransition(outgoing, incoming, style, transitionToken);
+                return;
+            }
+
+            if (style == TransitionStyle.Focus)
+            {
+                StartFocusTransition(outgoing, incoming, style, transitionToken);
                 return;
             }
 
@@ -1070,9 +1268,8 @@ namespace ImageRotater.Controls
         {
             TransitionDirection dir = TransitionDirection.FromRight;
 
-            // CustomFadeAnim resets translations before rebuilding a slide.
-            // Do the same here so a previous interrupted animation can never
-            // leak its X/Y offset into the next transition.
+            // Reset translations before rebuilding a slide so a previous
+            // interrupted animation can never leak its X/Y offset into the next transition.
             ResetSlotTranslation(incoming);
             ResetSlotTranslation(outgoing);
 
@@ -1084,6 +1281,14 @@ namespace ImageRotater.Controls
             var outgoingT = new TranslateTransform();
             incoming.Container.RenderTransform = incomingT;
             outgoing.Container.RenderTransform = outgoingT;
+
+            // Keep both slide layers slightly oversized for the whole slide.
+            // The scale is static (never animated), so the translation cannot
+            // expose an empty strip at the moving edge and there is no zoom/dezoom motion.
+            ApplyFixedSlideOverscan(incoming, distance, dir);
+            ApplyFixedSlideOverscan(outgoing, distance, dir);
+            incoming.Container.OpacityMask = null;
+            outgoing.Container.OpacityMask = null;
 
             double inX = 0.0, inY = 0.0, outX = 0.0, outY = 0.0;
             switch (dir)
@@ -1125,6 +1330,7 @@ namespace ImageRotater.Controls
                 if (transitionToken != _transitionToken) return;
                 incoming.Container.BeginAnimation(OpacityProperty, null);
                 incoming.Container.Opacity = 1.0;
+                incoming.Container.OpacityMask = null;
                 ResetSlotTranslation(incoming);
                 ResetSlotTranslation(outgoing);
                 ClearSlot(outgoing);
@@ -1181,6 +1387,841 @@ namespace ImageRotater.Controls
             // outgoing slot movement itself.
 
             LogTransition(outgoing, incoming, style);
+        }
+
+        private void StartSideRevealTransition(
+            RenderSlot outgoing,
+            RenderSlot incoming,
+            TransitionStyle style,
+            int transitionToken)
+        {
+            ResetSlotTranslation(incoming);
+            ResetSlotTranslation(outgoing);
+            ResetSlotMediaScale(incoming);
+            ResetSlotMediaScale(outgoing);
+            ResetSlotFocusEffect(incoming);
+            ResetSlotFocusEffect(outgoing);
+
+            outgoing.Container.BeginAnimation(OpacityProperty, null);
+            outgoing.Container.Opacity = 1.0;
+            outgoing.Container.Visibility = Visibility.Visible;
+
+            incoming.Container.BeginAnimation(OpacityProperty, null);
+            incoming.Container.Opacity = 1.0;
+            incoming.Container.Visibility = Visibility.Visible;
+
+            var mask = new LinearGradientBrush
+            {
+                MappingMode = BrushMappingMode.RelativeToBoundingBox,
+                StartPoint = new Point(1.0, 0.5),
+                EndPoint = new Point(1.34, 0.5),
+                SpreadMethod = GradientSpreadMethod.Pad
+            };
+            mask.GradientStops.Add(new GradientStop(Colors.Transparent, 0.0));
+            mask.GradientStops.Add(new GradientStop(Colors.White, 1.0));
+            incoming.Container.OpacityMask = mask;
+
+            var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
+            var startMove = new PointAnimation
+            {
+                From = new Point(1.0, 0.5),
+                To = new Point(-0.34, 0.5),
+                Duration = new Duration(Transition.BackgroundDuration),
+                EasingFunction = ease
+            };
+            var endMove = new PointAnimation
+            {
+                From = new Point(1.34, 0.5),
+                To = new Point(0.0, 0.5),
+                Duration = new Duration(Transition.BackgroundDuration),
+                EasingFunction = ease
+            };
+
+            endMove.Completed += (s, e) =>
+            {
+                if (transitionToken != _transitionToken)
+                {
+                    return;
+                }
+
+                mask.BeginAnimation(LinearGradientBrush.StartPointProperty, null);
+                mask.BeginAnimation(LinearGradientBrush.EndPointProperty, null);
+                if (ReferenceEquals(incoming.Container.OpacityMask, mask))
+                {
+                    incoming.Container.OpacityMask = null;
+                }
+
+                incoming.Container.Opacity = 1.0;
+                ClearSlot(outgoing);
+                _activeSlot = incoming;
+                _pendingSlot = null;
+            };
+
+            mask.BeginAnimation(LinearGradientBrush.StartPointProperty, startMove);
+            mask.BeginAnimation(LinearGradientBrush.EndPointProperty, endMove);
+            LogTransition(outgoing, incoming, style);
+        }
+
+        private void StartDiagonalRevealTransition(
+            RenderSlot outgoing,
+            RenderSlot incoming,
+            TransitionStyle style,
+            int transitionToken)
+        {
+            ResetSlotTranslation(incoming);
+            ResetSlotTranslation(outgoing);
+            ResetSlotMediaScale(incoming);
+            ResetSlotMediaScale(outgoing);
+            ResetSlotFocusEffect(incoming);
+            ResetSlotFocusEffect(outgoing);
+
+            outgoing.Container.BeginAnimation(OpacityProperty, null);
+            outgoing.Container.Opacity = 1.0;
+            outgoing.Container.Visibility = Visibility.Visible;
+
+            incoming.Container.BeginAnimation(OpacityProperty, null);
+            incoming.Container.Opacity = 1.0;
+            incoming.Container.Visibility = Visibility.Visible;
+
+            var mask = new LinearGradientBrush
+            {
+                MappingMode = BrushMappingMode.RelativeToBoundingBox,
+                StartPoint = new Point(0.94, -0.04),
+                EndPoint = new Point(1.28, 0.30),
+                SpreadMethod = GradientSpreadMethod.Pad
+            };
+            var leadingStop = new GradientStop(Colors.Transparent, 0.0);
+            var trailingStop = new GradientStop(Colors.White, 1.0);
+            mask.GradientStops.Add(leadingStop);
+            mask.GradientStops.Add(trailingStop);
+            incoming.Container.OpacityMask = mask;
+
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var startMove = new PointAnimation
+            {
+                From = new Point(0.94, -0.04),
+                To = new Point(-0.82, 1.42),
+                Duration = new Duration(Transition.BackgroundDuration),
+                EasingFunction = ease
+            };
+            var endMove = new PointAnimation
+            {
+                From = new Point(1.28, 0.30),
+                To = new Point(-0.48, 1.76),
+                Duration = new Duration(Transition.BackgroundDuration),
+                EasingFunction = ease
+            };
+
+            endMove.Completed += (s, e) =>
+            {
+                if (transitionToken != _transitionToken)
+                {
+                    return;
+                }
+
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                {
+                    if (transitionToken != _transitionToken)
+                    {
+                        return;
+                    }
+
+                    mask.BeginAnimation(LinearGradientBrush.StartPointProperty, null);
+                    mask.BeginAnimation(LinearGradientBrush.EndPointProperty, null);
+                    if (ReferenceEquals(incoming.Container.OpacityMask, mask))
+                    {
+                        incoming.Container.OpacityMask = null;
+                    }
+
+                    incoming.Container.Opacity = 1.0;
+                    ClearSlot(outgoing);
+                    _activeSlot = incoming;
+                    _pendingSlot = null;
+                }));
+            };
+
+            mask.BeginAnimation(LinearGradientBrush.StartPointProperty, startMove);
+            mask.BeginAnimation(LinearGradientBrush.EndPointProperty, endMove);
+            LogTransition(outgoing, incoming, style);
+        }
+
+        private void StartDepthShiftTransition(
+            RenderSlot outgoing,
+            RenderSlot incoming,
+            TransitionStyle style,
+            int transitionToken)
+        {
+            ResetSlotTranslation(incoming);
+            ResetSlotTranslation(outgoing);
+            ResetSlotMediaScale(incoming);
+            ResetSlotMediaScale(outgoing);
+            ResetSlotFocusEffect(incoming);
+            ResetSlotFocusEffect(outgoing);
+
+            outgoing.Container.BeginAnimation(OpacityProperty, null);
+            outgoing.Container.Opacity = 1.0;
+            outgoing.Container.Visibility = Visibility.Visible;
+            incoming.Container.BeginAnimation(OpacityProperty, null);
+            incoming.Container.Opacity = 0.0;
+            incoming.Container.Visibility = Visibility.Visible;
+
+            PrepareSlotZoomScale(incoming, 1.05);
+            PrepareSlotZoomScale(outgoing, 1.0);
+
+            var incomingBlur = new System.Windows.Media.Effects.BlurEffect
+            {
+                KernelType = System.Windows.Media.Effects.KernelType.Gaussian,
+                Radius = 12.0,
+                RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
+            };
+            var outgoingBlur = new System.Windows.Media.Effects.BlurEffect
+            {
+                KernelType = System.Windows.Media.Effects.KernelType.Gaussian,
+                Radius = 0.0,
+                RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
+            };
+            incoming.Container.Effect = incomingBlur;
+            outgoing.Container.Effect = outgoingBlur;
+
+            var easeOut = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var easeIn = new CubicEase { EasingMode = EasingMode.EaseIn };
+
+            var incomingFade = new DoubleAnimation(
+                0.0, 1.0, new Duration(Transition.BackgroundDuration))
+            {
+                EasingFunction = easeOut
+            };
+            incomingFade.Completed += (s, e) =>
+            {
+                if (transitionToken != _transitionToken)
+                {
+                    return;
+                }
+
+                incoming.Container.BeginAnimation(OpacityProperty, null);
+                incoming.Container.Opacity = 1.0;
+                incomingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, null);
+                outgoingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, null);
+                if (ReferenceEquals(incoming.Container.Effect, incomingBlur))
+                {
+                    incoming.Container.Effect = null;
+                }
+                if (ReferenceEquals(outgoing.Container.Effect, outgoingBlur))
+                {
+                    outgoing.Container.Effect = null;
+                }
+                ResetSlotMediaScale(incoming);
+                ResetSlotMediaScale(outgoing);
+                ClearSlot(outgoing);
+                _activeSlot = incoming;
+                _pendingSlot = null;
+            };
+
+            var outgoingFade = new DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.BackgroundDuration)
+            };
+            outgoingFade.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromPercent(0.20)));
+            outgoingFade.KeyFrames.Add(new EasingDoubleKeyFrame(0.0, KeyTime.FromPercent(0.84), easeIn));
+
+            var sharpen = new DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.BackgroundDuration)
+            };
+            sharpen.KeyFrames.Add(new LinearDoubleKeyFrame(12.0, KeyTime.FromPercent(0.18)));
+            sharpen.KeyFrames.Add(new EasingDoubleKeyFrame(0.0, KeyTime.FromPercent(1.0), easeOut));
+
+            var defocus = new DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.BackgroundDuration)
+            };
+            defocus.KeyFrames.Add(new LinearDoubleKeyFrame(0.0, KeyTime.FromPercent(0.0)));
+            defocus.KeyFrames.Add(new EasingDoubleKeyFrame(9.0, KeyTime.FromPercent(0.52), easeIn));
+            defocus.KeyFrames.Add(new LinearDoubleKeyFrame(9.0, KeyTime.FromPercent(1.0)));
+
+            incoming.Container.BeginAnimation(OpacityProperty, incomingFade);
+            outgoing.Container.BeginAnimation(OpacityProperty, outgoingFade);
+            incomingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, sharpen);
+            outgoingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, defocus);
+            AnimateSlotZoomToNormal(incoming, Transition.BackgroundDuration, easeOut);
+            AnimateSlotZoomToScale(outgoing, 0.965, Transition.BackgroundDuration, new CubicEase { EasingMode = EasingMode.EaseInOut });
+            LogTransition(outgoing, incoming, style);
+        }
+
+        private void StartMosaicTransition(
+            RenderSlot outgoing,
+            RenderSlot incoming,
+            TransitionStyle style,
+            int transitionToken)
+        {
+            ResetSlotTranslation(incoming);
+            ResetSlotTranslation(outgoing);
+            ResetSlotMediaScale(incoming);
+            ResetSlotMediaScale(outgoing);
+            ResetSlotFocusEffect(incoming);
+            ResetSlotFocusEffect(outgoing);
+
+            outgoing.Container.BeginAnimation(OpacityProperty, null);
+            outgoing.Container.Opacity = 1.0;
+            outgoing.Container.Visibility = Visibility.Visible;
+
+            incoming.Container.BeginAnimation(OpacityProperty, null);
+            incoming.Container.Opacity = 1.0;
+            incoming.Container.Visibility = Visibility.Visible;
+
+            MosaicMaskState mask = MosaicMask.Create();
+            MosaicMask.SetVisible(mask, false);
+            incoming.Container.OpacityMask = mask.Brush;
+
+            Storyboard reveal = MosaicMask.BuildStoryboard(
+                incoming.Container,
+                mask,
+                true,
+                Transition.BackgroundDuration);
+
+            reveal.Completed += (s, e) =>
+            {
+                MosaicMask.Stop(mask);
+                if (ReferenceEquals(incoming.Container.OpacityMask, mask.Brush))
+                {
+                    incoming.Container.OpacityMask = null;
+                }
+
+                try
+                {
+                    reveal.Remove(incoming.Container);
+                }
+                catch
+                {
+                }
+
+                if (transitionToken != _transitionToken)
+                {
+                    return;
+                }
+
+                incoming.Container.BeginAnimation(OpacityProperty, null);
+                incoming.Container.Opacity = 1.0;
+                ClearSlot(outgoing);
+                _activeSlot = incoming;
+                _pendingSlot = null;
+            };
+
+            reveal.Begin(incoming.Container, HandoffBehavior.SnapshotAndReplace, true);
+            LogTransition(outgoing, incoming, style);
+        }
+
+
+        private async void StartPixelateTransition(
+            RenderSlot outgoing,
+            RenderSlot incoming,
+            TransitionStyle style,
+            int transitionToken)
+        {
+            ResetSlotTranslation(incoming);
+            ResetSlotTranslation(outgoing);
+            ResetSlotMediaScale(incoming);
+            ResetSlotMediaScale(outgoing);
+            ResetSlotFocusEffect(incoming);
+            ResetSlotFocusEffect(outgoing);
+
+            ImageSource oldSource = outgoing?.Image?.Source;
+            ImageSource newSource = incoming?.Image?.Source;
+            if (oldSource == null || newSource == null ||
+                outgoing?.Video?.Visibility == Visibility.Visible ||
+                incoming?.Video?.Visibility == Visibility.Visible)
+            {
+                StartPixelateFallbackFade(outgoing, incoming, style, transitionToken);
+                return;
+            }
+
+            BitmapScalingMode oldScaling = RenderOptions.GetBitmapScalingMode(outgoing.Image);
+            BitmapScalingMode newScaling = RenderOptions.GetBitmapScalingMode(incoming.Image);
+
+            IReadOnlyList<ImageSource> oldLevels = PixelateFrames.GetCachedOrSource(oldSource);
+            Task<IReadOnlyList<ImageSource>> oldWarm = PixelateFrames.GetLevelsAsync(oldSource);
+            Task<IReadOnlyList<ImageSource>> newWarm = PixelateFrames.GetLevelsAsync(newSource);
+
+            TimeSpan total = Transition.BackgroundDuration;
+            TimeSpan oldPhase = TimeSpan.FromMilliseconds(total.TotalMilliseconds * 0.48);
+            TimeSpan newPhase = TimeSpan.FromMilliseconds(total.TotalMilliseconds * 0.52);
+            TimeSpan blend = TimeSpan.FromMilliseconds(total.TotalMilliseconds * 0.06);
+            double incomingHold = blend.TotalMilliseconds / Math.Max(1.0, newPhase.TotalMilliseconds);
+
+            outgoing.Container.BeginAnimation(OpacityProperty, null);
+            outgoing.Container.Opacity = 1.0;
+            outgoing.Container.Visibility = Visibility.Visible;
+            outgoing.Image.BeginAnimation(Image.SourceProperty, null);
+            outgoing.Image.Source = oldSource;
+            RenderOptions.SetBitmapScalingMode(outgoing.Image, BitmapScalingMode.NearestNeighbor);
+
+            incoming.Container.BeginAnimation(OpacityProperty, null);
+            incoming.Container.Opacity = 0.0;
+            incoming.Container.Visibility = Visibility.Visible;
+            incoming.Image.BeginAnimation(Image.SourceProperty, null);
+            incoming.Image.Source = newSource;
+            RenderOptions.SetBitmapScalingMode(incoming.Image, BitmapScalingMode.NearestNeighbor);
+
+            if (oldLevels.Count > 1)
+            {
+                outgoing.Image.BeginAnimation(
+                    Image.SourceProperty,
+                    PixelateFrames.BuildOutgoingPhase(oldLevels, oldPhase),
+                    HandoffBehavior.SnapshotAndReplace);
+            }
+            else
+            {
+                // The current image is normally already prewarmed. On the very
+                // first Pixelate use, let the transition start immediately and
+                // attach the prepared levels as soon as the worker finishes.
+                _ = UpgradeOutgoingPixelateAsync();
+            }
+
+            async Task UpgradeOutgoingPixelateAsync()
+            {
+                IReadOnlyList<ImageSource> warmed = await oldWarm;
+                if (transitionToken != _transitionToken || warmed == null || warmed.Count <= 1)
+                {
+                    return;
+                }
+
+                outgoing.Image.BeginAnimation(
+                    Image.SourceProperty,
+                    PixelateFrames.BuildOutgoingPhase(warmed, oldPhase),
+                    HandoffBehavior.SnapshotAndReplace);
+            }
+
+            try
+            {
+                await Task.Delay(oldPhase);
+                if (transitionToken != _transitionToken)
+                {
+                    return;
+                }
+
+                IReadOnlyList<ImageSource> newLevels = await newWarm;
+                if (transitionToken != _transitionToken)
+                {
+                    return;
+                }
+
+                if (newLevels == null || newLevels.Count == 0)
+                {
+                    newLevels = new[] { newSource };
+                }
+
+                incoming.Image.BeginAnimation(Image.SourceProperty, null);
+                incoming.Image.Source = newLevels[newLevels.Count - 1];
+                incoming.Image.BeginAnimation(
+                    Image.SourceProperty,
+                    PixelateFrames.BuildIncomingPhase(newLevels, newPhase, incomingHold),
+                    HandoffBehavior.SnapshotAndReplace);
+
+                var fadeIn = new DoubleAnimation(0.0, 1.0, new Duration(blend))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+                };
+                var fadeOut = new DoubleAnimation(1.0, 0.0, new Duration(blend))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+                };
+                incoming.Container.BeginAnimation(OpacityProperty, fadeIn);
+                outgoing.Container.BeginAnimation(OpacityProperty, fadeOut);
+
+                await Task.Delay(newPhase);
+                if (transitionToken != _transitionToken)
+                {
+                    return;
+                }
+
+                outgoing.Image.BeginAnimation(Image.SourceProperty, null);
+                incoming.Image.BeginAnimation(Image.SourceProperty, null);
+                incoming.Image.Source = newSource;
+                RenderOptions.SetBitmapScalingMode(outgoing.Image, oldScaling);
+                RenderOptions.SetBitmapScalingMode(incoming.Image, newScaling);
+                incoming.Container.BeginAnimation(OpacityProperty, null);
+                incoming.Container.Opacity = 1.0;
+                ClearSlot(outgoing);
+                _activeSlot = incoming;
+                _pendingSlot = null;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: Pixelate background transition failed");
+                if (transitionToken == _transitionToken)
+                {
+                    outgoing.Image.BeginAnimation(Image.SourceProperty, null);
+                    incoming.Image.BeginAnimation(Image.SourceProperty, null);
+                    incoming.Image.Source = newSource;
+                    RenderOptions.SetBitmapScalingMode(outgoing.Image, oldScaling);
+                    RenderOptions.SetBitmapScalingMode(incoming.Image, newScaling);
+                    incoming.Container.Opacity = 1.0;
+                    ClearSlot(outgoing);
+                    _activeSlot = incoming;
+                    _pendingSlot = null;
+                }
+            }
+
+            LogTransition(outgoing, incoming, style);
+        }
+
+        private void StartPixelateFallbackFade(
+            RenderSlot outgoing,
+            RenderSlot incoming,
+            TransitionStyle style,
+            int transitionToken)
+        {
+            outgoing.Container.BeginAnimation(OpacityProperty, null);
+            outgoing.Container.Opacity = 1.0;
+            outgoing.Container.Visibility = Visibility.Visible;
+
+            var fadeIn = new DoubleAnimation(0.0, 1.0, new Duration(Transition.BackgroundDuration));
+            fadeIn.Completed += (s, e) =>
+            {
+                if (transitionToken != _transitionToken)
+                {
+                    return;
+                }
+
+                incoming.Container.BeginAnimation(OpacityProperty, null);
+                incoming.Container.Opacity = 1.0;
+                ClearSlot(outgoing);
+                _activeSlot = incoming;
+                _pendingSlot = null;
+            };
+
+            incoming.Container.BeginAnimation(OpacityProperty, fadeIn);
+            LogTransition(outgoing, incoming, style);
+        }
+
+        private void StartZoomTransition(
+            RenderSlot outgoing,
+            RenderSlot incoming,
+            TransitionStyle style,
+            int transitionToken)
+        {
+            ResetSlotTranslation(incoming);
+            ResetSlotTranslation(outgoing);
+            ResetSlotMediaScale(incoming);
+            ResetSlotMediaScale(outgoing);
+
+            outgoing.Container.BeginAnimation(OpacityProperty, null);
+            outgoing.Container.Opacity = 1.0;
+            outgoing.Container.Visibility = Visibility.Visible;
+            incoming.Container.BeginAnimation(OpacityProperty, null);
+            incoming.Container.Opacity = 0.0;
+            incoming.Container.Visibility = Visibility.Visible;
+
+            PrepareSlotZoomScale(incoming, 1.08);
+
+            var easeOut = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var easeIn = new CubicEase { EasingMode = EasingMode.EaseIn };
+
+            var incomingFade = new DoubleAnimation(
+                0.0, 1.0, new Duration(Transition.BackgroundDuration))
+            {
+                EasingFunction = easeOut
+            };
+            incomingFade.Completed += (s, e) =>
+            {
+                if (transitionToken != _transitionToken)
+                {
+                    return;
+                }
+
+                incoming.Container.BeginAnimation(OpacityProperty, null);
+                incoming.Container.Opacity = 1.0;
+                ResetSlotMediaScale(incoming);
+                ClearSlot(outgoing);
+                _activeSlot = incoming;
+                _pendingSlot = null;
+            };
+
+            var outgoingFade = new DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.BackgroundDuration)
+            };
+            outgoingFade.KeyFrames.Add(new LinearDoubleKeyFrame(
+                1.0, KeyTime.FromPercent(0.34)));
+            outgoingFade.KeyFrames.Add(new EasingDoubleKeyFrame(
+                0.0, KeyTime.FromPercent(0.92), easeIn));
+
+            incoming.Container.BeginAnimation(OpacityProperty, incomingFade);
+            outgoing.Container.BeginAnimation(OpacityProperty, outgoingFade);
+            AnimateSlotZoomToNormal(incoming, Transition.BackgroundDuration, easeOut);
+            LogTransition(outgoing, incoming, style);
+        }
+
+        private void StartFocusTransition(
+            RenderSlot outgoing,
+            RenderSlot incoming,
+            TransitionStyle style,
+            int transitionToken)
+        {
+            ResetSlotTranslation(incoming);
+            ResetSlotTranslation(outgoing);
+            ResetSlotMediaScale(incoming);
+            ResetSlotMediaScale(outgoing);
+            ResetSlotFocusEffect(incoming);
+            ResetSlotFocusEffect(outgoing);
+
+            outgoing.Container.BeginAnimation(OpacityProperty, null);
+            outgoing.Container.Opacity = 1.0;
+            outgoing.Container.Visibility = Visibility.Visible;
+            incoming.Container.BeginAnimation(OpacityProperty, null);
+            incoming.Container.Opacity = 0.0;
+            incoming.Container.Visibility = Visibility.Visible;
+
+            var incomingBlur = new System.Windows.Media.Effects.BlurEffect
+            {
+                KernelType = System.Windows.Media.Effects.KernelType.Gaussian,
+                Radius = 26.0,
+                RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
+            };
+            var outgoingBlur = new System.Windows.Media.Effects.BlurEffect
+            {
+                KernelType = System.Windows.Media.Effects.KernelType.Gaussian,
+                Radius = 0.0,
+                RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance
+            };
+            incoming.Container.Effect = incomingBlur;
+            outgoing.Container.Effect = outgoingBlur;
+
+            var easeOut = new CubicEase { EasingMode = EasingMode.EaseOut };
+            var easeIn = new CubicEase { EasingMode = EasingMode.EaseIn };
+
+            var incomingFade = new DoubleAnimation(
+                0.0, 1.0, new Duration(Transition.BackgroundDuration))
+            {
+                EasingFunction = easeOut
+            };
+            incomingFade.Completed += (s, e) =>
+            {
+                if (transitionToken != _transitionToken)
+                {
+                    return;
+                }
+
+                incoming.Container.BeginAnimation(OpacityProperty, null);
+                incoming.Container.Opacity = 1.0;
+                incomingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, null);
+                if (ReferenceEquals(incoming.Container.Effect, incomingBlur))
+                {
+                    incoming.Container.Effect = null;
+                }
+                outgoingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, null);
+                ClearSlot(outgoing);
+                _activeSlot = incoming;
+                _pendingSlot = null;
+            };
+
+            var outgoingFade = new DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.BackgroundDuration)
+            };
+            outgoingFade.KeyFrames.Add(new LinearDoubleKeyFrame(
+                1.0, KeyTime.FromPercent(0.22)));
+            outgoingFade.KeyFrames.Add(new EasingDoubleKeyFrame(
+                0.0, KeyTime.FromPercent(0.86), easeIn));
+
+            var sharpen = new DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.BackgroundDuration)
+            };
+            sharpen.KeyFrames.Add(new LinearDoubleKeyFrame(
+                26.0, KeyTime.FromPercent(0.24)));
+            sharpen.KeyFrames.Add(new EasingDoubleKeyFrame(
+                0.0, KeyTime.FromPercent(1.0), easeOut));
+
+            var defocus = new DoubleAnimationUsingKeyFrames
+            {
+                Duration = new Duration(Transition.BackgroundDuration)
+            };
+            defocus.KeyFrames.Add(new LinearDoubleKeyFrame(
+                0.0, KeyTime.FromPercent(0.08)));
+            defocus.KeyFrames.Add(new EasingDoubleKeyFrame(
+                20.0, KeyTime.FromPercent(0.48), easeIn));
+            defocus.KeyFrames.Add(new LinearDoubleKeyFrame(
+                20.0, KeyTime.FromPercent(1.0)));
+
+            incoming.Container.BeginAnimation(OpacityProperty, incomingFade);
+            outgoing.Container.BeginAnimation(OpacityProperty, outgoingFade);
+            incomingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, sharpen);
+            outgoingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, defocus);
+            LogTransition(outgoing, incoming, style);
+        }
+
+        private static void ResetSlotFocusEffect(RenderSlot slot)
+        {
+            if (slot?.Container == null)
+            {
+                return;
+            }
+
+            if (slot.Container.Effect is System.Windows.Media.Effects.BlurEffect blur)
+            {
+                blur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, null);
+                slot.Container.Effect = null;
+            }
+        }
+
+        private static void PrepareSlotZoomScale(RenderSlot slot, double scale)
+        {
+            if (slot == null)
+            {
+                return;
+            }
+
+            PrepareElementZoomScale(slot.Image, scale);
+            PrepareElementZoomScale(slot.Video, scale);
+        }
+
+        private static void PrepareElementZoomScale(FrameworkElement element, double scale)
+        {
+            if (element == null)
+            {
+                return;
+            }
+
+            element.RenderTransformOrigin = new Point(0.5, 0.5);
+            element.RenderTransform = new ScaleTransform(scale, scale);
+        }
+
+        private static void AnimateSlotZoomToNormal(
+            RenderSlot slot,
+            TimeSpan duration,
+            IEasingFunction easing)
+        {
+            if (slot == null)
+            {
+                return;
+            }
+
+            AnimateElementZoomToNormal(slot.Image, duration, easing);
+            AnimateElementZoomToNormal(slot.Video, duration, easing);
+        }
+
+        private static void AnimateElementZoomToNormal(
+            FrameworkElement element,
+            TimeSpan duration,
+            IEasingFunction easing)
+        {
+            if (!(element?.RenderTransform is ScaleTransform scale))
+            {
+                return;
+            }
+
+            scale.BeginAnimation(
+                ScaleTransform.ScaleXProperty,
+                new DoubleAnimation(1.0, new Duration(duration))
+                {
+                    EasingFunction = easing,
+                    FillBehavior = FillBehavior.HoldEnd
+                });
+            scale.BeginAnimation(
+                ScaleTransform.ScaleYProperty,
+                new DoubleAnimation(1.0, new Duration(duration))
+                {
+                    EasingFunction = easing,
+                    FillBehavior = FillBehavior.HoldEnd
+                });
+        }
+
+        private static void AnimateSlotZoomToScale(
+            RenderSlot slot,
+            double targetScale,
+            TimeSpan duration,
+            IEasingFunction easing)
+        {
+            if (slot == null)
+            {
+                return;
+            }
+
+            AnimateElementZoomToScale(slot.Image, targetScale, duration, easing);
+            AnimateElementZoomToScale(slot.Video, targetScale, duration, easing);
+        }
+
+        private static void AnimateElementZoomToScale(
+            FrameworkElement element,
+            double targetScale,
+            TimeSpan duration,
+            IEasingFunction easing)
+        {
+            if (!(element?.RenderTransform is ScaleTransform scale))
+            {
+                return;
+            }
+
+            scale.BeginAnimation(
+                ScaleTransform.ScaleXProperty,
+                new DoubleAnimation(targetScale, new Duration(duration))
+                {
+                    EasingFunction = easing,
+                    FillBehavior = FillBehavior.HoldEnd
+                });
+            scale.BeginAnimation(
+                ScaleTransform.ScaleYProperty,
+                new DoubleAnimation(targetScale, new Duration(duration))
+                {
+                    EasingFunction = easing,
+                    FillBehavior = FillBehavior.HoldEnd
+                });
+        }
+
+        private static void ApplyFixedSlideOverscan(
+            RenderSlot slot,
+            double slideDistance,
+            TransitionDirection direction)
+        {
+            if (slot == null)
+            {
+                return;
+            }
+
+            bool horizontal = direction == TransitionDirection.FromLeft ||
+                              direction == TransitionDirection.FromRight;
+
+            double extent = horizontal
+                ? slot.Container.ActualWidth
+                : slot.Container.ActualHeight;
+
+            if (extent <= 0.0)
+            {
+                extent = horizontal ? 1920.0 : 1080.0;
+            }
+
+            double scale = (extent + (2.0 * Math.Abs(slideDistance))) / extent;
+            SetSlotMediaScale(slot, scale);
+        }
+
+        private static void SetSlotMediaScale(RenderSlot slot, double scale)
+        {
+            if (slot == null)
+            {
+                return;
+            }
+
+            ApplyScale(slot.Image, scale);
+            ApplyScale(slot.Video, scale);
+        }
+
+        private static void ApplyScale(FrameworkElement element, double scale)
+        {
+            if (element == null)
+            {
+                return;
+            }
+
+            element.RenderTransformOrigin = new Point(0.5, 0.5);
+            element.RenderTransform = Math.Abs(scale - 1.0) < 0.0001
+                ? Transform.Identity
+                : new ScaleTransform(scale, scale);
+        }
+
+        private static void ResetSlotMediaScale(RenderSlot slot)
+        {
+            SetSlotMediaScale(slot, 1.0);
         }
 
         private void StartFlashTransition(
@@ -1422,6 +2463,12 @@ namespace ImageRotater.Controls
             if (keep != null && keep.Kind != SlotKind.None)
             {
                 ResetSlotTranslation(keep);
+                if (Transition.BackgroundStyle == TransitionStyle.Zoom)
+                {
+                    ResetSlotMediaScale(keep);
+                }
+                ResetSlotFocusEffect(keep);
+                keep.Container.OpacityMask = null;
                 keep.Container.Visibility = Visibility.Visible;
                 keep.Container.Opacity = 1.0;
                 Panel.SetZIndex(keep.Container, 2);
@@ -1450,6 +2497,10 @@ namespace ImageRotater.Controls
 
             _slotA?.Container.BeginAnimation(OpacityProperty, null);
             _slotB?.Container.BeginAnimation(OpacityProperty, null);
+            _slotA?.Image.BeginAnimation(Image.SourceProperty, null);
+            _slotB?.Image.BeginAnimation(Image.SourceProperty, null);
+            if (_slotA?.Image != null) RenderOptions.SetBitmapScalingMode(_slotA.Image, BitmapScalingMode.HighQuality);
+            if (_slotB?.Image != null) RenderOptions.SetBitmapScalingMode(_slotB.Image, BitmapScalingMode.HighQuality);
             FlashOverlay?.BeginAnimation(OpacityProperty, null);
 
             if (_slotA != null) _slotA.Container.Opacity = a;
@@ -1466,9 +2517,12 @@ namespace ImageRotater.Controls
 
             slot.Container.BeginAnimation(OpacityProperty, null);
             ResetSlotTranslation(slot);
+            slot.Container.OpacityMask = null;
             slot.Container.Opacity = 0.0;
             slot.Container.Visibility = Visibility.Collapsed;
             slot.Container.RenderTransform = Transform.Identity;
+            ResetSlotMediaScale(slot);
+            ResetSlotFocusEffect(slot);
 
             try
             {

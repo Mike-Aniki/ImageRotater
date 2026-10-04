@@ -36,6 +36,13 @@ namespace ImageRotater
         Random
     }
 
+    public enum BackgroundDownloadResizePreset
+    {
+        FullHd1080p,
+        Qhd1440p,
+        Uhd4K
+    }
+
     public class GameArtworkOverride
     {
         public SelectionMode? Mode { get; set; }
@@ -127,7 +134,7 @@ namespace ImageRotater
         // the UI thread, and Playnite is a 32-bit process - a screenful of them
         // is the pressure that took it down when a theme put its own media
         // element in every tile.
-        private bool animateUnfocusedCovers = false;
+        private bool animateUnfocusedCovers = true;
 
         // Pause invisible work while a launched game owns the screen.
         private bool pauseAnimationsWhenGameRunning = true;
@@ -176,6 +183,26 @@ namespace ImageRotater
         private string webBackgroundSearchTerm = "wallpaper";
         private string webCoverSearchTerm = "cover";
 
+        // Automatic pass for new still artwork, whether downloaded or added
+        // manually. This uses the same conservative optimiser as the Library
+        // tool: transparent images are preserved and files are only replaced
+        // when the saving is meaningful. Enabled by default for new settings.
+        private bool optimiseDownloadedImages = true;
+
+        // Download-only background resizing. This is intentionally separate from
+        // optimisation: resizing changes pixel dimensions, while optimisation only
+        // tries to reduce file size. It is off by default and never affects covers.
+        private bool resizeDownloadedBackgrounds = false;
+        private BackgroundDownloadResizePreset downloadedBackgroundResizePreset =
+            BackgroundDownloadResizePreset.FullHd1080p;
+
+
+        // Separate preset for the one-shot Library resize action. Keeping it
+        // independent from the download preset avoids changing future download
+        // behaviour just because the user resized their existing library once.
+        private BackgroundDownloadResizePreset storedBackgroundResizePreset =
+            BackgroundDownloadResizePreset.FullHd1080p;
+
         // Explicit paths to external tools, empty meaning "search PATH".
         //
         // Neither is bundled: ffmpeg and yt-dlp are both GPL and this plugin is
@@ -201,6 +228,31 @@ namespace ImageRotater
         {
             get => normaliseBackgroundSize;
             set { normaliseBackgroundSize = value; OnPropertyChanged(); }
+        }
+
+        public bool OptimiseDownloadedImages
+        {
+            get => optimiseDownloadedImages;
+            set { optimiseDownloadedImages = value; OnPropertyChanged(); }
+        }
+
+        public bool ResizeDownloadedBackgrounds
+        {
+            get => resizeDownloadedBackgrounds;
+            set { resizeDownloadedBackgrounds = value; OnPropertyChanged(); }
+        }
+
+        public BackgroundDownloadResizePreset DownloadedBackgroundResizePreset
+        {
+            get => downloadedBackgroundResizePreset;
+            set { downloadedBackgroundResizePreset = value; OnPropertyChanged(); }
+        }
+
+
+        public BackgroundDownloadResizePreset StoredBackgroundResizePreset
+        {
+            get => storedBackgroundResizePreset;
+            set { storedBackgroundResizePreset = value; OnPropertyChanged(); }
         }
 
         public string WebBackgroundSearchTerm
@@ -939,6 +991,11 @@ namespace ImageRotater
         public RelayCommand<object> OptimiseImages => new RelayCommand<object>(a =>
         {
             plugin?.OptimiseStoredImages();
+        });
+
+        public RelayCommand<object> ResizeStoredBackgrounds => new RelayCommand<object>(a =>
+        {
+            plugin?.ResizeStoredBackgrounds(Settings.StoredBackgroundResizePreset);
         });
 
         public RelayCommand<object> ConvertGifs => new RelayCommand<object>(a =>

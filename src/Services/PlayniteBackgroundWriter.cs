@@ -149,6 +149,67 @@ namespace ImageRotater.Services
             return !string.IsNullOrEmpty(artworkId) && _written.Contains(artworkId);
         }
 
+        // Compatibility mode temporarily replaces Game.CoverImage / BackgroundImage
+        // with artwork imported by ImageRotater. If the user later chooses a new
+        // image in Playnite, that new id is NOT one of ours. Treat it as the new
+        // logical original so both Restore and the preserved safety copy follow
+        // the user's latest choice instead of the image that happened to be set
+        // when ImageRotater first touched the game.
+        //
+        // Returns true only when the remembered native value actually changed.
+        // This makes it safe to call on every candidate rebuild: the common path
+        // is just dictionary/set comparisons and performs no disk write.
+        public bool ObserveUserArtwork(Game game, ArtworkKind kind)
+        {
+            if (game == null)
+            {
+                return false;
+            }
+
+            string current = GetCurrent(game, kind) ?? string.Empty;
+
+            // A value written by ImageRotater is the compatibility-mode output,
+            // not a new user choice. Never let it replace the remembered native
+            // artwork.
+            if (!string.IsNullOrEmpty(current) && WroteArtworkId(current))
+            {
+                return false;
+            }
+
+            string key = MakeKey(game.Id, kind);
+            string remembered;
+            if (_originals.TryGetValue(key, out remembered) &&
+                string.Equals(remembered ?? string.Empty, current, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            _originals[key] = current;
+            if (_startupBatchDepth > 0)
+            {
+                _startupBatchStateDirty = true;
+            }
+            else
+            {
+                Save();
+            }
+
+            return true;
+        }
+
+        public string GetRememberedOriginalId(Game game, ArtworkKind kind)
+        {
+            if (game == null)
+            {
+                return null;
+            }
+
+            string value;
+            return _originals.TryGetValue(MakeKey(game.Id, kind), out value)
+                ? value
+                : null;
+        }
+
         // Kept so restore can find the preserved copy of a game's original
         // artwork when the recorded id no longer resolves.
         private readonly string _imagesRoot;

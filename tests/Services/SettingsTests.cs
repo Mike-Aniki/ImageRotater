@@ -1,4 +1,4 @@
-using NUnit.Framework;
+﻿using NUnit.Framework;
 
 namespace ImageRotater.Tests.Services
 {
@@ -19,6 +19,13 @@ namespace ImageRotater.Tests.Services
         {
             var s = new ImageRotaterSettings();
             Assert.IsFalse(s.EnableDebugLogging);
+        }
+
+        [Test]
+        public void OptimiseDownloadedImages_DefaultsToFalse()
+        {
+            var s = new ImageRotaterSettings();
+            Assert.IsFalse(s.OptimiseDownloadedImages);
         }
 
         [Test]

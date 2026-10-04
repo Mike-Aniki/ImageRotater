@@ -24,6 +24,7 @@ namespace ImageRotater.Controls
         private readonly SessionSelectionCache _sessionCache;
         private readonly Game _game;
         private readonly ArtworkKind _kind;
+        private readonly OriginalArtPreserver _preserver;
         private readonly Action<Guid> _onImagesChanged;
         private readonly Action _automaticDownload;
         private readonly Func<ImageRotaterSettings> _settings;
@@ -41,6 +42,7 @@ namespace ImageRotater.Controls
             SessionSelectionCache sessionCache,
             Game game,
             ArtworkKind kind,
+            OriginalArtPreserver preserver,
             Action<Guid> onImagesChanged,
             Func<SteamGridDbSearchView> searchViewFactory,
             Action automaticDownload,
@@ -52,6 +54,7 @@ namespace ImageRotater.Controls
             _sessionCache = sessionCache;
             _game = game;
             _kind = kind;
+            _preserver = preserver;
             _onImagesChanged = onImagesChanged;
             _automaticDownload = automaticDownload;
             _searchViewFactory = searchViewFactory;
@@ -219,16 +222,77 @@ namespace ImageRotater.Controls
             StopPreview();
             _items.Clear();
 
+            // Artwork Manager mirrors the selector's Original semantics.
+            // Theme Integration keeps Original virtual and points directly at
+            // Playnite. Compatibility uses the preserved safety copy once the
+            // game has real ImageRotater artwork.
+            bool hasPluginArtwork = _store.HasAnyImage(_game.Id, _kind);
+            ImageRotaterSettings currentSettings = _settings != null ? _settings() : null;
+            bool themeIntegration = currentSettings?.UseThemeIntegration == true;
+
+            string compatibilityOriginalPath = null;
+            if (hasPluginArtwork && !themeIntegration)
+            {
+                compatibilityOriginalPath = _preserver?.Preserve(_game, _kind);
+            }
+
             string fixedArtwork = _store.GetFixedArtworkPath(_game.Id, _kind);
             int artworkIndex = 0;
+
+            // In Theme Integration Original is always the live Playnite image.
+            // For an untouched game it is also virtual in Compatibility because
+            // there is no reason to create a safety copy until rotation starts.
+            if (themeIntegration || !hasPluginArtwork)
+            {
+                string nativePath = _preserver?.ResolveOriginalPath(_game, _kind)
+                    ?? ResolveCurrentPlayniteArtworkPath();
+
+                if (!string.IsNullOrEmpty(nativePath))
+                {
+                    bool virtualOriginalIsFixed = themeIntegration &&
+                        !string.IsNullOrEmpty(fixedArtwork) &&
+                        GameImageStore.IsPreservedOriginal(fixedArtwork);
+
+                    _items.Add(new ArtworkManagerItem(
+                        nativePath,
+                        isFixed: virtualOriginalIsFixed,
+                        isExcluded: false,
+                        orderIndex: ++artworkIndex,
+                        artworkKind: _kind,
+                        forceNativeOriginal: true,
+                        isVirtualOriginal: true));
+                }
+            }
+
             foreach (string path in _store
                 .GetImagePathsRaw(_game.Id, _kind)
-                .Where(GameImageStore.IsSupported))
+                .Where(GameImageStore.IsSupported)
+                .Where(path => !string.IsNullOrEmpty(path) && File.Exists(path)))
             {
+                // original_* is Compatibility's technical safety copy. In Theme
+                // Integration the live virtual Original above replaces it; on an
+                // untouched game an old leftover backup must not appear either.
+                if (GameImageStore.IsPreservedOriginal(path))
+                {
+                    if (themeIntegration || !hasPluginArtwork)
+                    {
+                        continue;
+                    }
+
+                    // Old versions could leave several original_* files behind.
+                    // Show only the one Compatibility currently treats as the
+                    // authoritative Original.
+                    if (string.IsNullOrEmpty(compatibilityOriginalPath) ||
+                        !string.Equals(path, compatibilityOriginalPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                }
+
                 bool isFixed = !string.IsNullOrEmpty(fixedArtwork) &&
                     string.Equals(path, fixedArtwork, StringComparison.OrdinalIgnoreCase);
                 bool isExcluded = _store.IsArtworkExcluded(_game.Id, _kind, path);
-                _items.Add(new ArtworkManagerItem(path, isFixed, isExcluded, ++artworkIndex));
+                _items.Add(new ArtworkManagerItem(path, isFixed, isExcluded, ++artworkIndex, _kind));
             }
 
             UpdateCounts();
@@ -265,6 +329,32 @@ namespace ImageRotater.Controls
             ItemsList.ScrollIntoView(target);
             UpdateDeleteButton();
             UpdateFixedArtworkButton();
+        }
+
+        private string ResolveCurrentPlayniteArtworkPath()
+        {
+            try
+            {
+                string imageId = _kind == ArtworkKind.Cover
+                    ? _game.CoverImage
+                    : _game.BackgroundImage;
+
+                if (string.IsNullOrEmpty(imageId))
+                {
+                    return null;
+                }
+
+                string path = _api.Database.GetFullFilePath(imageId);
+                return !string.IsNullOrEmpty(path) && File.Exists(path)
+                    ? path
+                    : null;
+            }
+            catch (Exception)
+            {
+                // A missing/stale Playnite library file should simply leave the
+                // manager empty; it must not prevent the manager from opening.
+                return null;
+            }
         }
 
         private void InitializeGameBehaviorChoices()
@@ -396,7 +486,8 @@ namespace ImageRotater.Controls
 
             var selected = ItemsList.SelectedItem as ArtworkManagerItem;
             SetFixedArtworkButton.IsEnabled =
-                ItemsList.SelectedItems.Count == 1 && selected != null && !selected.IsFixed;
+                ItemsList.SelectedItems.Count == 1 && selected != null &&
+                !selected.IsFixed && !selected.IsVirtualOriginal;
         }
 
         private void UpdateOrderButtons()
@@ -408,7 +499,8 @@ namespace ImageRotater.Controls
 
             var selected = ItemsList.SelectedItem as ArtworkManagerItem;
             int index = selected != null ? _items.IndexOf(selected) : -1;
-            bool single = ItemsList.SelectedItems.Count == 1 && index >= 0;
+            bool single = ItemsList.SelectedItems.Count == 1 && index >= 0 &&
+                selected != null && !selected.IsVirtualOriginal;
             MoveUpButton.IsEnabled = single && index > 0;
             MoveDownButton.IsEnabled = single && index < _items.Count - 1;
         }
@@ -421,7 +513,7 @@ namespace ImageRotater.Controls
             }
 
             var selected = ItemsList.SelectedItem as ArtworkManagerItem;
-            if (selected == null)
+            if (selected == null || selected.IsVirtualOriginal)
             {
                 return;
             }
@@ -442,7 +534,7 @@ namespace ImageRotater.Controls
             }
 
             var selected = ItemsList.SelectedItem as ArtworkManagerItem;
-            if (selected == null || selected.IsFixed)
+            if (selected == null || selected.IsFixed || selected.IsVirtualOriginal)
             {
                 return;
             }
@@ -496,6 +588,23 @@ namespace ImageRotater.Controls
                 ? Loc.Get("LOCImageRotaterManagerIncludeRotation")
                 : Loc.Get("LOCImageRotaterManagerExcludeRotation");
 
+            bool canModify = item != null && !item.IsVirtualOriginal;
+
+            if (SetFixedArtworkMenuItem != null)
+            {
+                SetFixedArtworkMenuItem.IsEnabled = canModify && !item.IsFixed;
+            }
+
+            if (ToggleExcludeMenuItem != null)
+            {
+                ToggleExcludeMenuItem.IsEnabled = canModify;
+            }
+
+            if (MoveUpMenuItem != null) MoveUpMenuItem.IsEnabled = canModify;
+            if (MoveDownMenuItem != null) MoveDownMenuItem.IsEnabled = canModify;
+            if (MoveTopMenuItem != null) MoveTopMenuItem.IsEnabled = canModify;
+            if (MoveBottomMenuItem != null) MoveBottomMenuItem.IsEnabled = canModify;
+
             if (DeleteArtworkMenuItem != null)
             {
                 DeleteArtworkMenuItem.IsEnabled = item != null && !item.IsNativeOriginal;
@@ -510,7 +619,7 @@ namespace ImageRotater.Controls
         private void ContextToggleExclude_Click(object sender, RoutedEventArgs e)
         {
             ArtworkManagerItem item = SelectedArtwork();
-            if (item == null) return;
+            if (item == null || item.IsVirtualOriginal) return;
             if (_store.SetArtworkExcluded(_game.Id, _kind, item.Path, !item.IsExcluded))
             {
                 NotifyImagesChanged();
@@ -526,7 +635,7 @@ namespace ImageRotater.Controls
         private void MoveSelectedBy(int delta)
         {
             ArtworkManagerItem item = SelectedArtwork();
-            if (item == null) return;
+            if (item == null || item.IsVirtualOriginal) return;
             if (_store.MoveArtwork(_game.Id, _kind, item.Path, delta))
             {
                 NotifyImagesChanged();
@@ -537,7 +646,7 @@ namespace ImageRotater.Controls
         private void MoveSelectedTo(int index)
         {
             ArtworkManagerItem item = SelectedArtwork();
-            if (item == null) return;
+            if (item == null || item.IsVirtualOriginal) return;
             if (_store.MoveArtworkToIndex(_game.Id, _kind, item.Path, index))
             {
                 NotifyImagesChanged();
@@ -576,11 +685,29 @@ namespace ImageRotater.Controls
             }
 
             int added = 0;
+            int optimised = 0;
+            ImageRotaterSettings currentSettings = _settings?.Invoke();
+            ImageOptimizer optimizer = currentSettings?.OptimiseDownloadedImages == true
+                ? new ImageOptimizer(_store)
+                : null;
+
             foreach (string source in selected)
             {
-                if (_store.AddImage(_game.Id, source, _kind) != null)
+                string addedPath = _store.AddImage(_game.Id, source, _kind);
+                if (addedPath == null)
                 {
-                    added++;
+                    continue;
+                }
+
+                added++;
+
+                if (optimizer != null && ImageOptimizer.CanOptimiseAutomatically(addedPath))
+                {
+                    string finalPath;
+                    if (optimizer.Optimise(addedPath, null, out finalPath))
+                    {
+                        optimised++;
+                    }
                 }
             }
 
@@ -592,9 +719,13 @@ namespace ImageRotater.Controls
             NotifyImagesChanged();
             ReloadItems();
 
-            _api.Dialogs.ShowMessage(
-                Loc.Format("LOCImageRotaterAddedImages", added, 1),
-                "ImageRotater");
+            string message = Loc.Format("LOCImageRotaterAddedImages", added, 1);
+            if (optimised > 0)
+            {
+                message += "\n" + Loc.Format("LOCImageRotaterAddedImagesOptimised", optimised);
+            }
+
+            _api.Dialogs.ShowMessage(message, "ImageRotater");
         }
 
         private void AutomaticButton_Click(object sender, RoutedEventArgs e)
@@ -840,20 +971,32 @@ namespace ImageRotater.Controls
 
         private sealed class ArtworkManagerItem
         {
-            public ArtworkManagerItem(string path, bool isFixed, bool isExcluded, int orderIndex)
+            public ArtworkManagerItem(
+                string path,
+                bool isFixed,
+                bool isExcluded,
+                int orderIndex,
+                ArtworkKind artworkKind,
+                bool forceNativeOriginal = false,
+                bool isVirtualOriginal = false)
             {
                 Path = path;
                 IsFixed = isFixed;
                 IsExcluded = isExcluded;
-                IsNativeOriginal = GameImageStore.IsPreservedOriginal(path);
+                IsNativeOriginal = forceNativeOriginal || GameImageStore.IsPreservedOriginal(path);
+                IsVirtualOriginal = isVirtualOriginal;
                 OrderLabel = "#" + orderIndex.ToString(CultureInfo.InvariantCulture);
                 FixedBadgeVisibility = isFixed ? Visibility.Visible : Visibility.Collapsed;
                 ExcludedBadgeVisibility = isExcluded ? Visibility.Visible : Visibility.Collapsed;
+                OriginalBadgeVisibility = IsNativeOriginal ? Visibility.Visible : Visibility.Collapsed;
 
-                // Keep the original_* filename on disk for reliable detection,
-                // but present it cleanly to the user.
+                // Keep the original_* filename on disk for reliable detection, but never
+                // expose that technical name in the manager. The badge communicates the
+                // role (Original), while the title communicates where the artwork comes from.
                 Name = IsNativeOriginal
-                    ? "Original"
+                    ? (artworkKind == ArtworkKind.Cover
+                        ? Loc.Get("LOCImageRotaterManagerPlayniteCover")
+                        : Loc.Get("LOCImageRotaterManagerPlayniteBackground"))
                     : System.IO.Path.GetFileName(path);
 
                 string ext = System.IO.Path.GetExtension(path) ?? string.Empty;
@@ -892,9 +1035,11 @@ namespace ImageRotater.Controls
             public bool IsFixed { get; }
             public bool IsExcluded { get; }
             public bool IsNativeOriginal { get; }
+            public bool IsVirtualOriginal { get; }
             public string OrderLabel { get; }
             public Visibility FixedBadgeVisibility { get; }
             public Visibility ExcludedBadgeVisibility { get; }
+            public Visibility OriginalBadgeVisibility { get; }
             public string Name { get; }
             public bool IsVideo { get; }
             public bool IsGif { get; }

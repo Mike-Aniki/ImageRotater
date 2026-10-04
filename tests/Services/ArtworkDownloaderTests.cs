@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -66,6 +66,7 @@ namespace ImageRotater.Tests.Services
         [TearDown]
         public void TearDown()
         {
+            ArtworkDownloader.SettingsSource = null;
             try { Directory.Delete(_root, true); } catch { }
         }
 
@@ -145,6 +146,38 @@ namespace ImageRotater.Tests.Services
             await _downloader.DownloadAsync(_gameId, Art());
 
             Assert.IsNull(_cache.GetRemembered(_gameId, candidates));
+        }
+
+        [Test]
+        public async Task Download_WhenAutoOptimiseEnabled_ReportsOptimisationStage()
+        {
+            ArtworkDownloader.SettingsSource = () => new ImageRotaterSettings
+            {
+                OptimiseDownloadedImages = true
+            };
+
+            bool sawOptimising = false;
+            bool sawFinished = false;
+
+            string saved = await _downloader.DownloadAsync(
+                _gameId,
+                Art(),
+                ArtworkKind.Background,
+                progress =>
+                {
+                    if (progress.Stage == ArtworkDownloadStage.Optimising)
+                    {
+                        sawOptimising = true;
+                    }
+                    else if (progress.Stage == ArtworkDownloadStage.OptimisationFinished)
+                    {
+                        sawFinished = true;
+                    }
+                });
+
+            Assert.IsNotNull(saved);
+            Assert.IsTrue(sawOptimising);
+            Assert.IsTrue(sawFinished);
         }
 
         [Test]

@@ -392,10 +392,10 @@ namespace ImageRotater.Services
                 return;
             }
 
-            // Compatibility mode temporarily writes the selected artwork into
-            // Playnite's own metadata, so it must preserve the user's original
-            // artwork first. Theme integration renders directly from the plugin
-            // folders and deliberately never touches those native fields.
+            // Compatibility mode temporarily replaces Playnite's native artwork
+            // reference, so keep one stable safety copy before selecting/writing.
+            // Theme Integration reads Playnite's live image directly and must not
+            // create a duplicate just to put Original in the rotation pool.
             if (!settings.UseThemeIntegration)
             {
                 _preserver?.Preserve(game, kind);
@@ -697,11 +697,12 @@ namespace ImageRotater.Services
 
         // True only when the user has put artwork of this kind in the plugin's
         // own folder for this game - by adding files, downloading, or having
-        // had a previous rotation preserve their original.
+        // The Compatibility safety copy (original_*) does not count: it may
+        // remain after the user removes all actual ImageRotater artwork.
         //
         // Deliberately reads the store directly rather than the merged source,
-        // because the merged source also offers Playnite's existing image and
-        // would therefore report "yes" for every game in the library.
+        // because Theme Integration also offers Playnite's live Original and
+        // would otherwise report "yes" for every game in the library.
         private bool HasPluginArtwork(Game game, ArtworkKind kind)
         {
             if (_store == null)

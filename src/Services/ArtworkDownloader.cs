@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
 using Playnite.SDK;
@@ -6,6 +6,21 @@ using ImageRotater.Models;
 
 namespace ImageRotater.Services
 {
+    public enum ArtworkDownloadStage
+    {
+        Resizing,
+        ResizeFinished,
+        Optimising,
+        OptimisationFinished
+    }
+
+    public sealed class ArtworkDownloadProgress
+    {
+        public ArtworkDownloadStage Stage { get; set; }
+        public bool Resized { get; set; }
+        public bool Optimised { get; set; }
+    }
+
     // Downloads chosen artwork into a game's ImageRotater folder, so it becomes
     // a normal candidate like any manually added file.
     public class ArtworkDownloader
@@ -99,7 +114,8 @@ namespace ImageRotater.Services
         public async Task<string> DownloadAsync(
             Guid gameId,
             SteamGridDbArtwork artwork,
-            ArtworkKind kind = ArtworkKind.Background)
+            ArtworkKind kind = ArtworkKind.Background,
+            Action<ArtworkDownloadProgress> onProgress = null)
         {
             if (artwork == null || string.IsNullOrEmpty(artwork.Url))
             {
@@ -194,6 +210,83 @@ namespace ImageRotater.Services
                     }
                 }
 
+                ImageRotaterSettings settings =
+                    SettingsSource == null ? null : SettingsSource();
+
+                // Resize downloaded BACKGROUNDS before optimisation. The preset
+                // is a maximum bounding box, not a forced aspect ratio: artwork
+                // is never stretched, cropped or upscaled. Covers are deliberately
+                // excluded because their portrait ratios need separate semantics.
+                if (settings?.ResizeDownloadedBackgrounds == true
+                    && kind == ArtworkKind.Background
+                    && !artwork.IsAnimated
+                    && IsResizableStill(target))
+                {
+                    onProgress?.Invoke(new ArtworkDownloadProgress
+                    {
+                        Stage = ArtworkDownloadStage.Resizing
+                    });
+
+                    bool resized = false;
+                    try
+                    {
+                        resized = DownloadedBackgroundResizer.ResizeToPreset(
+                            target,
+                            settings.DownloadedBackgroundResizePreset);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Resizing is optional. A failure must never invalidate a
+                        // download that already completed successfully.
+                        Logger.Warn(ex, $"ImageRotater: automatic background resize failed for {target}");
+                    }
+
+                    onProgress?.Invoke(new ArtworkDownloadProgress
+                    {
+                        Stage = ArtworkDownloadStage.ResizeFinished,
+                        Resized = resized
+                    });
+                }
+
+                // Optional automatic optimisation for newly downloaded stills.
+                // This intentionally runs AFTER resizing, so the optimiser works
+                // on the final dimensions rather than re-encoding a huge source
+                // that is about to be downscaled. The optimiser may change the
+                // extension (PNG -> JPG), so keep the returned path in sync.
+                if (settings?.OptimiseDownloadedImages == true
+                    && !artwork.IsAnimated
+                    && IsOptimisableStill(target))
+                {
+                    onProgress?.Invoke(new ArtworkDownloadProgress
+                    {
+                        Stage = ArtworkDownloadStage.Optimising
+                    });
+
+                    bool optimised = false;
+                    try
+                    {
+                        var optimizer = new ImageOptimizer(_store);
+                        string optimisedPath;
+                        optimised = optimizer.Optimise(target, null, out optimisedPath);
+                        if (optimised && !string.IsNullOrEmpty(optimisedPath))
+                        {
+                            target = optimisedPath;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // A failed optimisation must never turn a successful
+                        // download into a failed download. Keep the original.
+                        Logger.Warn(ex, $"ImageRotater: automatic download optimisation failed for {target}");
+                    }
+
+                    onProgress?.Invoke(new ArtworkDownloadProgress
+                    {
+                        Stage = ArtworkDownloadStage.OptimisationFinished,
+                        Optimised = optimised
+                    });
+                }
+
                 // The candidate list changed, so a remembered choice for this
                 // game is stale.
                 _sessionCache?.Forget(gameId);
@@ -205,6 +298,23 @@ namespace ImageRotater.Services
                 Logger.Warn(ex, $"ImageRotater: could not save artwork {artwork.Id}");
                 return null;
             }
+        }
+
+        private static bool IsResizableStill(string path)
+        {
+            string ext = (Path.GetExtension(path) ?? string.Empty).ToLowerInvariant();
+            return ext == ".jpg" || ext == ".jpeg" || ext == ".png";
+        }
+
+        private static bool IsOptimisableStill(string path)
+        {
+            string ext = Path.GetExtension(path) ?? string.Empty;
+
+            return !ext.Equals(".gif", StringComparison.OrdinalIgnoreCase)
+                && !ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
+                && !ext.Equals(".webm", StringComparison.OrdinalIgnoreCase)
+                && !ext.Equals(".mkv", StringComparison.OrdinalIgnoreCase)
+                && !ext.Equals(".avi", StringComparison.OrdinalIgnoreCase);
         }
 
         // Extension from the MIME type, defaulting to .jpg. SteamGridDB serves

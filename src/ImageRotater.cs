@@ -254,27 +254,15 @@ namespace ImageRotater
             _steamGridDb = new SteamGridDbClient(() => Settings?.SteamGridDbApiKey);
             _downloader = new ArtworkDownloader(_steamGridDb, _store, _sessionCache);
 
-            // Plugin-owned images first, then Playnite's own background as a
-            // fallback, deduplicated. Game.BackgroundImage is a database ID, so
-            // GetFullFilePath turns it into a real path.
+            // ImageRotater files live in the plugin folder. The user's Playnite
+            // artwork is added as one logical Original candidate by FolderImageSource.
             //
-            // Must be built before the rotation service, which captures it.
-            // Candidates come from the plugin's own folder and NOWHERE else.
-            //
-            // Playnite's store must never be a source. In write mode it is our
-            // output: each rotation imports a new copy and deletes the previous
-            // one. Offering that copy back as a candidate meant a rotation could
-            // pick the very file the next write was about to delete - valid when
-            // chosen, gone by the time it was used. That is the blank/stretched
-            // artwork, and no amount of File.Exists checking can fix it, because
-            // the race is between our own read and our own delete.
-            //
-            // The user's pre-existing art is not lost by this: OriginalArtPreserver
-            // copies it into our folder on first touch, so it rotates as an
-            // ordinary candidate that we own and never delete.
-            _imageSource = new FolderImageSource(_store, ArtworkKind.Background);
-            _coverSource = new FolderImageSource(_store, ArtworkKind.Cover);
-
+            // Theme Integration can safely use the live Playnite file directly
+            // because it never replaces Game.CoverImage / BackgroundImage.
+            // Compatibility mode does replace those fields, so OriginalArtPreserver
+            // keeps one safety copy and the source uses that stable file instead.
+            // This avoids duplicate native files in Theme Integration while keeping
+            // Compatibility safe from Playnite reclaiming an unreferenced original.
             _writer = new PlayniteBackgroundWriter(api, GetPluginUserDataPath(), _fileLogger);
 
             // A background write is queued to the UI thread, so it commits
@@ -304,6 +292,15 @@ namespace ImageRotater
             // The writer is handed over so the preserver can recognise artwork
             // this plugin wrote and leave it alone.
             _preserver = new OriginalArtPreserver(api, _store, _writer);
+
+            // Candidate sources expose one coherent pool to every selection mode:
+            // plugin files + live virtual Original in Theme Integration, or
+            // plugin files + preserved Original in Compatibility.
+            _imageSource = new FolderImageSource(
+                _store, ArtworkKind.Background, _preserver, () => Settings);
+            _coverSource = new FolderImageSource(
+                _store, ArtworkKind.Cover, _preserver, () => Settings);
+
             _publisher = new ArtworkPublisher(_store, _fileLogger);
             _coverTransition = new CoverTileTransition(_fileLogger);
 
@@ -316,7 +313,7 @@ namespace ImageRotater
             // otherwise new artwork would not appear on the game currently
             // selected until the user navigated away and back.
             _menuHandler = new ImageMenuHandler(
-                api, _store, _sessionCache, _steamGridDb, _downloader,
+                api, _store, _sessionCache, _steamGridDb, _downloader, _preserver,
                 () => Settings,
                 gameId => _rotationService.Forget(gameId),
                 () =>
@@ -603,8 +600,8 @@ namespace ImageRotater
             int candidateCount = 0;
             try
             {
-                candidateCount = _store != null
-                    ? _store.GetImagePaths(game.Id, ArtworkKind.Cover).Count
+                candidateCount = _coverSource != null
+                    ? _coverSource.GetImagePaths(game).Count
                     : 0;
             }
             catch (Exception)
@@ -858,7 +855,7 @@ namespace ImageRotater
                 {
                     if (Settings != null && Settings.EnableRotation && Settings.RotateBackgrounds &&
                         Settings.GetSelectionMode(game.Id, ArtworkKind.Background, Settings.SelectionMode) == SelectionMode.Slideshow &&
-                        _store.GetImagePaths(game.Id, ArtworkKind.Background).Count > 1)
+                        _imageSource.GetImagePaths(game).Count > 1)
                     {
                         // Playnite's own background element crossfades on
                         // source change, so this swap fades without any work
@@ -880,7 +877,7 @@ namespace ImageRotater
                 {
                     if (Settings != null && Settings.EnableRotation && Settings.RotateCovers &&
                         Settings.GetSelectionMode(game.Id, ArtworkKind.Cover, Settings.CoverSelectionMode) == SelectionMode.Slideshow &&
-                        _store.GetImagePaths(game.Id, ArtworkKind.Cover).Count > 1)
+                        _coverSource.GetImagePaths(game).Count > 1)
                     {
                         // One path for both modes.
                         //
@@ -1205,6 +1202,88 @@ namespace ImageRotater
             RunImageJob(
                 Loc.Get("LOCImageRotaterOptimising"),
                 (optimizer, ids, report, cancelled) => optimizer.OptimiseAll(ids, report, cancelled));
+        }
+
+        // One-shot library maintenance action for existing backgrounds. This is
+        // deliberately independent from the download resize toggle/preset: using
+        // it once must not silently change how future downloads are handled.
+        // Preserved Playnite originals are skipped so Restore Original continues
+        // to mean the original native artwork, not a resized copy.
+        public void ResizeStoredBackgrounds(BackgroundDownloadResizePreset preset)
+        {
+            var confirm = PlayniteApi.Dialogs.ShowMessage(
+                Loc.Get("LOCImageRotaterResizeStoredBackgroundsQuestion"),
+                "ImageRotater",
+                System.Windows.MessageBoxButton.YesNo);
+
+            if (confirm != System.Windows.MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            List<Guid> ids = PlayniteApi.Database.Games.Select(g => g.Id).ToList();
+            int checkedCount = 0;
+            int resizedCount = 0;
+
+            PlayniteApi.Dialogs.ActivateGlobalProgress(
+                progress =>
+                {
+                    progress.ProgressMaxValue = Math.Max(1, ids.Count);
+                    progress.CurrentProgressValue = 0;
+
+                    int done = 0;
+                    foreach (Guid gameId in ids)
+                    {
+                        if (progress.CancelToken.IsCancellationRequested)
+                        {
+                            break;
+                        }
+
+                        IReadOnlyList<string> backgrounds;
+                        try
+                        {
+                            backgrounds = _store.GetImagePathsRaw(gameId, ArtworkKind.Background);
+                        }
+                        catch
+                        {
+                            backgrounds = new List<string>();
+                        }
+
+                        foreach (string path in backgrounds)
+                        {
+                            if (progress.CancelToken.IsCancellationRequested)
+                            {
+                                break;
+                            }
+
+                            if (GameImageStore.IsPreservedOriginal(path)
+                                || !DownloadedBackgroundResizer.CanResize(path))
+                            {
+                                continue;
+                            }
+
+                            checkedCount++;
+                            if (DownloadedBackgroundResizer.ResizeToPreset(path, preset))
+                            {
+                                resizedCount++;
+                                _cache?.Forget(path);
+                            }
+                        }
+
+                        progress.CurrentProgressValue = ++done;
+                        progress.Text = Loc.Format("LOCImageRotaterProgressItems", done, ids.Count);
+                    }
+                },
+                new GlobalProgressOptions(Loc.Get("LOCImageRotaterResizingStoredBackgrounds"), true)
+                {
+                    IsIndeterminate = false
+                });
+
+            _rotationService?.ForgetAll();
+
+            PlayniteApi.Dialogs.ShowMessage(
+                Loc.Format("LOCImageRotaterResizeStoredBackgroundsResult", resizedCount, checkedCount),
+                "ImageRotater");
         }
 
         // Undo for write mode. Write mode changes the user's library data, so

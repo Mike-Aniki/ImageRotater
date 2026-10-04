@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows.Data;
 using System.Windows.Media;
 using NUnit.Framework;
@@ -18,6 +18,14 @@ namespace ImageRotater.Tests.Services
         [TestCase(TransitionStyle.Crossfade, false)]
         [TestCase(TransitionStyle.FadeThroughBlack, true)]
         [TestCase(TransitionStyle.FadeThroughWhite, true)]
+        [TestCase(TransitionStyle.SlideFromRight, false)]
+        [TestCase(TransitionStyle.Zoom, false)]
+        [TestCase(TransitionStyle.Focus, false)]
+        [TestCase(TransitionStyle.SideReveal, false)]
+        [TestCase(TransitionStyle.DiagonalReveal, false)]
+        [TestCase(TransitionStyle.DepthShift, false)]
+        [TestCase(TransitionStyle.Mosaic, false)]
+        [TestCase(TransitionStyle.Pixelate, false)]
         [TestCase(TransitionStyle.Cut, false)]
         public void Only_the_colour_styles_flash(TransitionStyle style, bool flash)
         {
@@ -49,6 +57,14 @@ namespace ImageRotater.Tests.Services
         [TestCase("Crossfade", TransitionStyle.Crossfade)]
         [TestCase("FadeThroughBlack", TransitionStyle.FadeThroughBlack)]
         [TestCase("fadethroughwhite", TransitionStyle.FadeThroughWhite)]
+        [TestCase("SlideFromRight", TransitionStyle.SlideFromRight)]
+        [TestCase("Zoom", TransitionStyle.Zoom)]
+        [TestCase("Focus", TransitionStyle.Focus)]
+        [TestCase("SideReveal", TransitionStyle.SideReveal)]
+        [TestCase("DiagonalReveal", TransitionStyle.DiagonalReveal)]
+        [TestCase("DepthShift", TransitionStyle.DepthShift)]
+        [TestCase("Mosaic", TransitionStyle.Mosaic)]
+        [TestCase("Pixelate", TransitionStyle.Pixelate)]
         [TestCase("Cut", TransitionStyle.Cut)]
         public void Radio_converter_parses_every_transition_by_name(string parameter, TransitionStyle expected)
         {
@@ -57,6 +73,66 @@ namespace ImageRotater.Tests.Services
 
             object isChecked = _converter.Convert(expected, typeof(bool), parameter, CultureInfo.InvariantCulture);
             Assert.That(isChecked, Is.True);
+        }
+
+        [Test]
+        public void Zoom_uses_its_own_transition_duration()
+        {
+            Assert.That(Transition.DurationFor(TransitionStyle.Zoom).TotalMilliseconds, Is.EqualTo(650));
+        }
+
+        [Test]
+        public void Focus_uses_its_own_transition_duration()
+        {
+            Assert.That(Transition.DurationFor(TransitionStyle.Focus).TotalMilliseconds, Is.EqualTo(800));
+        }
+
+
+        [Test]
+        public void Side_reveal_uses_its_own_transition_duration()
+        {
+            Assert.That(Transition.DurationFor(TransitionStyle.SideReveal).TotalMilliseconds, Is.EqualTo(650));
+        }
+
+        [Test]
+        public void Diagonal_reveal_uses_its_own_transition_duration()
+        {
+            Assert.That(Transition.DurationFor(TransitionStyle.DiagonalReveal).TotalMilliseconds, Is.EqualTo(650));
+        }
+
+        [Test]
+        public void Depth_shift_uses_its_own_transition_duration()
+        {
+            Assert.That(Transition.DurationFor(TransitionStyle.DepthShift).TotalMilliseconds, Is.EqualTo(700));
+        }
+
+        [Test]
+        public void Mosaic_uses_its_own_transition_duration()
+        {
+            Assert.That(Transition.DurationFor(TransitionStyle.Mosaic).TotalMilliseconds, Is.EqualTo(700));
+        }
+
+        [Test]
+        public void Pixelate_uses_its_own_transition_duration()
+        {
+            Assert.That(Transition.DurationFor(TransitionStyle.Pixelate).TotalMilliseconds, Is.EqualTo(1250));
+        }
+
+        [Test]
+        public void Existing_transition_numeric_values_stay_compatible()
+        {
+            Assert.That((int)TransitionStyle.Crossfade, Is.EqualTo(0));
+            Assert.That((int)TransitionStyle.FadeThroughBlack, Is.EqualTo(1));
+            Assert.That((int)TransitionStyle.FadeThroughWhite, Is.EqualTo(2));
+            Assert.That((int)TransitionStyle.SlideFromRight, Is.EqualTo(3));
+            Assert.That((int)TransitionStyle.Cut, Is.EqualTo(4));
+            Assert.That((int)TransitionStyle.Zoom, Is.EqualTo(5));
+            Assert.That((int)TransitionStyle.Focus, Is.EqualTo(6));
+            Assert.That((int)TransitionStyle.SideReveal, Is.EqualTo(7));
+            Assert.That((int)TransitionStyle.DiagonalReveal, Is.EqualTo(8));
+            Assert.That((int)TransitionStyle.DepthShift, Is.EqualTo(9));
+            Assert.That((int)TransitionStyle.Mosaic, Is.EqualTo(10));
+            Assert.That((int)TransitionStyle.Pixelate, Is.EqualTo(11));
         }
 
         [Test]

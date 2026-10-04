@@ -91,19 +91,44 @@ namespace ImageRotater.Services
         {
             try
             {
-                string folder = Path.GetDirectoryName(candidates[0]);
-                string marker = !string.IsNullOrEmpty(folder)
-                    ? Path.Combine(folder, ".imagerotater-fixed")
-                    : null;
-                if (!string.IsNullOrEmpty(marker) && File.Exists(marker))
+                // Theme Integration can put the virtual Playnite Original at
+                // index 0. Its directory is Playnite's library store, not the
+                // ImageRotater candidate folder where .imagerotater-fixed lives.
+                // Search candidate directories until the marker is found.
+                string fixedName = null;
+                var visitedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                for (int i = 0; i < candidates.Count; i++)
                 {
-                    string fixedName = (File.ReadAllText(marker) ?? string.Empty).Trim();
+                    string folder = Path.GetDirectoryName(candidates[i]);
+                    if (string.IsNullOrEmpty(folder) || !visitedFolders.Add(folder))
+                    {
+                        continue;
+                    }
+
+                    string marker = Path.Combine(folder, ".imagerotater-fixed");
+                    if (File.Exists(marker))
+                    {
+                        fixedName = (File.ReadAllText(marker) ?? string.Empty).Trim();
+                        break;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(fixedName))
+                {
                     for (int i = 0; i < candidates.Count; i++)
                     {
                         if (string.Equals(Path.GetFileName(candidates[i]), fixedName, StringComparison.OrdinalIgnoreCase))
                         {
                             return candidates[i];
                         }
+                    }
+
+                    // A Fixed choice made on Compatibility's preserved
+                    // original_* maps to Theme Integration's virtual Original.
+                    if (fixedName.StartsWith(GameImageStore.PreservedPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return candidates[0];
                     }
                 }
             }
