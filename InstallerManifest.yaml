@@ -66,3 +66,9 @@ Packages:
       - Added a tool to resize already stored backgrounds to 1080p, 1440p or 4K.
       - The download popup now shows image resizing and optimisation steps.
       - Animated covers on all visible grid tiles are now enabled by default.
+  - Version: 1.3.1
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-10-05
+    PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/v1.3.1/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_3_1.pext
+    Changelog:
+      - Fixed the Extension failed to load properly error by downgrading Newtonsoft.Json from version 13 to version 10.
