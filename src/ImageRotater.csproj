@@ -22,7 +22,7 @@
 
     <ItemGroup>
         <PackageReference Include="PlayniteSDK" Version="6.16.0.0" PrivateAssets="none" />
-        <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+        <PackageReference Include="Newtonsoft.Json" Version="10.0.3" />
         <!-- GIF playback on a plain Image via an attached property. The same
              library PlayGif ships; MIT; static formats untouched. -->
         <PackageReference Include="XamlAnimatedGif" Version="2.3.0" />
