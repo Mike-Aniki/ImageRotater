@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Playnite.SDK.Models;
 using ImageRotater.Models;
@@ -98,6 +98,11 @@ namespace ImageRotater.Services
                 return found;
             }
 
+            if (kind == ArtworkKind.Logo)
+            {
+                return found;
+            }
+
             IReadOnlyList<SteamCdn.Asset> assets = kind == ArtworkKind.Cover
                 ? SteamCdn.CoverAssets
                 : SteamCdn.BackgroundAssets;
@@ -145,7 +150,7 @@ namespace ImageRotater.Services
         {
             var found = new List<SteamGridDbArtwork>();
 
-            if (kind == ArtworkKind.Cover)
+            if (kind == ArtworkKind.Cover || kind == ArtworkKind.Logo)
             {
                 return found;
             }

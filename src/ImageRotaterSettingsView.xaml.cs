@@ -478,6 +478,11 @@ namespace ImageRotater
             MainSettingsTabs.SelectedItem = CoversTab;
         }
 
+        private void OpenLogos_Click(object sender, RoutedEventArgs e)
+        {
+            MainSettingsTabs.SelectedItem = LogosTab;
+        }
+
         private void OpenTools_Click(object sender, RoutedEventArgs e)
         {
             MainSettingsTabs.SelectedItem = ToolsTab;

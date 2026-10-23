@@ -38,6 +38,8 @@ namespace ImageRotater
         private readonly ArtworkDownloader _downloader;
         private readonly IBackgroundImageSource _imageSource;
         private readonly IBackgroundImageSource _coverSource;
+        private readonly IBackgroundImageSource _logoSource;
+        private readonly ExtraMetadataLogoSource _extraMetadataLogos;
         private readonly PlayniteBackgroundWriter _writer;
         private readonly OriginalArtPreserver _preserver;
         private readonly BackgroundRotationService _rotationService;
@@ -236,6 +238,7 @@ namespace ImageRotater
             // which keeps it usable from the bulk conversion and the tests
             // without dragging the whole plugin along.
             GifConverter.ConfiguredPath = Settings?.FfmpegPath;
+            Transition.Enabled = Settings?.EnableTransitions != false;
             Transition.CoverStyle = Settings?.CoverTransition ?? TransitionStyle.Crossfade;
             Transition.BackgroundStyle = Settings?.BackgroundTransition ?? TransitionStyle.Crossfade;
 
@@ -300,6 +303,9 @@ namespace ImageRotater
                 _store, ArtworkKind.Background, _preserver, () => Settings);
             _coverSource = new FolderImageSource(
                 _store, ArtworkKind.Cover, _preserver, () => Settings);
+            _extraMetadataLogos = new ExtraMetadataLogoSource(api.Paths.ConfigurationPath);
+            _logoSource = new FolderImageSource(
+                _store, ArtworkKind.Logo, null, () => Settings, _extraMetadataLogos);
 
             _publisher = new ArtworkPublisher(_store, _fileLogger);
             _coverTransition = new CoverTileTransition(_fileLogger);
@@ -315,7 +321,15 @@ namespace ImageRotater
             _menuHandler = new ImageMenuHandler(
                 api, _store, _sessionCache, _steamGridDb, _downloader, _preserver,
                 () => Settings,
-                gameId => _rotationService.Forget(gameId),
+                gameId =>
+                {
+                    _rotationService.Forget(gameId);
+                    LogoImageControl.NotifyArtworkChanged(gameId);
+                    if (_slideshowGame != null && _slideshowGame.Id == gameId)
+                    {
+                        UpdateHasDataLogo(_slideshowGame);
+                    }
+                },
                 () =>
                 {
                     SavePluginSettings(Settings);
@@ -357,7 +371,7 @@ namespace ImageRotater
             AddCustomElementSupport(new AddCustomElementSupportArgs
             {
                 SourceName = "ImageRotater",
-                ElementList = new List<string> { "Background", "Cover" }
+                ElementList = new List<string> { "Background", "Cover", "Logo" }
             });
 
         }
@@ -445,7 +459,7 @@ namespace ImageRotater
             // and a rebuilt instance carries stock timing again. Rescanning is
             // idempotent and skips patched instances, so a light throttle is
             // all the restraint it needs.
-            if (Settings?.UseThemeIntegration != true &&
+            if (ShouldTuneNativeBackground() &&
                 (DateTime.UtcNow - _lastFadeRetime).TotalSeconds > 10)
             {
                 _lastFadeRetime = DateTime.UtcNow;
@@ -476,6 +490,7 @@ namespace ImageRotater
                 // it. Without this, games the user never set up would render
                 // blank.
                 UpdateHasDataCover(selected);
+                UpdateHasDataLogo(selected);
 
                 // Avoid formatting selection diagnostics unless debug logging is enabled.
                 if (_fileLogger.IsEnabled)
@@ -955,6 +970,29 @@ namespace ImageRotater
             }
         }
 
+        private void UpdateHasDataLogo(Game game)
+        {
+            if (Settings == null)
+            {
+                return;
+            }
+
+            try
+            {
+                Settings.HasDataLogo = Settings.EnableLogoImage && game != null && _store.GetImagePaths(game.Id, ArtworkKind.Logo).Any(IsSupportedLogoPath);
+            }
+            catch (Exception)
+            {
+                Settings.HasDataLogo = false;
+            }
+        }
+
+        private static bool IsSupportedLogoPath(string path)
+        {
+            string ext = (System.IO.Path.GetExtension(path) ?? string.Empty).ToLowerInvariant();
+            return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp";
+        }
+
         public override Control GetGameViewControl(GetGameViewControlArgs args)
         {
             // Only ImageRotater's own theme elements arrive here. Keeping
@@ -990,6 +1028,11 @@ namespace ImageRotater
                 // binds it with IsAsync=True, so decoding never touches the
                 // layout thread.
                 return new CoverImageControl(_coverSource, _selector, () => Settings, PlayniteApi);
+                }
+
+                if (args.Name == "Logo")
+                {
+                    return new LogoImageControl(_logoSource, _selector, _loader, () => Settings);
                 }
             }
             catch (Exception ex)
@@ -1418,6 +1461,30 @@ namespace ImageRotater
 
         private void ShowBackgroundChangerConflictDialog()
         {
+            // Use Playnite's own themed message box in Fullscreen. The active
+            // theme (or Playnite's built-in Fullscreen theme) supplies the
+            // MessageBoxBorder, caption, body and gamepad-friendly buttons.
+            // Keep our existing custom dialog untouched in Desktop mode.
+            if (PlayniteApi.ApplicationInfo.Mode == ApplicationMode.Fullscreen)
+            {
+                string message = Loc.Get("LOCImageRotaterBackgroundChangerConflictMessage")
+                    + Environment.NewLine + Environment.NewLine
+                    + Loc.Get("LOCImageRotaterBackgroundChangerConflictHint");
+
+                PlayniteApi.Dialogs.ShowMessage(
+                    message,
+                    Loc.Get("LOCImageRotaterBackgroundChangerConflictTitle"),
+                    MessageBoxImage.Warning,
+                    new List<MessageBoxOption>
+                    {
+                        new MessageBoxOption(
+                            Loc.Get("LOCImageRotaterBackgroundChangerConflictAcknowledge"),
+                            isDefault: true,
+                            isCancel: true)
+                    });
+                return;
+            }
+
             Window window = PlayniteApi.Dialogs.CreateWindow(new WindowCreationOptions
             {
                 ShowMinimizeButton = false,
@@ -1581,6 +1648,12 @@ namespace ImageRotater
             }
         }
 
+        private bool ShouldTuneNativeBackground()
+        {
+            return Settings?.EnableTransitions == true &&
+                   (Settings.UseThemeIntegration != true || Settings.EnableBackgroundImage != true);
+        }
+
         private void RequestBackgroundTransitionRebind(string reason)
         {
             int generation = ++_fadeRebindGeneration;
@@ -1651,11 +1724,11 @@ namespace ImageRotater
         {
             base.OnFullscreenViewChanged(args);
 
-            // Do not rotate anything here. This hook exists only to attach the
-            // configured transition to the NEW FadeImage instance created by
-            // Fullscreen. It is intentionally cheap and event-driven.
-            RequestBackgroundTransitionRebind(
-                args != null ? $"fullscreen-{args.NewView}" : "fullscreen-view");
+            if (ShouldTuneNativeBackground())
+            {
+                RequestBackgroundTransitionRebind(
+                    args != null ? $"fullscreen-{args.NewView}" : "fullscreen-view");
+            }
         }
 
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
@@ -1737,22 +1810,9 @@ namespace ImageRotater
                 }
             }
 
-            // Playnite's own crossfade dips a quarter dark at the midpoint of
-            // every background change - see FadeImageTuner. Retimed after the
-            // window has built its template; Background priority queues this
-            // behind that work rather than racing it.
-            if (Settings?.UseThemeIntegration != true)
+            if (ShouldTuneNativeBackground())
             {
-                try
-                {
-                    Application.Current?.Dispatcher.BeginInvoke(
-                        new Action(() => FadeImageTuner.Apply()),
-                        System.Windows.Threading.DispatcherPriority.Background);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warn(ex, "ImageRotater: could not schedule the fade retime");
-                }
+                RequestBackgroundTransitionRebind("startup");
             }
 
             // Build the startup artwork index once and share it between the
@@ -2347,12 +2407,19 @@ namespace ImageRotater
             }
 
             _rotationService?.ForgetAll();
-
-            // Only the compatibility path changes Playnite's native FadeImage.
-            // Theme integration animates inside BackgroundImageControl instead.
-            if (Settings?.UseThemeIntegration != true)
+            LogoImageControl.NotifySettingsChanged();
+            if (_slideshowGame != null)
             {
-                FadeImageTuner.Apply();
+                UpdateHasDataLogo(_slideshowGame);
+            }
+
+            if (Settings?.EnableTransitions != true)
+            {
+                FadeImageTuner.Restore();
+            }
+            else if (ShouldTuneNativeBackground())
+            {
+                RequestBackgroundTransitionRebind("settings-changed");
             }
 
             // A changed interval - or a slideshow switched on - takes effect

@@ -38,6 +38,11 @@
     <sys:String x:Key="LOCImageRotaterFullscreenThemeLabel" xml:space="preserve">Pantalla completa:</sys:String>
     <sys:String x:Key="LOCImageRotaterCheckingThemeSupport" xml:space="preserve">Comprobando compatibilidad del tema...</sys:String>
     <sys:String x:Key="LOCImageRotaterUnknownTheme" xml:space="preserve">Tema desconocido</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeSupportCompatible" xml:space="preserve">{0} — Compatible ({1})</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeSupportPartial" xml:space="preserve">{0} — Compatibilidad parcial ({1})</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeSupportBackground" xml:space="preserve">Fondo</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeSupportCover" xml:space="preserve">Carátula</sys:String>
+    <sys:String x:Key="LOCImageRotaterThemeSupportLogo" xml:space="preserve">Logo</sys:String>
     <sys:String x:Key="LOCImageRotaterThemeSupportFull" xml:space="preserve">{0} — Compatible (Fondo + Carátula)</sys:String>
     <sys:String x:Key="LOCImageRotaterThemeSupportBackgroundOnly" xml:space="preserve">{0} — Compatibilidad parcial (Solo fondo)</sys:String>
     <sys:String x:Key="LOCImageRotaterThemeSupportCoverOnly" xml:space="preserve">{0} — Compatibilidad parcial (Solo carátula)</sys:String>
@@ -63,6 +68,9 @@
     <sys:String x:Key="LOCImageRotaterTabDebug" xml:space="preserve">Depuración</sys:String>
     <sys:String x:Key="LOCImageRotaterEnableRotation" xml:space="preserve">ImageRotater</sys:String>
     <sys:String x:Key="LOCImageRotaterEnableRotationHint" xml:space="preserve">Interruptor principal. Al desactivarlo se detiene toda la rotación y el contenido animado sin borrar archivos ni ajustes.</sys:String>
+    <sys:String x:Key="LOCImageRotaterEnableTransitions" xml:space="preserve">Activar transiciones</sys:String>
+    <sys:String x:Key="LOCImageRotaterEnableTransitionsHint" xml:space="preserve">Activa el efecto de transición seleccionado incluso cuando la rotación de imágenes está desactivada.</sys:String>
+    <sys:String x:Key="LOCImageRotaterEnableTransitionsToggle" xml:space="preserve">Activar transiciones de ilustraciones</sys:String>
     <sys:String x:Key="LOCImageRotaterTroubleshooting" xml:space="preserve">SOLUCIÓN DE PROBLEMAS</sys:String>
     <sys:String x:Key="LOCImageRotaterExpertTools" xml:space="preserve">HERRAMIENTAS AVANZADAS</sys:String>
     <sys:String x:Key="LOCImageRotaterEnableDebug" xml:space="preserve">Activar registro de depuración</sys:String>
@@ -219,6 +227,7 @@
     <sys:String x:Key="LOCImageRotaterIntervalNegative" xml:space="preserve">{0} no puede ser negativo. Usa 0 para desactivarlo.</sys:String>
     <sys:String x:Key="LOCImageRotaterBackgroundInterval" xml:space="preserve">Intervalo de presentación de fondos</sys:String>
     <sys:String x:Key="LOCImageRotaterCoverInterval" xml:space="preserve">Intervalo de presentación de carátulas</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogoInterval" xml:space="preserve">Intervalo de presentación de logotipos</sys:String>
     <sys:String x:Key="LOCImageRotaterMenuCovers" xml:space="preserve">Carátulas</sys:String>
     <sys:String x:Key="LOCImageRotaterMenuBackgrounds" xml:space="preserve">Fondos</sys:String>
     <sys:String x:Key="LOCImageRotaterMenuAddArtwork" xml:space="preserve">Añadir archivos de ilustración...</sys:String>
@@ -519,4 +528,25 @@ Se copiaron {0} archivo(s) WebP tal cual. Playnite no puede mostrar WebP, así q
     <sys:String x:Key="LOCImageRotaterAnimationPreview" xml:space="preserve">Vista previa de la animación</sys:String>
     <sys:String x:Key="LOCImageRotaterAnimationPreviewHint" xml:space="preserve">Selecciona una transición para previsualizarla aquí.</sys:String>
     <sys:String x:Key="LOCImageRotaterReplay" xml:space="preserve">Repetir</sys:String>
+
+    <sys:String x:Key="LOCImageRotaterLogos" xml:space="preserve">Logotipos</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogoCardTitle" xml:space="preserve">Logotipos</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogoCardText" xml:space="preserve">Rota logotipos personalizados manteniendo ExtraMetadata como alternativa cuando no haya un logotipo de ImageRotater disponible.</sys:String>
+    <sys:String x:Key="LOCImageRotaterConfigureLogos" xml:space="preserve">Configurar logotipos</sys:String>
+    <sys:String x:Key="LOCImageRotaterEnableLogos" xml:space="preserve">Activar rotación de logotipos (requiere integración con el tema)</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogoIntro" xml:space="preserve">Controla cómo se seleccionan los logotipos personalizados y qué transición se utiliza. Si no hay un logotipo de ImageRotater disponible, el tema puede seguir mostrando el logotipo de ExtraMetadata.</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogoSeveralHint" xml:space="preserve">Elige qué ocurre cuando un juego tiene más de un logotipo personalizado.</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogoPickSessionHint" xml:space="preserve">Mantiene un logotipo durante toda la sesión de Playnite. En el siguiente inicio se elige otro cuando sea posible.</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogoPickEveryHint" xml:space="preserve">Cambia el logotipo cada vez que vuelves al juego.</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogoPickDailyHint" xml:space="preserve">Usa un logotipo durante todo el día y cambia a otro al día siguiente.</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogoPickSlideshowHint" xml:space="preserve">Alterna automáticamente entre los logotipos del juego mientras permaneces en él.</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogoSlideshowHint" xml:space="preserve">Tiempo que permanece visible cada logotipo antes de pasar al siguiente. Solo disponible en modo presentación.</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogoTransitionHint" xml:space="preserve">Transición utilizada entre logotipos de ImageRotater. Se necesitan al menos dos logotipos para ver una transición de rotación.</sys:String>
+    <sys:String x:Key="LOCImageRotaterMenuLogos" xml:space="preserve">Logotipos</sys:String>
+    <sys:String x:Key="LOCImageRotaterMenuBrowseLogos" xml:space="preserve">Administrador de ilustraciones...</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerExtraMetadataLogo">Logotipo de ExtraMetadata</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerMyLogos" xml:space="preserve">Mis logotipos</sys:String>
+    <sys:String x:Key="LOCImageRotaterManagerNoLogos" xml:space="preserve">Todavía no hay logotipos guardados para este juego.</sys:String>
+    <sys:String x:Key="LOCImageRotaterLogosLower" xml:space="preserve">logotipos</sys:String>
+    <sys:String x:Key="LOCImageRotaterSafeSearch" xml:space="preserve">Búsqueda segura</sys:String>
 </ResourceDictionary>

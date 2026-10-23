@@ -52,6 +52,7 @@ namespace ImageRotater
     public class ImageRotaterSettings : ObservableObject
     {
         private bool enableRotation = true;     // Master switch for the whole feature
+        private bool enableTransitions = true;
         // Recommended/default rendering path. When enabled, ImageRotater leaves
         // Playnite's native artwork fields untouched and a compatible theme hosts
         // the plugin controls directly (same architecture as BackgroundChanger).
@@ -64,6 +65,7 @@ namespace ImageRotater
         private SelectionOrder backgroundSelectionOrder = SelectionOrder.Random;
         private bool rotateBackgrounds = true;
         private bool rotateCovers = false;
+        private bool rotateLogos = false;
         private VideoStartMode coverVideoStartMode = VideoStartMode.Beginning;
 
         public bool UseThemeIntegration
@@ -78,6 +80,7 @@ namespace ImageRotater
 
                 useThemeIntegration = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(EnableLogoImage));
             }
         }
 
@@ -108,7 +111,18 @@ namespace ImageRotater
                 OnPropertyChanged(nameof(EnableCoverImage));
             }
         }
+        public bool RotateLogos
+        {
+            get => rotateLogos;
+            set
+            {
+                rotateLogos = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(EnableLogoImage));
+            }
+        }
         private bool hasDataCover = false;
+        private bool hasDataLogo = false;
 
         private string currentCoverPath = string.Empty;
 
@@ -129,6 +143,8 @@ namespace ImageRotater
         // makes a grid read as noise.
         private SelectionMode coverSelectionMode = SelectionMode.Session;
         private SelectionOrder coverSelectionOrder = SelectionOrder.Random;
+        private SelectionMode logoSelectionMode = SelectionMode.Session;
+        private SelectionOrder logoSelectionOrder = SelectionOrder.Random;
 
         // Off by default. Every animated tile decodes frames continuously on
         // the UI thread, and Playnite is a 32-bit process - a screenful of them
@@ -182,6 +198,7 @@ namespace ImageRotater
         // the plain game title.
         private string webBackgroundSearchTerm = "wallpaper";
         private string webCoverSearchTerm = "cover";
+        private string webLogoSearchTerm = "logo";
 
         // Automatic pass for new still artwork, whether downloaded or added
         // manually. This uses the same conservative optimiser as the Library
@@ -275,6 +292,16 @@ namespace ImageRotater
             }
         }
 
+        public string WebLogoSearchTerm
+        {
+            get => webLogoSearchTerm;
+            set
+            {
+                webLogoSearchTerm = value ?? string.Empty;
+                OnPropertyChanged();
+            }
+        }
+
         // Internal migration state persisted with the normal settings. This is
         // intentionally public for Newtonsoft/Playnite serialization, but it is
         // not exposed in the settings UI.
@@ -310,6 +337,11 @@ namespace ImageRotater
             get => enableRotation && rotateCovers;
         }
 
+        public bool EnableLogoImage
+        {
+            get => enableRotation && rotateLogos && useThemeIntegration;
+        }
+
         // True when the CURRENTLY SELECTED game has plugin-owned covers.
         //
         // Per-game, despite being a plain property: themes read it through
@@ -328,6 +360,21 @@ namespace ImageRotater
                 }
 
                 hasDataCover = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public bool HasDataLogo
+        {
+            get => hasDataLogo;
+            set
+            {
+                if (hasDataLogo == value)
+                {
+                    return;
+                }
+
+                hasDataLogo = value;
                 OnPropertyChanged();
             }
         }
@@ -475,6 +522,15 @@ namespace ImageRotater
             }
         }
 
+        public SelectionMode LogoSelectionMode
+        {
+            get => NormalizeLogoSelectionMode(logoSelectionMode);
+            set
+            {
+                logoSelectionMode = NormalizeLogoSelectionMode(value);
+                OnPropertyChanged();
+            }
+        }
 
         public SelectionOrder BackgroundSelectionOrder
         {
@@ -486,6 +542,12 @@ namespace ImageRotater
         {
             get => coverSelectionOrder;
             set { coverSelectionOrder = value; OnPropertyChanged(); }
+        }
+
+        public SelectionOrder LogoSelectionOrder
+        {
+            get => logoSelectionOrder;
+            set { logoSelectionOrder = value; OnPropertyChanged(); }
         }
 
         public bool PauseAnimationsWhenGameRunning
@@ -532,7 +594,12 @@ namespace ImageRotater
 
             // Experimental ViewRefresh was retired. Keep the enum value only so
             // settings written by the test build can still be loaded safely.
-            return mode == SelectionMode.ViewRefresh ? SelectionMode.Session : mode;
+            if (mode == SelectionMode.ViewRefresh)
+            {
+                mode = SelectionMode.Session;
+            }
+
+            return kind == ArtworkKind.Logo ? NormalizeLogoSelectionMode(mode) : mode;
         }
 
         public SelectionOrder GetSelectionOrder(Guid gameId, ArtworkKind kind, SelectionOrder fallback)
@@ -546,7 +613,13 @@ namespace ImageRotater
         public SelectionMode? GetSelectionModeOverride(Guid gameId, ArtworkKind kind)
         {
             GameArtworkOverride value;
-            return GameArtworkOverrides.TryGetValue(OverrideKey(gameId, kind), out value) && value != null ? value.Mode : null;
+            SelectionMode? mode = GameArtworkOverrides.TryGetValue(OverrideKey(gameId, kind), out value) && value != null ? value.Mode : null;
+            if (kind == ArtworkKind.Logo && mode.HasValue)
+            {
+                return NormalizeLogoSelectionMode(mode.Value);
+            }
+
+            return mode;
         }
 
         public SelectionOrder? GetSelectionOrderOverride(Guid gameId, ArtworkKind kind)
@@ -661,6 +734,17 @@ namespace ImageRotater
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(EnableBackgroundImage));
                 OnPropertyChanged(nameof(EnableCoverImage));
+                OnPropertyChanged(nameof(EnableLogoImage));
+            }
+        }
+
+        public bool EnableTransitions
+        {
+            get => enableTransitions;
+            set
+            {
+                enableTransitions = value;
+                OnPropertyChanged();
             }
         }
 
@@ -697,6 +781,13 @@ namespace ImageRotater
         {
             get => backgroundTransition;
             set { backgroundTransition = value; OnPropertyChanged(); }
+        }
+
+        private static SelectionMode NormalizeLogoSelectionMode(SelectionMode mode)
+        {
+            return mode == SelectionMode.Session || mode == SelectionMode.Daily || mode == SelectionMode.Fixed
+                ? mode
+                : SelectionMode.Session;
         }
 
         public DateTime? DebugLoggingEnabledAtUtc
@@ -1192,6 +1283,7 @@ namespace ImageRotater
             public bool Found;
             public bool HasBackground;
             public bool HasCover;
+            public bool HasLogo;
         }
 
         private static ThemeProbeResult ProbeTheme(string themeId, string modeFolder, string configPath, string appPath)
@@ -1280,7 +1372,13 @@ namespace ImageRotater
                             result.HasCover = true;
                         }
 
-                        if (result.HasBackground && result.HasCover)
+                        if (!result.HasLogo &&
+                            text.IndexOf("ImageRotater_Logo", StringComparison.Ordinal) >= 0)
+                        {
+                            result.HasLogo = true;
+                        }
+
+                        if (result.HasBackground && result.HasCover && result.HasLogo)
                         {
                             return result;
                         }
@@ -1325,22 +1423,30 @@ namespace ImageRotater
                     Loc.Format("LOCImageRotaterThemeSupportUnknown", name));
             }
 
+            var supported = new List<string>();
+            if (result.HasBackground)
+            {
+                supported.Add(Loc.Get("LOCImageRotaterThemeSupportBackground"));
+            }
+            if (result.HasCover)
+            {
+                supported.Add(Loc.Get("LOCImageRotaterThemeSupportCover"));
+            }
+            if (result.HasLogo)
+            {
+                supported.Add(Loc.Get("LOCImageRotaterThemeSupportLogo"));
+            }
+
             if (result.HasBackground && result.HasCover)
             {
                 return SetupStatus.Ok(
-                    Loc.Format("LOCImageRotaterThemeSupportFull", result.Name));
+                    Loc.Format("LOCImageRotaterThemeSupportCompatible", result.Name, string.Join(" + ", supported)));
             }
 
-            if (result.HasBackground)
+            if (supported.Count > 0)
             {
                 return SetupStatus.Warning(
-                    Loc.Format("LOCImageRotaterThemeSupportBackgroundOnly", result.Name));
-            }
-
-            if (result.HasCover)
-            {
-                return SetupStatus.Warning(
-                    Loc.Format("LOCImageRotaterThemeSupportCoverOnly", result.Name));
+                    Loc.Format("LOCImageRotaterThemeSupportPartial", result.Name, string.Join(" + ", supported)));
             }
 
             return SetupStatus.Problem(
@@ -1506,6 +1612,7 @@ namespace ImageRotater
             // a user who just pointed the plugin at ffmpeg would have to
             // restart Playnite before anything used it.
             Services.GifConverter.ConfiguredPath = Settings?.FfmpegPath;
+            Transition.Enabled = Settings?.EnableTransitions != false;
             Transition.CoverStyle = Settings?.CoverTransition ?? TransitionStyle.Crossfade;
             Transition.BackgroundStyle = Settings?.BackgroundTransition ?? TransitionStyle.Crossfade;
 

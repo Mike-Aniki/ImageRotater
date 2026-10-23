@@ -89,7 +89,9 @@ namespace ImageRotater.Services
 
                 string label = kind == ArtworkKind.Cover
                     ? Loc.Get("LOCImageRotaterCoversLower")
-                    : Loc.Get("LOCImageRotaterBackgroundsLower");
+                    : kind == ArtworkKind.Logo
+                        ? Loc.Get("LOCImageRotaterLogosLower")
+                        : Loc.Get("LOCImageRotaterBackgroundsLower");
                 window.Title = Loc.Format("LOCImageRotaterSearchWindowTitle", label, game.Name);
                 // Bigger in Fullscreen, where this is read from a sofa and the
                 // desktop size leaves most of a TV unused. Clamped to the
@@ -204,7 +206,9 @@ namespace ImageRotater.Services
             // endpoints with different dimension conventions.
             SteamGridDbArtworkType type = kind == ArtworkKind.Cover
                 ? SteamGridDbArtworkType.Grid
-                : SteamGridDbArtworkType.Hero;
+                : kind == ArtworkKind.Logo
+                    ? SteamGridDbArtworkType.Logo
+                    : SteamGridDbArtworkType.Hero;
 
             SteamGridDbResult<List<SteamGridDbArtwork>> artwork =
                 await _steamGridDb.GetArtworkAsync(matches.Data[0].Id, type).ConfigureAwait(false);
@@ -219,6 +223,10 @@ namespace ImageRotater.Services
             // downloading one would produce a broken-image placeholder.
             IReadOnlyList<SteamGridDbArtwork> usable =
                 ArtworkFilter.Apply(artwork.Data, new ArtworkFilterState());
+            if (kind == ArtworkKind.Logo)
+            {
+                usable = usable.Where(IsSupportedLogoArtwork).ToList();
+            }
 
             SteamGridDbArtwork best;
 
@@ -228,6 +236,13 @@ namespace ImageRotater.Services
                 // more than pixel count: a correctly-proportioned 600x900 looks
                 // right where a sharper 16:9 image would be cropped or letterboxed.
                 best = CoverAspect.BestCover(usable, GetTargetCoverAspect());
+            }
+            else if (kind == ArtworkKind.Logo)
+            {
+                best = usable
+                    .OrderByDescending(IsLossless)
+                    .ThenByDescending(a => (long)a.Width * a.Height)
+                    .FirstOrDefault();
             }
             else
             {
@@ -363,6 +378,19 @@ namespace ImageRotater.Services
             _api.Dialogs.ShowMessage(message, "ImageRotater");
         }
 
+        private static bool IsSupportedLogoArtwork(SteamGridDbArtwork artwork)
+        {
+            if (artwork == null || artwork.IsAnimated || artwork.IsYouTube)
+            {
+                return false;
+            }
+
+            string value = (artwork.Url ?? string.Empty).ToLowerInvariant();
+            string mime = (artwork.Mime ?? string.Empty).ToLowerInvariant();
+            return mime.Contains("png") || mime.Contains("jpeg") || mime.Contains("jpg") || mime.Contains("bmp")
+                || value.Contains(".png") || value.Contains(".jpg") || value.Contains(".jpeg") || value.Contains(".bmp");
+        }
+
         private void NotifyImagesChanged(Guid gameId)
         {
             _sessionCache?.Forget(gameId);
@@ -387,7 +415,9 @@ namespace ImageRotater.Services
 
                 string label = kind == ArtworkKind.Cover
                     ? Loc.Get("LOCImageRotaterCoversLower")
-                    : Loc.Get("LOCImageRotaterBackgroundsLower");
+                    : kind == ArtworkKind.Logo
+                        ? Loc.Get("LOCImageRotaterLogosLower")
+                        : Loc.Get("LOCImageRotaterBackgroundsLower");
                 window.Title = Loc.Format("LOCImageRotaterManagerWindowTitle", label, game.Name);
 
                 bool fullscreen = _api.ApplicationInfo.Mode == ApplicationMode.Fullscreen;
@@ -462,10 +492,13 @@ namespace ImageRotater.Services
             //
             // The combined filter leads so the default view shows everything;
             // the narrower groups are there for a folder holding both.
-            List<string> selected = _api.Dialogs.SelectFiles(
-                Loc.Get("LOCImageRotaterArtworkFilter") + "|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif;*.mp4;*.webm"
-                + "|" + Loc.Get("LOCImageRotaterImagesFilter") + "|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif"
-                + "|" + Loc.Get("LOCImageRotaterVideoFilter") + "|*.mp4;*.webm");
+            List<string> selected = kind == ArtworkKind.Logo
+                ? _api.Dialogs.SelectFiles(
+                    Loc.Get("LOCImageRotaterImagesFilter") + "|*.jpg;*.jpeg;*.png;*.bmp")
+                : _api.Dialogs.SelectFiles(
+                    Loc.Get("LOCImageRotaterArtworkFilter") + "|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif;*.mp4;*.webm"
+                    + "|" + Loc.Get("LOCImageRotaterImagesFilter") + "|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif"
+                    + "|" + Loc.Get("LOCImageRotaterVideoFilter") + "|*.mp4;*.webm");
 
             if (selected == null || selected.Count == 0)
             {
@@ -475,7 +508,7 @@ namespace ImageRotater.Services
             int added = 0;
             int optimised = 0;
             ImageRotaterSettings currentSettings = _settings != null ? _settings() : null;
-            ImageOptimizer optimizer = currentSettings?.OptimiseDownloadedImages == true
+            ImageOptimizer optimizer = kind != ArtworkKind.Logo && currentSettings?.OptimiseDownloadedImages == true
                 ? new ImageOptimizer(_store)
                 : null;
 
@@ -505,7 +538,8 @@ namespace ImageRotater.Services
                 // starts replacing Playnite's artwork field. Theme Integration
                 // keeps Original virtual and reads Playnite directly, so do not
                 // create a duplicate there.
-                if (_store.HasAnyImage(game.Id, kind) &&
+                if (kind != ArtworkKind.Logo &&
+                    _store.HasAnyImage(game.Id, kind) &&
                     currentSettings?.UseThemeIntegration != true)
                 {
                     _preserver?.Preserve(game, kind);
@@ -529,7 +563,7 @@ namespace ImageRotater.Services
                 Game only = targets.Count == 1 ? targets[0] : null;
                 if (only != null && _store.RotationPoolSize(
                         only.Id, kind,
-                        kind == ArtworkKind.Cover ? only.CoverImage : only.BackgroundImage) < 2)
+                        kind == ArtworkKind.Cover ? only.CoverImage : kind == ArtworkKind.Logo ? null : only.BackgroundImage) < 2)
                 {
                     message += Loc.Get("LOCImageRotaterAddMoreTip");
                 }

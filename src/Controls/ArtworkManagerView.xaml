@@ -399,6 +399,9 @@
 
                                 <Grid Grid.Row="1">
                                     <ListView x:Name="ItemsList"
+                                              AllowDrop="True"
+                                              DragOver="ItemsList_DragOver"
+                                              Drop="ItemsList_Drop"
                                               Style="{StaticResource ArtworkListViewStyle}"
                                               SelectionMode="Extended"
                                               IsTabStop="False"

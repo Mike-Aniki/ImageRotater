@@ -25,6 +25,7 @@ namespace ImageRotater.Controls
         private readonly Game _game;
         private readonly ArtworkKind _kind;
         private readonly OriginalArtPreserver _preserver;
+        private readonly ExtraMetadataLogoSource _extraMetadataLogos;
         private readonly Action<Guid> _onImagesChanged;
         private readonly Action _automaticDownload;
         private readonly Func<ImageRotaterSettings> _settings;
@@ -55,6 +56,7 @@ namespace ImageRotater.Controls
             _game = game;
             _kind = kind;
             _preserver = preserver;
+            _extraMetadataLogos = new ExtraMetadataLogoSource(api?.Paths?.ConfigurationPath);
             _onImagesChanged = onImagesChanged;
             _automaticDownload = automaticDownload;
             _searchViewFactory = searchViewFactory;
@@ -78,7 +80,9 @@ namespace ImageRotater.Controls
 
             LocalTab.Header = kind == ArtworkKind.Cover
                 ? Loc.Get("LOCImageRotaterManagerMyCovers")
-                : Loc.Get("LOCImageRotaterManagerMyBackgrounds");
+                : kind == ArtworkKind.Logo
+                    ? Loc.Get("LOCImageRotaterManagerMyLogos")
+                    : Loc.Get("LOCImageRotaterManagerMyBackgrounds");
             LocalNavButton.Content = LocalTab.Header;
             PreviewHintText.Text = Loc.Get("LOCImageRotaterManagerSelectItem");
             PreviewNameText.Text = string.Empty;
@@ -229,9 +233,10 @@ namespace ImageRotater.Controls
             bool hasPluginArtwork = _store.HasAnyImage(_game.Id, _kind);
             ImageRotaterSettings currentSettings = _settings != null ? _settings() : null;
             bool themeIntegration = currentSettings?.UseThemeIntegration == true;
+            bool supportsNativeOriginal = _kind != ArtworkKind.Logo;
 
             string compatibilityOriginalPath = null;
-            if (hasPluginArtwork && !themeIntegration)
+            if (supportsNativeOriginal && hasPluginArtwork && !themeIntegration)
             {
                 compatibilityOriginalPath = _preserver?.Preserve(_game, _kind);
             }
@@ -239,10 +244,30 @@ namespace ImageRotater.Controls
             string fixedArtwork = _store.GetFixedArtworkPath(_game.Id, _kind);
             int artworkIndex = 0;
 
+            // ExtraMetadata keeps its logo in its own directory. Show it as a
+            // read-only Original even when there are no ImageRotater logos yet;
+            // FolderImageSource only rotates when at least one IR logo exists.
+            if (_kind == ArtworkKind.Logo)
+            {
+                string extraLogo = _extraMetadataLogos.GetLogoPath(_game.Id);
+                if (!string.IsNullOrEmpty(extraLogo))
+                {
+                    _items.Add(new ArtworkManagerItem(
+                        extraLogo,
+                        isFixed: false,
+                        isExcluded: _extraMetadataLogos.IsExcluded(_store, _game.Id),
+                        orderIndex: ++artworkIndex,
+                        artworkKind: _kind,
+                        forceNativeOriginal: true,
+                        isVirtualOriginal: true,
+                        isExtraMetadataOriginal: true));
+                }
+            }
+
             // In Theme Integration Original is always the live Playnite image.
             // For an untouched game it is also virtual in Compatibility because
             // there is no reason to create a safety copy until rotation starts.
-            if (themeIntegration || !hasPluginArtwork)
+            if (supportsNativeOriginal && (themeIntegration || !hasPluginArtwork))
             {
                 string nativePath = _preserver?.ResolveOriginalPath(_game, _kind)
                     ?? ResolveCurrentPlayniteArtworkPath();
@@ -267,6 +292,7 @@ namespace ImageRotater.Controls
             foreach (string path in _store
                 .GetImagePathsRaw(_game.Id, _kind)
                 .Where(GameImageStore.IsSupported)
+                .Where(path => _kind != ArtworkKind.Logo || IsSupportedLogoPath(path))
                 .Where(path => !string.IsNullOrEmpty(path) && File.Exists(path)))
             {
                 // original_* is Compatibility's technical safety copy. In Theme
@@ -300,7 +326,9 @@ namespace ImageRotater.Controls
             bool hasItems = _items.Count > 0;
             EmptyListText.Text = _kind == ArtworkKind.Cover
                 ? Loc.Get("LOCImageRotaterManagerNoCovers")
-                : Loc.Get("LOCImageRotaterManagerNoBackgrounds");
+                : _kind == ArtworkKind.Logo
+                    ? Loc.Get("LOCImageRotaterManagerNoLogos")
+                    : Loc.Get("LOCImageRotaterManagerNoBackgrounds");
             EmptyStatePanel.Visibility = hasItems ? Visibility.Collapsed : Visibility.Visible;
             ItemsList.Visibility = hasItems ? Visibility.Visible : Visibility.Collapsed;
 
@@ -331,10 +359,21 @@ namespace ImageRotater.Controls
             UpdateFixedArtworkButton();
         }
 
+        private static bool IsSupportedLogoPath(string path)
+        {
+            string ext = (Path.GetExtension(path) ?? string.Empty).ToLowerInvariant();
+            return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp";
+        }
+
         private string ResolveCurrentPlayniteArtworkPath()
         {
             try
             {
+                if (_kind == ArtworkKind.Logo)
+                {
+                    return null;
+                }
+
                 string imageId = _kind == ArtworkKind.Cover
                     ? _game.CoverImage
                     : _game.BackgroundImage;
@@ -359,15 +398,23 @@ namespace ImageRotater.Controls
 
         private void InitializeGameBehaviorChoices()
         {
-            GameModeOverrideCombo.ItemsSource = new[]
-            {
-                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterManagerUseGlobal"), null),
-                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickSession"), SelectionMode.Session),
-                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickEverySelection"), SelectionMode.EverySelection),
-                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickFixed"), SelectionMode.Fixed),
-                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickDaily"), SelectionMode.Daily),
-                new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickSlideshow"), SelectionMode.Slideshow)
-            };
+            GameModeOverrideCombo.ItemsSource = _kind == ArtworkKind.Logo
+                ? new[]
+                {
+                    new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterManagerUseGlobal"), null),
+                    new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickSession"), SelectionMode.Session),
+                    new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickDaily"), SelectionMode.Daily),
+                    new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickFixed"), SelectionMode.Fixed)
+                }
+                : new[]
+                {
+                    new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterManagerUseGlobal"), null),
+                    new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickSession"), SelectionMode.Session),
+                    new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickEverySelection"), SelectionMode.EverySelection),
+                    new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickFixed"), SelectionMode.Fixed),
+                    new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickDaily"), SelectionMode.Daily),
+                    new Choice<SelectionMode?>(Loc.Get("LOCImageRotaterPickSlideshow"), SelectionMode.Slideshow)
+                };
 
             GameOrderOverrideCombo.ItemsSource = new[]
             {
@@ -442,7 +489,9 @@ namespace ImageRotater.Controls
         {
             string label = _kind == ArtworkKind.Cover
                 ? Loc.Get("LOCImageRotaterMenuCovers")
-                : Loc.Get("LOCImageRotaterMenuBackgrounds");
+                : _kind == ArtworkKind.Logo
+                    ? Loc.Get("LOCImageRotaterMenuLogos")
+                    : Loc.Get("LOCImageRotaterMenuBackgrounds");
             FilesHeaderText.Text = Loc.Format("LOCImageRotaterManagerItemsHeading", label, _items.Count);
             UpdateSelectionSummary();
         }
@@ -597,7 +646,7 @@ namespace ImageRotater.Controls
 
             if (ToggleExcludeMenuItem != null)
             {
-                ToggleExcludeMenuItem.IsEnabled = canModify;
+                ToggleExcludeMenuItem.IsEnabled = canModify || item?.IsExtraMetadataOriginal == true;
             }
 
             if (MoveUpMenuItem != null) MoveUpMenuItem.IsEnabled = canModify;
@@ -619,8 +668,12 @@ namespace ImageRotater.Controls
         private void ContextToggleExclude_Click(object sender, RoutedEventArgs e)
         {
             ArtworkManagerItem item = SelectedArtwork();
-            if (item == null || item.IsVirtualOriginal) return;
-            if (_store.SetArtworkExcluded(_game.Id, _kind, item.Path, !item.IsExcluded))
+            if (item == null || (item.IsVirtualOriginal && !item.IsExtraMetadataOriginal)) return;
+
+            bool changed = item.IsExtraMetadataOriginal
+                ? _extraMetadataLogos.SetExcluded(_store, _game.Id, !item.IsExcluded)
+                : _store.SetArtworkExcluded(_game.Id, _kind, item.Path, !item.IsExcluded);
+            if (changed)
             {
                 NotifyImagesChanged();
                 ReloadItems(item.Path);
@@ -674,20 +727,49 @@ namespace ImageRotater.Controls
 
         private void AddButton_Click(object sender, RoutedEventArgs e)
         {
-            List<string> selected = _api.Dialogs.SelectFiles(
-                Loc.Get("LOCImageRotaterArtworkFilter") + "|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif;*.mp4;*.webm"
-                + "|" + Loc.Get("LOCImageRotaterImagesFilter") + "|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif"
-                + "|" + Loc.Get("LOCImageRotaterVideoFilter") + "|*.mp4;*.webm");
+            List<string> selected = _kind == ArtworkKind.Logo
+                ? _api.Dialogs.SelectFiles(
+                    Loc.Get("LOCImageRotaterImagesFilter") + "|*.jpg;*.jpeg;*.png;*.bmp")
+                : _api.Dialogs.SelectFiles(
+                    Loc.Get("LOCImageRotaterArtworkFilter") + "|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif;*.mp4;*.webm"
+                    + "|" + Loc.Get("LOCImageRotaterImagesFilter") + "|*.jpg;*.jpeg;*.png;*.bmp;*.webp;*.gif"
+                    + "|" + Loc.Get("LOCImageRotaterVideoFilter") + "|*.mp4;*.webm");
 
             if (selected == null || selected.Count == 0)
             {
                 return;
             }
 
+            ImportLocalFiles(selected);
+        }
+
+        private void ItemsList_DragOver(object sender, DragEventArgs e)
+        {
+            e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
+                ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        }
+
+        private void ItemsList_Drop(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
+            if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+            var paths = e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (paths == null) return;
+            string[] extensions = _kind == ArtworkKind.Logo
+                ? new[] { ".jpg", ".jpeg", ".png", ".bmp" }
+                : new[] { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif", ".mp4", ".webm" };
+            var selected = paths.Where(path => File.Exists(path) &&
+                extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)).ToList();
+            if (selected.Count > 0) ImportLocalFiles(selected);
+        }
+
+        private void ImportLocalFiles(List<string> selected)
+        {
             int added = 0;
             int optimised = 0;
             ImageRotaterSettings currentSettings = _settings?.Invoke();
-            ImageOptimizer optimizer = currentSettings?.OptimiseDownloadedImages == true
+            ImageOptimizer optimizer = _kind != ArtworkKind.Logo && currentSettings?.OptimiseDownloadedImages == true
                 ? new ImageOptimizer(_store)
                 : null;
 
@@ -727,7 +809,6 @@ namespace ImageRotater.Controls
 
             _api.Dialogs.ShowMessage(message, "ImageRotater");
         }
-
         private void AutomaticButton_Click(object sender, RoutedEventArgs e)
         {
             _automaticDownload?.Invoke();
@@ -978,13 +1059,15 @@ namespace ImageRotater.Controls
                 int orderIndex,
                 ArtworkKind artworkKind,
                 bool forceNativeOriginal = false,
-                bool isVirtualOriginal = false)
+                bool isVirtualOriginal = false,
+                bool isExtraMetadataOriginal = false)
             {
                 Path = path;
                 IsFixed = isFixed;
                 IsExcluded = isExcluded;
                 IsNativeOriginal = forceNativeOriginal || GameImageStore.IsPreservedOriginal(path);
                 IsVirtualOriginal = isVirtualOriginal;
+                IsExtraMetadataOriginal = isExtraMetadataOriginal;
                 OrderLabel = "#" + orderIndex.ToString(CultureInfo.InvariantCulture);
                 FixedBadgeVisibility = isFixed ? Visibility.Visible : Visibility.Collapsed;
                 ExcludedBadgeVisibility = isExcluded ? Visibility.Visible : Visibility.Collapsed;
@@ -993,7 +1076,9 @@ namespace ImageRotater.Controls
                 // Keep the original_* filename on disk for reliable detection, but never
                 // expose that technical name in the manager. The badge communicates the
                 // role (Original), while the title communicates where the artwork comes from.
-                Name = IsNativeOriginal
+                Name = isExtraMetadataOriginal
+                    ? Loc.Get("LOCImageRotaterManagerExtraMetadataLogo")
+                    : IsNativeOriginal
                     ? (artworkKind == ArtworkKind.Cover
                         ? Loc.Get("LOCImageRotaterManagerPlayniteCover")
                         : Loc.Get("LOCImageRotaterManagerPlayniteBackground"))
@@ -1036,6 +1121,7 @@ namespace ImageRotater.Controls
             public bool IsExcluded { get; }
             public bool IsNativeOriginal { get; }
             public bool IsVirtualOriginal { get; }
+            public bool IsExtraMetadataOriginal { get; }
             public string OrderLabel { get; }
             public Visibility FixedBadgeVisibility { get; }
             public Visibility ExcludedBadgeVisibility { get; }

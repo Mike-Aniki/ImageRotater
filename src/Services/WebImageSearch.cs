@@ -46,7 +46,7 @@ namespace ImageRotater.Services
 
         // Artwork matching a free-text query, newest-first as the page returns
         // them. Never throws and never returns null.
-        public IReadOnlyList<SteamGridDbArtwork> Search(string query, int maxResults = 60)
+        public IReadOnlyList<SteamGridDbArtwork> Search(string query, int maxResults = 60, bool safeSearch = true)
         {
             var found = new List<SteamGridDbArtwork>();
 
@@ -59,7 +59,7 @@ namespace ImageRotater.Services
             {
                 using (IWebView view = _api.WebViews.CreateOffscreenView())
                 {
-                    string url = BuildSearchUrl(query);
+                    string url = BuildSearchUrl(query, safeSearch);
                     view.NavigateAndWait(url);
 
                     // First visit in a region that requires it lands on a
@@ -84,13 +84,13 @@ namespace ImageRotater.Services
             }
         }
 
-        private static string BuildSearchUrl(string query)
+        private static string BuildSearchUrl(string query, bool safeSearch)
         {
             // tbm=isch selects image results; safe=on keeps the default search
             // filtered, matching what Playnite's own image search requests.
             return "https://www.google.com/search?tbm=isch&q="
                 + Uri.EscapeDataString(query)
-                + "&safe=on";
+                + (safeSearch ? "&safe=active" : "&safe=off");
         }
 
         private static bool IsConsentPage(string address)

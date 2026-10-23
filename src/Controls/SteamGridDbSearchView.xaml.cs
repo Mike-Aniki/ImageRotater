@@ -128,6 +128,10 @@ namespace ImageRotater.Controls
             {
                 ThumbnailHeight = TileWidth - 16;
             }
+            else if (kind == ArtworkKind.Logo)
+            {
+                ThumbnailHeight = Math.Max(110, (TileWidth - 16) * 0.5);
+            }
 
             // Conversion needs ffmpeg, which the plugin cannot bundle - it is
             // GPL and this project is MIT. Say so on the control rather than
@@ -141,6 +145,17 @@ namespace ImageRotater.Controls
             }
 
             RestorePreset();
+            if (_kind == ArtworkKind.Logo)
+            {
+                SteamSourceButton.Visibility = Visibility.Collapsed;
+                YouTubeSourceButton.Visibility = Visibility.Collapsed;
+                SourceTabs.SelectedItem = SteamGridDbTab;
+                ShowAnimatedBox.IsChecked = false;
+                ShowAnimatedBox.IsEnabled = false;
+                _model.Filter.ShowAnimated = false;
+                ConvertGifsBox.IsChecked = false;
+                ConvertGifsBox.IsEnabled = false;
+            }
             UpdateSourceUi();
             UpdateDownloadButtonState();
 
@@ -351,13 +366,15 @@ namespace ImageRotater.Controls
 
                 if (ReferenceEquals(SourceTabs.SelectedItem, WebTab))
                 {
-                    await _model.SearchWebAsync(SearchBox.Text, _webSearch, isCurrent);
+                    await _model.SearchWebAsync(SearchBox.Text, _webSearch, isCurrent, SafeSearchCheckBox.IsChecked != false);
                     return;
                 }
 
                 SteamGridDbArtworkType type = _kind == ArtworkKind.Cover
                     ? SteamGridDbArtworkType.Grid
-                    : SteamGridDbArtworkType.Hero;
+                    : _kind == ArtworkKind.Logo
+                        ? SteamGridDbArtworkType.Logo
+                        : SteamGridDbArtworkType.Hero;
 
                 await _model.SearchAsync(SearchBox.Text, type, isCurrent);
             }
@@ -405,10 +422,18 @@ namespace ImageRotater.Controls
         // Re-run on tab change so the results always match the visible tab.
         // Leaving the previous source's results on screen under a different
         // heading is worse than a moment's wait.
+        private void UpdateSafeSearchVisibility()
+        {
+            if (SafeSearchCheckBox != null && SourceTabs != null && WebTab != null)
+                SafeSearchCheckBox.Visibility = ReferenceEquals(SourceTabs.SelectedItem, WebTab)
+                    ? Visibility.Visible : Visibility.Collapsed;
+        }
+
         private async void SourceTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             // Fires once while the tabs are being built, before the rest of the
             // dialog exists. The Loaded handler runs the first search.
+            UpdateSafeSearchVisibility();
             if (!IsLoaded)
             {
                 return;
@@ -480,7 +505,9 @@ namespace ImageRotater.Controls
         {
             string extra = _kind == ArtworkKind.Cover
                 ? _settings.WebCoverSearchTerm
-                : _settings.WebBackgroundSearchTerm;
+                : _kind == ArtworkKind.Logo
+                    ? _settings.WebLogoSearchTerm
+                    : _settings.WebBackgroundSearchTerm;
 
             string plain = (gameName ?? string.Empty).Trim();
             string suffix = (extra ?? string.Empty).Trim();
@@ -889,7 +916,7 @@ namespace ImageRotater.Controls
             // while SteamGridDB keeps the richer curated metadata controls.
             SizeFilterSection.Visibility = onYouTube ? Visibility.Collapsed : Visibility.Visible;
             StyleFilterSection.Visibility = onSgdb ? Visibility.Visible : Visibility.Collapsed;
-            AnimationFilterSection.Visibility = Visibility.Visible;
+            AnimationFilterSection.Visibility = _kind == ArtworkKind.Logo ? Visibility.Collapsed : Visibility.Visible;
             ContentFilterSection.Visibility = onSgdb ? Visibility.Visible : Visibility.Collapsed;
 
         }
@@ -910,12 +937,12 @@ namespace ImageRotater.Controls
                 style.SetChecked(false, false);
             }
 
-            ShowAnimatedBox.IsChecked = true;
+            ShowAnimatedBox.IsChecked = _kind != ArtworkKind.Logo;
             ShowNsfwBox.IsChecked = false;
             ShowHumorBox.IsChecked = false;
             ShowEpilepsyBox.IsChecked = false;
 
-            _model.Filter.ShowAnimated = true;
+            _model.Filter.ShowAnimated = _kind != ArtworkKind.Logo;
             _model.Filter.ShowNsfw = false;
             _model.Filter.ShowHumor = false;
             _model.Filter.ShowEpilepsy = false;
@@ -959,7 +986,7 @@ namespace ImageRotater.Controls
                 return;
             }
 
-            _model.Filter.ShowAnimated = ShowAnimatedBox.IsChecked == true;
+            _model.Filter.ShowAnimated = _kind != ArtworkKind.Logo && ShowAnimatedBox.IsChecked == true;
             _model.Filter.ShowNsfw = ShowNsfwBox.IsChecked == true;
             _model.Filter.ShowHumor = ShowHumorBox.IsChecked == true;
             _model.Filter.ShowEpilepsy = ShowEpilepsyBox.IsChecked == true;
@@ -973,6 +1000,10 @@ namespace ImageRotater.Controls
             // the visible list, and anything ticked but currently filtered out
             // would otherwise be dropped from the download without saying so.
             var chosen = _model.SelectedArtwork();
+            if (_kind == ArtworkKind.Logo)
+            {
+                chosen = chosen.Where(IsSupportedLogoArtwork).ToList();
+            }
             if (chosen.Count == 0)
             {
                 ShowDownloadFeedback(Loc.Get("LOCImageRotaterSelectImagesFirst"), false, false);
@@ -1147,6 +1178,20 @@ namespace ImageRotater.Controls
             }
         }
 
+
+        private static bool IsSupportedLogoArtwork(SteamGridDbArtwork artwork)
+        {
+            if (artwork == null || artwork.IsAnimated || artwork.IsYouTube)
+            {
+                return false;
+            }
+
+            string value = (artwork.Url ?? string.Empty).ToLowerInvariant();
+            string mime = (artwork.Mime ?? string.Empty).ToLowerInvariant();
+            return mime.Contains("png") || mime.Contains("jpeg") || mime.Contains("jpg") || mime.Contains("bmp")
+                || value.Contains(".png") || value.Contains(".jpg") || value.Contains(".jpeg") || value.Contains(".bmp");
+        }
+
         private int CandidateCount()
         {
             if (string.IsNullOrEmpty(_pluginUserDataPath) || _game == null)
@@ -1155,7 +1200,7 @@ namespace ImageRotater.Controls
             }
 
             return new GameImageStore(_pluginUserDataPath).RotationPoolSize(
-                _gameId, _kind, _kind == ArtworkKind.Cover ? _game.CoverImage : _game.BackgroundImage);
+                _gameId, _kind, _kind == ArtworkKind.Cover ? _game.CoverImage : _kind == ArtworkKind.Logo ? null : _game.BackgroundImage);
         }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)

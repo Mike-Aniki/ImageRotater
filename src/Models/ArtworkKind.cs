@@ -1,4 +1,4 @@
-namespace ImageRotater.Models
+﻿namespace ImageRotater.Models
 {
     // What an image is for. Backgrounds and covers need different selection
     // rules - a background wants the most pixels it can get, while a cover is
@@ -7,6 +7,7 @@ namespace ImageRotater.Models
     public enum ArtworkKind
     {
         Background,
-        Cover
+        Cover,
+        Logo
     }
 }

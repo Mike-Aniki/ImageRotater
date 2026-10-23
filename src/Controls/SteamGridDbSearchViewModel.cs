@@ -446,7 +446,7 @@ namespace ImageRotater.Controls
             }
         }
 
-        public async Task<bool> SearchWebAsync(string query, WebImageSearch search, Func<bool> isCurrent = null)
+        public async Task<bool> SearchWebAsync(string query, WebImageSearch search, Func<bool> isCurrent = null, bool safeSearch = true)
         {
             if (search == null || !search.IsAvailable)
             {
@@ -464,7 +464,7 @@ namespace ImageRotater.Controls
                 // dispatcher - running the whole method off-thread threw
                 // NotSupportedException from RebuildFilterOptions.
                 List<SteamGridDbArtwork> found =
-                    await Task.Run(() => search.Search(query).ToList()).ConfigureAwait(true);
+                    await Task.Run(() => search.Search(query, 60, safeSearch).ToList()).ConfigureAwait(true);
 
                 if (!RequestIsCurrent(isCurrent)) return false;
 

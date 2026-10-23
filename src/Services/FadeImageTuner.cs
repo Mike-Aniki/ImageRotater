@@ -105,6 +105,11 @@ namespace ImageRotater.Services
             public EventHandler OnSwap;
             public RoutedEventHandler OnUnloaded;
             public TransitionDirection Direction;
+            public Storyboard NativeImage1FadeIn;
+            public Storyboard NativeImage2FadeIn;
+            public Storyboard NativeImage1FadeOut;
+            public Storyboard NativeImage2FadeOut;
+            public object NativeSourceUpdateDelay;
         }
 
         private static readonly ConditionalWeakTable<UserControl, Tune> Patched =
@@ -142,6 +147,42 @@ namespace ImageRotater.Services
                 Logger.Warn(ex, "ImageRotater: could not retime Playnite's background fade");
                 return 0;
             }
+        }
+
+        public static int Restore()
+        {
+            try
+            {
+                Window window = Application.Current?.MainWindow;
+                return window == null ? 0 : Restore(window);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: could not restore Playnite's background fade");
+                return 0;
+            }
+        }
+
+        private static int Restore(DependencyObject node)
+        {
+            int restored = 0;
+            int count = VisualTreeHelper.GetChildrenCount(node);
+
+            for (int i = 0; i < count; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(node, i);
+
+                if (child is UserControl control &&
+                    control.GetType().FullName == FadeImageTypeName &&
+                    RestoreOne(control))
+                {
+                    restored++;
+                }
+
+                restored += Restore(child);
+            }
+
+            return restored;
         }
 
         private static int Patch(DependencyObject node)
@@ -265,13 +306,14 @@ namespace ImageRotater.Services
 
         private static bool TryRetime(UserControl fadeImage)
         {
+            bool known = Patched.TryGetValue(fadeImage, out Tune tune);
+            Tune nativeState = known ? tune : CaptureNativeState(fadeImage);
+
             // These are re-asserted on every scan, cheaply: Playnite rewrites
             // SourceUpdateDelay when views change, and a rebuilt template can
             // arrive with no effect attached again.
             EnsureEffect(fadeImage);
             SetSourceDelay(fadeImage);
-
-            bool known = Patched.TryGetValue(fadeImage, out Tune tune);
 
             bool isSlide = Transition.BackgroundStyle == TransitionStyle.SlideFromRight;
             bool isZoom = Transition.BackgroundStyle == TransitionStyle.Zoom;
@@ -373,7 +415,7 @@ namespace ImageRotater.Services
 
                 if (!known)
                 {
-                    tune = new Tune();
+                    tune = nativeState ?? new Tune();
                     Patched.Add(fadeImage, tune);
 
                     // A view switch throws the control away; the hooks below
@@ -413,6 +455,98 @@ namespace ImageRotater.Services
                 Logger.Warn(ex, "ImageRotater: FadeImage retime skipped");
                 return false;
             }
+        }
+
+        private static Tune CaptureNativeState(UserControl fadeImage)
+        {
+            var tune = new Tune
+            {
+                NativeImage1FadeIn = CloneStoryboard(fadeImage, "Image1FadeIn"),
+                NativeImage2FadeIn = CloneStoryboard(fadeImage, "Image2FadeIn"),
+                NativeImage1FadeOut = CloneStoryboard(fadeImage, "Image1FadeOut"),
+                NativeImage2FadeOut = CloneStoryboard(fadeImage, "Image2FadeOut")
+            };
+
+            try
+            {
+                tune.NativeSourceUpdateDelay = fadeImage.GetType()
+                    .GetProperty("SourceUpdateDelay")
+                    ?.GetValue(fadeImage);
+            }
+            catch
+            {
+                tune.NativeSourceUpdateDelay = null;
+            }
+
+            return tune;
+        }
+
+        private static Storyboard CloneStoryboard(UserControl fadeImage, string key)
+        {
+            try
+            {
+                return (fadeImage.Resources[key] as Storyboard)?.Clone();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool RestoreOne(UserControl fadeImage)
+        {
+            if (!Patched.TryGetValue(fadeImage, out Tune tune))
+            {
+                return false;
+            }
+
+            try
+            {
+                RemoveVeil(fadeImage, tune);
+                ResetMotionScale(fadeImage);
+                ResetFocusEffects(fadeImage);
+                ResetSideRevealMasks(fadeImage);
+                ResetMosaicMasks(fadeImage);
+                RestoreStoryboard(fadeImage, "Image1FadeIn", tune.NativeImage1FadeIn);
+                RestoreStoryboard(fadeImage, "Image2FadeIn", tune.NativeImage2FadeIn);
+                RestoreStoryboard(fadeImage, "Image1FadeOut", tune.NativeImage1FadeOut);
+                RestoreStoryboard(fadeImage, "Image2FadeOut", tune.NativeImage2FadeOut);
+
+                if (tune.NativeSourceUpdateDelay != null)
+                {
+                    fadeImage.GetType()
+                        .GetProperty("SourceUpdateDelay")
+                        ?.SetValue(fadeImage, tune.NativeSourceUpdateDelay);
+                }
+
+                if (tune.OnUnloaded != null)
+                {
+                    fadeImage.Unloaded -= tune.OnUnloaded;
+                }
+
+                Patched.Remove(fadeImage);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: could not restore a Playnite FadeImage");
+                return false;
+            }
+        }
+
+        private static void RestoreStoryboard(UserControl fadeImage, string key, Storyboard nativeStoryboard)
+        {
+            if (nativeStoryboard == null)
+            {
+                return;
+            }
+
+            Storyboard restored = nativeStoryboard.Clone();
+            fadeImage.Resources[key] = restored;
+
+            fadeImage.GetType()
+                .GetField(key, BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(fadeImage, restored);
         }
 
         private static bool ApplySlideStoryboards(
@@ -929,27 +1063,31 @@ namespace ImageRotater.Services
             Storyboard.SetTargetProperty(blurAnim, new PropertyPath(BlurEffect.RadiusProperty));
             storyboard.Children.Add(blurAnim);
 
-            double fromScale = incoming ? 1.05 : 1.0;
-            double toScale = incoming ? 1.0 : 0.965;
-            var ease = new CubicEase { EasingMode = incoming ? EasingMode.EaseOut : EasingMode.EaseInOut };
-            var scaleX = new DoubleAnimation(fromScale, toScale, new Duration(duration))
+            if (incoming)
             {
-                EasingFunction = ease,
-                FillBehavior = FillBehavior.Stop
-            };
-            var scaleY = new DoubleAnimation(fromScale, toScale, new Duration(duration))
-            {
-                EasingFunction = ease,
-                FillBehavior = FillBehavior.Stop
-            };
-            Storyboard.SetTarget(scaleX, image);
-            Storyboard.SetTarget(scaleY, image);
-            Storyboard.SetTargetProperty(scaleX, new PropertyPath(
-                "(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleX)"));
-            Storyboard.SetTargetProperty(scaleY, new PropertyPath(
-                "(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleY)"));
-            storyboard.Children.Add(scaleX);
-            storyboard.Children.Add(scaleY);
+                double fromScale = 1.05;
+                double toScale = 1.0;
+                var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+                var scaleX = new DoubleAnimation(fromScale, toScale, new Duration(duration))
+                {
+                    EasingFunction = ease,
+                    FillBehavior = FillBehavior.Stop
+                };
+                var scaleY = new DoubleAnimation(fromScale, toScale, new Duration(duration))
+                {
+                    EasingFunction = ease,
+                    FillBehavior = FillBehavior.Stop
+                };
+                Storyboard.SetTarget(scaleX, image);
+                Storyboard.SetTarget(scaleY, image);
+                Storyboard.SetTargetProperty(scaleX, new PropertyPath(
+                    "(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleX)"));
+                Storyboard.SetTargetProperty(scaleY, new PropertyPath(
+                    "(UIElement.RenderTransform).(TransformGroup.Children)[0].(ScaleTransform.ScaleY)"));
+                storyboard.Children.Add(scaleX);
+                storyboard.Children.Add(scaleY);
+
+            }
 
             return storyboard;
         }

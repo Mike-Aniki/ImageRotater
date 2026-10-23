@@ -85,7 +85,7 @@ namespace ImageRotater.Controls
         // Wait for the selection to remain stable before beginning the
         // background transition. This prevents slides from starting while the
         // user is still scrolling through the game list.
-        private static readonly TimeSpan RapidSelectionSettle = TimeSpan.FromMilliseconds(400);
+        private static readonly TimeSpan RapidSelectionSettle = TimeSpan.FromMilliseconds(500);
         private readonly DispatcherTimer _rapidSelectionTimer;
         private readonly DispatcherTimer _initialLayoutTimer;
         private bool _initialLayoutReady;
@@ -1644,7 +1644,8 @@ namespace ImageRotater.Controls
             incomingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, sharpen);
             outgoingBlur.BeginAnimation(System.Windows.Media.Effects.BlurEffect.RadiusProperty, defocus);
             AnimateSlotZoomToNormal(incoming, Transition.BackgroundDuration, easeOut);
-            AnimateSlotZoomToScale(outgoing, 0.965, Transition.BackgroundDuration, new CubicEase { EasingMode = EasingMode.EaseInOut });
+            // Keep the outgoing background full-screen during Cinematic.
+            // Only the incoming background animates its scale.
             LogTransition(outgoing, incoming, style);
         }
 
@@ -2497,6 +2498,11 @@ namespace ImageRotater.Controls
 
             _slotA?.Container.BeginAnimation(OpacityProperty, null);
             _slotB?.Container.BeginAnimation(OpacityProperty, null);
+            // Cancel any interrupted Cinematic scale/blur animations before reusing a slot.
+            ResetSlotMediaScale(_slotA);
+            ResetSlotMediaScale(_slotB);
+            ResetSlotFocusEffect(_slotA);
+            ResetSlotFocusEffect(_slotB);
             _slotA?.Image.BeginAnimation(Image.SourceProperty, null);
             _slotB?.Image.BeginAnimation(Image.SourceProperty, null);
             if (_slotA?.Image != null) RenderOptions.SetBitmapScalingMode(_slotA.Image, BitmapScalingMode.HighQuality);

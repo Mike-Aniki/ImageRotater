@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using Playnite.SDK.Models;
 using Playnite.SDK.Plugins;
@@ -18,7 +18,7 @@ namespace ImageRotater.Services
         {
             var selected = games?.ToList() ?? new List<Game>();
 
-            foreach (ArtworkKind kind in new[] { ArtworkKind.Background, ArtworkKind.Cover })
+            foreach (ArtworkKind kind in new[] { ArtworkKind.Background, ArtworkKind.Cover, ArtworkKind.Logo })
             {
                 // Captured per iteration: the lambdas below outlive the loop,
                 // and closing over the loop variable would give every menu item
@@ -26,14 +26,18 @@ namespace ImageRotater.Services
                 ArtworkKind current = kind;
                 string section = current == ArtworkKind.Cover
                     ? "ImageRotater|" + Loc.Get("LOCImageRotaterMenuCovers")
-                    : "ImageRotater|" + Loc.Get("LOCImageRotaterMenuBackgrounds");
+                    : current == ArtworkKind.Logo
+                        ? "ImageRotater|" + Loc.Get("LOCImageRotaterMenuLogos")
+                        : "ImageRotater|" + Loc.Get("LOCImageRotaterMenuBackgrounds");
 
                 yield return new GameMenuItem
                 {
                     MenuSection = section,
                     Description = current == ArtworkKind.Cover
                         ? Loc.Get("LOCImageRotaterMenuBrowseCovers")
-                        : Loc.Get("LOCImageRotaterMenuBrowseBackgrounds"),
+                        : current == ArtworkKind.Logo
+                            ? Loc.Get("LOCImageRotaterMenuBrowseLogos")
+                            : Loc.Get("LOCImageRotaterMenuBrowseBackgrounds"),
                     Action = a => handler.ManageImages(selected.FirstOrDefault(), current)
                 };
 

@@ -25,7 +25,7 @@
         <PackageReference Include="Newtonsoft.Json" Version="10.0.3" />
         <!-- GIF playback on a plain Image via an attached property. The same
              library PlayGif ships; MIT; static formats untouched. -->
-        <PackageReference Include="XamlAnimatedGif" Version="2.3.0" />
+        <PackageReference Include="XamlAnimatedGif" Version="2.3.2" />
 
         <!-- Renders the animated preview.
              WPF's own MediaElement cannot do this job here: setting its Source

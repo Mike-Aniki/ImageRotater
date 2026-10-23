@@ -42,8 +42,23 @@ namespace ImageRotater.Services
     // beat on a small tile is a full-screen strobe on a background.
     public static class Transition
     {
-        public static TransitionStyle CoverStyle { get; set; } = TransitionStyle.Crossfade;
-        public static TransitionStyle BackgroundStyle { get; set; } = TransitionStyle.Crossfade;
+        private static TransitionStyle coverStyle = TransitionStyle.Crossfade;
+        private static TransitionStyle backgroundStyle = TransitionStyle.Crossfade;
+
+        public static bool Enabled { get; set; } = true;
+
+        public static TransitionStyle CoverStyle
+        {
+            get => Enabled ? coverStyle : TransitionStyle.Cut;
+            set => coverStyle = value;
+        }
+
+        public static TransitionStyle BackgroundStyle
+        {
+            get => Enabled ? backgroundStyle : TransitionStyle.Cut;
+            set => backgroundStyle = value;
+        }
+
         public static TransitionDirection NavigationDirection { get; private set; } = TransitionDirection.FromRight;
         public static Action<string> DebugLog { get; set; }
 

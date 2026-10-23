@@ -27,17 +27,26 @@ namespace ImageRotater.Services
         private readonly ArtworkKind _kind;
         private readonly OriginalArtPreserver _preserver;
         private readonly Func<ImageRotaterSettings> _settings;
+        private readonly ExtraMetadataLogoSource _extraMetadataLogos;
 
         public FolderImageSource(
             GameImageStore store,
             ArtworkKind kind,
             OriginalArtPreserver preserver = null,
-            Func<ImageRotaterSettings> settings = null)
+            Func<ImageRotaterSettings> settings = null,
+            ExtraMetadataLogoSource extraMetadataLogos = null)
         {
             _store = store;
             _kind = kind;
             _preserver = preserver;
             _settings = settings;
+            _extraMetadataLogos = extraMetadataLogos;
+        }
+
+        private static bool IsSupportedLogo(string path)
+        {
+            string ext = (Path.GetExtension(path) ?? string.Empty).ToLowerInvariant();
+            return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp";
         }
 
         public IReadOnlyList<string> GetImagePaths(Game game)
@@ -54,11 +63,26 @@ namespace ImageRotater.Services
             var pluginArtwork = stored
                 .Where(path => !GameImageStore.IsPreservedOriginal(path))
                 .Where(path => !string.IsNullOrEmpty(path) && File.Exists(path))
+                .Where(path => _kind != ArtworkKind.Logo || IsSupportedLogo(path))
                 .ToList();
 
             if (pluginArtwork.Count == 0)
             {
                 return Empty;
+            }
+
+            if (_kind == ArtworkKind.Logo)
+            {
+                // The external original is an optional read-only candidate;
+                // at least one ImageRotater logo must still exist to activate rotation.
+                string original = _extraMetadataLogos?.GetLogoPath(game.Id);
+                if (!string.IsNullOrEmpty(original) &&
+                    !_extraMetadataLogos.IsExcluded(_store, game.Id) &&
+                    !pluginArtwork.Any(path => ExtraMetadataLogoSource.SameContent(path, original)))
+                {
+                    pluginArtwork.Insert(0, original);
+                }
+                return pluginArtwork;
             }
 
             ImageRotaterSettings settings = _settings != null ? _settings() : null;

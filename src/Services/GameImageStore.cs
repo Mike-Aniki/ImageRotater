@@ -126,6 +126,7 @@ namespace ImageRotater.Services
                     {
                         result.Add(StartupIndexKey(gameId, ArtworkKind.Cover));
                     }
+
                 }
             }
             catch (Exception ex)
@@ -179,7 +180,17 @@ namespace ImageRotater.Services
 
         private static string SubfolderFor(ArtworkKind kind)
         {
-            return kind == ArtworkKind.Cover ? "covers" : "backgrounds";
+            if (kind == ArtworkKind.Cover)
+            {
+                return "covers";
+            }
+
+            if (kind == ArtworkKind.Logo)
+            {
+                return "logos";
+            }
+
+            return "backgrounds";
         }
 
         // Images saved before the split live directly in Images\{gameId}\.

@@ -253,7 +253,8 @@ namespace ImageRotater.Services
                 // on the final dimensions rather than re-encoding a huge source
                 // that is about to be downscaled. The optimiser may change the
                 // extension (PNG -> JPG), so keep the returned path in sync.
-                if (settings?.OptimiseDownloadedImages == true
+                if (kind != ArtworkKind.Logo
+                    && settings?.OptimiseDownloadedImages == true
                     && !artwork.IsAnimated
                     && IsOptimisableStill(target))
                 {
