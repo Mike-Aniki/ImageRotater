@@ -72,3 +72,23 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/v1.3.1/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_3_1.pext
     Changelog:
       - Fixed the Extension failed to load properly error by downgrading Newtonsoft.Json from version 13 to version 10.
+  - Version: 1.4.0
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-10-23
+    PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/1.4.0/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_4_0.pext
+    Changelog:
+      - Added logo support (only available through theme integration).
+      - Theme integration now includes the original Playnite cover, logo or background in the rotation.
+      - The Artwork Manager now displays the original Playnite cover, logo and background alongside ImageRotater artworks.
+      - Added 5 new transitions for covers and backgrounds.
+      - Added live transition previews for covers and backgrounds.
+      - Separated Display and Animation settings into dedicated tabs for covers and backgrounds.
+      - Added a new Online Artwork settings page dedicated to search and download options.
+      - Added automatic optimization for newly downloaded or manually added images.
+      - Added automatic resizing of downloaded backgrounds to 1080p, 1440p, or 4K while preserving their aspect ratio.
+      - Added an option to resize existing backgrounds to 1080p, 1440p, or 4K.
+      - The download pop-up now displays image resizing and optimization progress.
+      - Animated covers are now enabled by default for all visible covers in the grid.
+      - Added a SafeSearch option for Google image searches.
+      - Added drag-and-drop support in the Artwork Manager.
+      - Fixed a fullscreen transition issue affecting certain animations.
