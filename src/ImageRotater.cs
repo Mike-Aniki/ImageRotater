@@ -41,6 +41,14 @@ namespace ImageRotater
             }), System.Windows.Threading.DispatcherPriority.DataBind);
         }
 
+        // Desktop only: Fullscreen has no such setting and keeps its behaviour.
+        private Func<bool> WindowBackgroundSetting()
+        {
+            if (PlayniteApi.ApplicationInfo.Mode != ApplicationMode.Desktop) return () => true;
+            PlayniteWindowBackgroundSetting.SetConfigurationDirectory(PlayniteApi.Paths.ConfigurationPath);
+            return PlayniteWindowBackgroundSetting.IsEnabled;
+        }
+
         private void ApplyNativeHosts(Game selected)
         {
             try
@@ -51,7 +59,8 @@ namespace ImageRotater
                             () => Settings, _fileLogger,
                             imageId => PlayniteApi.Database.GetFullFilePath(imageId),
                             () => PlayniteApi.MainView.FilteredGames, nativeInjected: true),
-                        () => Application.Current?.MainWindow);
+                        () => Application.Current?.MainWindow,
+                        WindowBackgroundSetting());
                 _nativeFadeImageHost?.Update(selected);
             }
             catch (Exception ex) { Logger.Warn(ex, "ImageRotater: native background selection update failed"); }

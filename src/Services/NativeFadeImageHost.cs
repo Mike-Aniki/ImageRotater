@@ -21,6 +21,11 @@ namespace ImageRotater.Services
         private readonly Func<ImageRotaterSettings> settings;
         private readonly Func<BackgroundImageControl> createRenderer;
         private readonly Func<Window> getWindow;
+        // False when Playnite's Desktop "Use game background image as window
+        // background" is off. Only the window background obeys it; the game
+        // overview's own background part is untouched, and Fullscreen passes
+        // an always-true function.
+        private readonly Func<bool> windowBackgroundEnabled;
         private readonly DispatcherTimer timer;
         private Attachment attachment;
         private Game game;
@@ -48,11 +53,13 @@ namespace ImageRotater.Services
         }
 
         internal NativeFadeImageHost(Func<ImageRotaterSettings> settings,
-            Func<BackgroundImageControl> createRenderer, Func<Window> getWindow)
+            Func<BackgroundImageControl> createRenderer, Func<Window> getWindow,
+            Func<bool> windowBackgroundEnabled = null)
         {
             this.settings = settings;
             this.createRenderer = createRenderer;
             this.getWindow = getWindow;
+            this.windowBackgroundEnabled = windowBackgroundEnabled ?? (() => true);
             timer = new DispatcherTimer(DispatcherPriority.Background)
             {
                 Interval = TimeSpan.FromSeconds(1)
@@ -181,6 +188,13 @@ namespace ImageRotater.Services
                 // normal suspension policy releases media without loading native art.
                 if (!window.IsVisible || window.WindowState == WindowState.Minimized) return;
 
+                bool windowAllowed = windowBackgroundEnabled();
+                if (!windowAllowed && attachment != null && !IsGameOverview(attachment.Host))
+                {
+                    Detach();
+                    discoveryPasses = Math.Max(discoveryPasses, 1);
+                }
+
                 // Avoid scanning the whole library on every watchdog tick.
                 if (discoveryPasses == 0 && attachment?.Host.IsLoaded == true &&
                     attachment.IsVisible && Window.GetWindow(attachment.Host) == window) return;
@@ -203,7 +217,7 @@ namespace ImageRotater.Services
                     window.Dispatcher.BeginInvoke(new Action(Refresh), DispatcherPriority.Loaded);
                     return;
                 }
-                FrameworkElement target = SelectTarget(candidates);
+                FrameworkElement target = SelectTarget(FilterWindowBackgrounds(candidates, windowAllowed));
                 if (attachment?.Host == target && target != null) { NoteWalk(true); return; }
                 Detach();
                 if (target == null)
@@ -224,6 +238,13 @@ namespace ImageRotater.Services
                 Logger.Warn(ex, "ImageRotater: experimental FadeImage attachment failed; native background restored");
             }
         }
+
+        // Playnite leaves the window background empty when its setting is off;
+        // filling it anyway would override the user's choice on themes that
+        // keep the element visible.
+        internal static IEnumerable<FrameworkElement> FilterWindowBackgrounds(
+            IEnumerable<FrameworkElement> candidates, bool windowBackgroundEnabled) =>
+            windowBackgroundEnabled ? candidates : candidates.Where(IsGameOverview);
 
         internal static FrameworkElement SelectTarget(IEnumerable<FrameworkElement> candidates) =>
             candidates.OrderByDescending(IsGameOverview).FirstOrDefault();

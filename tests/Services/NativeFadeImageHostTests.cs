@@ -122,6 +122,35 @@ namespace ImageRotater.Tests.Services
             Assert.That(NativeFadeImageHost.SelectTarget(new FrameworkElement[] { global, local }), Is.SameAs(local));
         }
 
+        // Playnite's "Use game background image as window background" off:
+        // Playnite leaves the window FadeImage empty, and some themes (Harmony)
+        // keep it visible. The window background must stay untouched, while
+        // the game overview's own background still rotates.
+        [Test]
+        public void WindowBackgroundSettingOffLeavesOnlyOverviewBackgrounds()
+        {
+            var overview = new TestGameOverview();
+            var local = new Image { Name = "PART_ImageBackground" };
+            overview.Children.Add(local);
+            var global = new FakeFadeImage();
+
+            Assert.That(NativeFadeImageHost.SelectTarget(
+                NativeFadeImageHost.FilterWindowBackgrounds(new FrameworkElement[] { global }, false)), Is.Null);
+            Assert.That(NativeFadeImageHost.SelectTarget(
+                NativeFadeImageHost.FilterWindowBackgrounds(new FrameworkElement[] { global, local }, false)), Is.SameAs(local));
+            Assert.That(NativeFadeImageHost.SelectTarget(
+                NativeFadeImageHost.FilterWindowBackgrounds(new FrameworkElement[] { global }, true)), Is.SameAs(global));
+        }
+
+        [TestCase("{\"ShowBackgroundImageOnWindow\": false, \"X\": 1}", false)]
+        [TestCase("{\"ShowBackgroundImageOnWindow\":true}", true)]
+        [TestCase("{\"BackgroundImage\": false}", null)]
+        [TestCase("", null)]
+        public void WindowBackgroundSettingIsReadFromConfig(string json, bool? expected)
+        {
+            Assert.That(PlayniteWindowBackgroundSetting.Parse(json), Is.EqualTo(expected));
+        }
+
         [Test]
         public void LocalImageAdapterPreservesGridPlacementAndRestoresSourceBinding()
         {
