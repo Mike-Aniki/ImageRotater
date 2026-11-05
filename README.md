@@ -18,11 +18,11 @@
 
 <p>
 
-ImageRotater is a Playnite extension that lets every game use a collection of covers and backgrounds instead of being limited to a single image.
+ImageRotater is a Playnite extension that lets every game use a collection of covers, backgrounds and logos instead of being limited to a single image.
 
 Add the artwork you like, choose how you want it to behave, and ImageRotater takes care of switching it inside Playnite.
 
-The plugin works in both **Desktop** and **Fullscreen** and lets you manage covers and backgrounds independently.
+The plugin works in both **Desktop** and **Fullscreen** and lets you manage covers, backgrounds and logos independently.
 
 </p>
 
@@ -53,9 +53,11 @@ ImageRotater was originally created by **Huddini** and is now developed collabor
 
 <h2 align="center">More Than One Artwork per Game</h2>
 
-Once a game has several covers or backgrounds, ImageRotater can decide which one Playnite should display.
+Once a game has several covers, backgrounds or logos, ImageRotater can decide which one Playnite should display.
 
 You can keep one artwork for the whole Playnite session, choose a new one each time you focus the game, lock a specific artwork, or use slideshow rotation.
+
+You can also group a cover, background and logo into a **synchronized artwork pack** and rotate the whole set together. See [Artwork Packs](docs/ARTWORK_PACKS.md) for setup, selection modes and theme support.
 
 The detailed behavior and all available settings are explained in the User Guide.
 
@@ -67,11 +69,21 @@ The detailed behavior and all available settings are explained in the User Guide
 
 ---
 
+<h2 align="center">Transitions Only</h2>
+
+You do not have to add any artwork to use ImageRotater.
+
+With artwork rotation turned off and transitions turned on, ImageRotater keeps Playnite's original covers and backgrounds and only replaces the animation played when you switch from one game to another. Crossfade, Mosaic, Pixelate, Reveal and the other transitions can be chosen separately for covers and backgrounds.
+
+---
+
 <h2 align="center">Works with Regular Playnite Themes</h2>
 
-- For standard covers and backgrounds, **no special theme support is required**. ImageRotater uses Playnite's native artwork system, so static artwork works with regular themes in both Desktop and Fullscreen.
+ImageRotater displays images **and videos** directly inside the theme's own artwork elements, in both **Desktop** and **Fullscreen**. Themes using Playnite's standard cover and background elements need no dedicated ImageRotater support, and there is no integration mode to enable.
 
-- For **animated covers or backgrounds**, theme integration is required. If your theme does not support animated artwork, ImageRotater will still work normally with static covers and backgrounds. **Aniki ReMake already includes ImageRotater integration.**
+Logos work through the **Extra Metadata Loader** logo control, or through themes that load its per-game `logo.png` directly.
+
+Games without ImageRotater artwork keep their normal Playnite artwork. Themes with a custom structure may need small adjustments; see the [Theme Developer Guide](docs/THEME_INTEGRATION.md).
 
 ---
 
@@ -91,7 +103,7 @@ Migration steps are documented in the User Guide.
 
 The User Guide contains the complete documentation for using ImageRotater.
 
-Installation, artwork management, rotation modes, online sources, optional tools, BackgroundChanger migration, troubleshooting, and advanced settings are all documented separately so the main project page stays easy to read.
+Installation, artwork management, rotation modes, artwork packs, online sources, optional tools, BackgroundChanger migration, troubleshooting, and advanced settings are all documented separately so the main project page stays easy to read.
 
 <div align="center">
 
@@ -103,13 +115,13 @@ Installation, artwork management, rotation modes, online sources, optional tools
 
 <h2 align="center">For Theme Authors</h2>
 
-Theme integration has its own documentation.
+ImageRotater injects its artwork into existing theme elements automatically.
 
-If you are creating or updating a Playnite theme and want to support ImageRotater's animated covers and backgrounds, use the dedicated guide below.
+The Theme Developer Guide covers the supported background and cover elements, cover bindings, Extra Metadata logos, and how to remove an older manual ImageRotater integration.
 
 <div align="center">
 
-### **[Open the Theme Integration Guide](docs/THEME_INTEGRATION.md)**
+### **[Open the Theme Developer Guide](docs/THEME_INTEGRATION.md)**
 
 </div>
 
@@ -123,7 +135,9 @@ If you are creating or updating a Playnite theme and want to support ImageRotate
 ·
 [User Guide](https://github.com/Mike-Aniki/ImageRotater/wiki)
 ·
-[Theme Integration](docs/THEME_INTEGRATION.md)
+[Artwork Packs](docs/ARTWORK_PACKS.md)
+·
+[Theme Developer Guide](docs/THEME_INTEGRATION.md)
 ·
 [Changelog](CHANGELOG.md)
 ·
