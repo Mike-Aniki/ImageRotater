@@ -92,3 +92,21 @@ Packages:
       - Added a SafeSearch option for Google image searches.
       - Added drag-and-drop support in the Artwork Manager.
       - Fixed a fullscreen transition issue affecting certain animations.
+  - Version: 1.6.0
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-11-05
+    PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/v1.6.0/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_6_0.pext
+    Changelog:
+      - No more theme integration needed! ImageRotater now plugs directly into the standard Playnite elements your theme already uses (PART_ImageCover, PART_ImageBackground, Extra Metadata logos) and swaps in your artwork, images and videos alike, in Desktop and Fullscreen. No special support, no workarounds, if your theme uses Playnite standard elements, it just works! ImageRotater is now compatible with virtually all Playnite themes, without theme developers having to add any specific integration to their themes!
+      - Transitions work on their own, turn image rotation off and keep transitions on to animate Playnite original covers and backgrounds when switching games, now on virtually every theme.
+      - The plugin no longer writes artwork into Playnite's database. Artwork written by older versions is restored automatically.
+      - Synchronized artwork packs. Group a cover, background and logo into a matching look and rotate the whole set together (Session, Every selection, Daily, Fixed or Slideshow). Open the Pack manager from a game's right-click menu > ImageRotater.
+      - New option to show ImageRotater covers on all visible games, or only on the selected game.
+      - Now convert an animated WebP to MP4 directly from the Artwork Manager.
+      - New download buttons for FFmpeg, yt-dlp and Deno in Settings > Tools.
+      - SteamGridDB animated results now show a preview.
+      - The rendering mode and Theme Integration settings are gone. There is nothing to enable anymore, and old settings migrate automatically.
+      - Removed the Letterbox and Level background options, which no longer had any effect.
+      - Lower memory use. Minimizing Playnite releases cached images and videos, and browsing games without ImageRotater artwork no longer fills the cache.
+      - Lighter cover checks while scrolling, and the background search slows down on themes without a standard background.
+      - The debug log is now a single file that restarts past 10 MB. Old log archives are removed.
