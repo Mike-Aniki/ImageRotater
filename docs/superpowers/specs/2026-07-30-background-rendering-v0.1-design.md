@@ -1,3 +1,5 @@
+> Historical design document. Its rendering/integration instructions are superseded by the [current Theme Developer Guide](../../THEME_INTEGRATION.md).
+
 # ImageRotater v0.1 — Background Rendering Engine
 
 **Date:** 2026-07-30

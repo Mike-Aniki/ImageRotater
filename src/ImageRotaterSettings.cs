@@ -51,14 +51,90 @@ namespace ImageRotater
 
     public class ImageRotaterSettings : ObservableObject
     {
+        private readonly HashSet<object> backgroundRenderers = new HashSet<object>();
+        [JsonIgnore]
+        public bool UseThemeBackgroundFallback { get; internal set; }
+        // Retired option: source compatibility only; rendering is always injected.
+        [JsonIgnore]
+        public bool UseExperimentalFadeImage { get => true; set { } }
+
+        public bool UsesDirectRendering(ArtworkKind kind) => true;
+
+        internal bool ShouldRenderBackground(Guid gameId) =>
+            (EnableRotation && IsArtworkRotationEnabled(gameId, ArtworkKind.Background)) || EnableTransitions;
+        // Retired option: source compatibility only; rendering is always injected.
+        [JsonIgnore]
+        public bool UseExperimentalNativeLogos { get => true; set { } }
+        [JsonIgnore]
+        public bool CanConfigureLogos => enableRotation && (rotateLogos || HasEnabledPacks);
+        // Retired option: source compatibility only; rendering is always injected.
+        [JsonIgnore]
+        public bool UseExperimentalNativeCovers { get => true; set { } }
+
+        // Runtime state only. Several theme views may be loaded simultaneously.
+        [JsonIgnore]
+        public bool IsBackgroundDisplayed => backgroundRenderers.Count != 0;
+
+        internal void SetBackgroundDisplayed(object renderer, bool displayed)
+        {
+            bool before = IsBackgroundDisplayed;
+            if (displayed) backgroundRenderers.Add(renderer);
+            else backgroundRenderers.Remove(renderer);
+            if (before != IsBackgroundDisplayed) OnPropertyChanged(nameof(IsBackgroundDisplayed));
+        }
+
+        public Dictionary<Guid, ArtworkPackConfiguration> ArtworkPacks { get; set; } =
+            new Dictionary<Guid, ArtworkPackConfiguration>();
+        private bool enablePacks = true;
+        private SelectionMode packSelectionMode = SelectionMode.Session;
+        private SelectionOrder packSelectionOrder = SelectionOrder.Random;
+        private int packSlideshowSeconds = 15;
+
+        public bool EnablePacks
+        {
+            get => enablePacks;
+            set { enablePacks = value; OnPropertyChanged(); NotifyPacksChanged(); }
+        }
+        public SelectionMode PackSelectionMode
+        {
+            get => packSelectionMode;
+            set { packSelectionMode = value; OnPropertyChanged(); }
+        }
+        public SelectionOrder PackSelectionOrder
+        {
+            get => packSelectionOrder;
+            set { packSelectionOrder = value; OnPropertyChanged(); }
+        }
+        public int PackSlideshowSeconds
+        {
+            get => packSlideshowSeconds;
+            set { packSlideshowSeconds = Math.Max(1, Math.Min(3600, value)); OnPropertyChanged(); }
+        }
+
+        public bool IsPackEnabled(Guid gameId)
+        {
+            ArtworkPackConfiguration config;
+            return EnablePacks && ArtworkPacks != null && ArtworkPacks.TryGetValue(gameId, out config) &&
+                config?.Packs?.Any(p => p != null && !p.Excluded && !string.IsNullOrEmpty(p.Id)) == true;
+        }
+
+        public bool IsArtworkRotationEnabled(Guid gameId, ArtworkKind kind) => IsPackEnabled(gameId) ||
+            (kind == ArtworkKind.Cover ? RotateCovers : kind == ArtworkKind.Logo ? RotateLogos : RotateBackgrounds);
+
+        private bool HasEnabledPacks => ArtworkPacks?.Any(p => IsPackEnabled(p.Key)) == true;
+
+        public void NotifyPacksChanged()
+        {
+            OnPropertyChanged(nameof(CanConfigureCovers));
+            OnPropertyChanged(nameof(EnableBackgroundImage));
+            OnPropertyChanged(nameof(EnableCoverImage));
+            OnPropertyChanged(nameof(EnableLogoImage));
+            OnPropertyChanged(nameof(CanConfigureLogos));
+        }
         private bool enableRotation = true;     // Master switch for the whole feature
         private bool enableTransitions = true;
-        // Recommended/default rendering path. When enabled, ImageRotater leaves
-        // Playnite's native artwork fields untouched and a compatible theme hosts
-        // the plugin controls directly (same architecture as BackgroundChanger).
-        // Disable it for maximum theme compatibility: the plugin then publishes
-        // the selected artwork back through Playnite's database as before.
-        private bool useThemeIntegration = true;
+        // Legacy renderer aliases remain for existing controls and theme bindings.
+        // They are no longer saved settings; injection is always the default.
         private bool enableDebugLogging = false; // Verbose log to ImageRotater.log
         private DateTime? debugLoggingEnabledAtUtc;
         private SelectionMode selectionMode = SelectionMode.Session;
@@ -68,21 +144,9 @@ namespace ImageRotater
         private bool rotateLogos = false;
         private VideoStartMode coverVideoStartMode = VideoStartMode.Beginning;
 
-        public bool UseThemeIntegration
-        {
-            get => useThemeIntegration;
-            set
-            {
-                if (useThemeIntegration == value)
-                {
-                    return;
-                }
-
-                useThemeIntegration = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(EnableLogoImage));
-            }
-        }
+        // Retired option: source compatibility only; rendering is always injected.
+        [JsonIgnore]
+        public bool UseThemeIntegration { get => true; set { } }
 
         public bool RotateBackgrounds
         {
@@ -103,6 +167,7 @@ namespace ImageRotater
             {
                 rotateCovers = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(CanConfigureCovers));
 
                 // EnableCoverImage is derived from this. Themes bind it to
                 // decide whether to collapse their native cover, so without
@@ -119,6 +184,7 @@ namespace ImageRotater
                 rotateLogos = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(EnableLogoImage));
+                OnPropertyChanged(nameof(CanConfigureLogos));
             }
         }
         private bool hasDataCover = false;
@@ -150,11 +216,9 @@ namespace ImageRotater
         // the UI thread, and Playnite is a 32-bit process - a screenful of them
         // is the pressure that took it down when a theme put its own media
         // element in every tile.
-        private bool animateUnfocusedCovers = true;
-
-        // Pause invisible work while a launched game owns the screen.
-        private bool pauseAnimationsWhenGameRunning = true;
-        private bool pauseSlideshowWhenUnfocused = true;
+        private bool animateUnfocusedCovers = false;
+        private bool? showUnfocusedCovers = true;
+        private bool hasLegacyCoverScope;
 
         // Legacy serialized values: older published versions exposed duration
         // sliders. Keep these fields/properties so existing settings deserialize,
@@ -166,19 +230,6 @@ namespace ImageRotater
         // values mean "use global settings" and therefore keep old installs small.
         private Dictionary<string, GameArtworkOverride> gameArtworkOverrides =
             new Dictionary<string, GameArtworkOverride>(StringComparer.OrdinalIgnoreCase);
-
-        // Off by default: letterboxing creates an additional processed background.
-        // It remains available for users who want unusual aspect ratios fitted
-        // instead of cropped, but the default path should stay as lightweight
-        // and close to Playnite native behaviour as possible.
-        private bool letterboxBackgrounds = false;
-
-        // Off by default: levelling background widths is optional visual polish for
-        // Playnite's native blur, and it requires maintaining processed copies.
-        // Users who want identical blur strength across mixed-resolution
-        // backgrounds can opt in; ordinary rotation should have no preprocessing
-        // cost by default.
-        private bool normaliseBackgroundSize = false;
 
         // One-shot settings migration marker. Version 1 changes the historical
         // defaults for the two optional background preprocessing features to
@@ -240,12 +291,6 @@ namespace ImageRotater
         // Its folder is prepended to the yt-dlp process PATH rather than
         // passed as an argument, which is how yt-dlp expects to find it.
         private string denoPath = string.Empty;
-
-        public bool NormaliseBackgroundSize
-        {
-            get => normaliseBackgroundSize;
-            set { normaliseBackgroundSize = value; OnPropertyChanged(); }
-        }
 
         public bool OptimiseDownloadedImages
         {
@@ -322,24 +367,30 @@ namespace ImageRotater
         // ours. Named to match what BackgroundChanger themes already query, so
         // a theme author adds a branch rather than learning new vocabulary.
         //
-        // Simply "are covers rotating". There used to be a separate toggle for
+        // Native injection turns this theme-facing flag off to prevent an
+        // additional cover layer. The settings UI uses CanConfigureCovers.
+        // There used to be a separate toggle for
         // whether a theme's element was allowed to render covers, justified by
         // Fullscreen tiles holding a stale cover until rebuilt - Playnite 10.57
         // notifies them properly, so hosting the element is now purely the
         // theme's choice and needs no permission from a setting.
         public bool EnableBackgroundImage
         {
-            get => enableRotation && rotateBackgrounds;
+            get => enableRotation && (rotateBackgrounds || HasEnabledPacks);
         }
 
         public bool EnableCoverImage
         {
-            get => enableRotation && rotateCovers;
+            get => !UseExperimentalNativeCovers && CanConfigureCovers;
         }
+
+        // Settings remain available regardless of which renderer owns the cover.
+        [JsonIgnore]
+        public bool CanConfigureCovers => enableRotation && (rotateCovers || HasEnabledPacks);
 
         public bool EnableLogoImage
         {
-            get => enableRotation && rotateLogos && useThemeIntegration;
+            get => false;
         }
 
         // True when the CURRENTLY SELECTED game has plugin-owned covers.
@@ -351,7 +402,7 @@ namespace ImageRotater
         // otherwise games the user never set up would render blank.
         public bool HasDataCover
         {
-            get => hasDataCover;
+            get => !UseExperimentalNativeCovers && hasDataCover;
             set
             {
                 if (hasDataCover == value)
@@ -366,7 +417,7 @@ namespace ImageRotater
 
         public bool HasDataLogo
         {
-            get => hasDataLogo;
+            get => !UseExperimentalNativeLogos && hasDataLogo;
             set
             {
                 if (hasDataLogo == value)
@@ -550,18 +601,6 @@ namespace ImageRotater
             set { logoSelectionOrder = value; OnPropertyChanged(); }
         }
 
-        public bool PauseAnimationsWhenGameRunning
-        {
-            get => pauseAnimationsWhenGameRunning;
-            set { pauseAnimationsWhenGameRunning = value; OnPropertyChanged(); }
-        }
-
-        public bool PauseSlideshowWhenUnfocused
-        {
-            get => pauseSlideshowWhenUnfocused;
-            set { pauseSlideshowWhenUnfocused = value; OnPropertyChanged(); }
-        }
-
         public int BackgroundTransitionDurationMs
         {
             get => backgroundTransitionDurationMs;
@@ -658,34 +697,41 @@ namespace ImageRotater
             set { coverVideoStartMode = value; OnPropertyChanged(); }
         }
 
-        // Play animated covers on every tile, not just the selected one.
-        //
-        // BackgroundChanger does this and people prefer the look, so it is
-        // offered - but off by default, because the cost is real. Each
-        // animated tile decodes frames continuously on the UI thread, and
-        // Playnite is a 32-bit process sharing its address space with
-        // Chromium. A library where most games have video covers can exhaust
-        // it while scrolling.
-        //
-        // Only affects tiles that are NOT selected; the selected one always
-        // animates.
+        // Missing in old configurations: inherit the old combined switch.
+        // A nullable backing field makes migration independent of JSON property order.
+        [System.Runtime.Serialization.OnDeserializing]
+        private void BeginCoverScopeMigration(System.Runtime.Serialization.StreamingContext context)
+        {
+            showUnfocusedCovers = null;
+            hasLegacyCoverScope = false;
+        }
+
+        [System.Runtime.Serialization.OnDeserialized]
+        private void CompleteCoverScopeMigration(System.Runtime.Serialization.StreamingContext context)
+        {
+            if (!showUnfocusedCovers.HasValue) showUnfocusedCovers = hasLegacyCoverScope ? animateUnfocusedCovers : true;
+        }
+
+        public bool ShowUnfocusedCovers
+        {
+            get => showUnfocusedCovers ?? animateUnfocusedCovers;
+            set { showUnfocusedCovers = value; OnPropertyChanged(); }
+        }
+
         public bool AnimateUnfocusedCovers
         {
             get => animateUnfocusedCovers;
-            set { animateUnfocusedCovers = value; OnPropertyChanged(); }
+            set
+            {
+                hasLegacyCoverScope = true;
+                animateUnfocusedCovers = value;
+                OnPropertyChanged();
+                if (!showUnfocusedCovers.HasValue) OnPropertyChanged(nameof(ShowUnfocusedCovers));
+            }
         }
 
-        // Letterbox odd-shaped backgrounds over a blurred fill of themselves.
-        //
-        // The rescue for what PreferScreenShape cannot reach: a game whose
-        // images are ALL odd-shaped still needs its stored background to be
-        // screen-shaped, or switching to it re-fits the layout visibly. The
-        // composite is written to a cache; source files are never modified.
-        public bool LetterboxBackgrounds
-        {
-            get => letterboxBackgrounds;
-            set { letterboxBackgrounds = value; OnPropertyChanged(); }
-        }
+        internal bool ShouldAnimateCover(bool selected) => selected ||
+            (ShowUnfocusedCovers && AnimateUnfocusedCovers);
 
         // Personal SteamGridDB API key, pasted by the user. Stored as plain
         // text in Playnite's settings file: the token is read-only artwork
@@ -732,9 +778,11 @@ namespace ImageRotater
             {
                 enableRotation = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(CanConfigureCovers));
                 OnPropertyChanged(nameof(EnableBackgroundImage));
                 OnPropertyChanged(nameof(EnableCoverImage));
                 OnPropertyChanged(nameof(EnableLogoImage));
+                OnPropertyChanged(nameof(CanConfigureLogos));
             }
         }
 
@@ -908,16 +956,10 @@ namespace ImageRotater
                 }
             }
 
-            // Performance defaults migration v1. Older releases enabled both
-            // background preprocessing features by default, so existing users
-            // who never touched the settings would otherwise keep paying their
-            // cost after updating. Force them OFF once during the update. The
-            // marker is persisted immediately; after that, an explicit user
-            // choice to turn either feature back ON is respected forever.
+            // Performance defaults migration v1. Its two background preprocessing
+            // options were retired with database writes; only the marker remains.
             if (Settings.PerformanceDefaultsMigrationVersion < 1)
             {
-                Settings.LetterboxBackgrounds = false;
-                Settings.NormaliseBackgroundSize = false;
                 Settings.PerformanceDefaultsMigrationVersion = 1;
                 settingsChangedByMigration = true;
             }
@@ -991,11 +1033,7 @@ namespace ImageRotater
         private SetupStatus _ytDlpStatus = SetupStatus.Neutral(string.Empty);
         private SetupStatus _denoStatus = SetupStatus.Neutral(string.Empty);
         private SetupStatus _apiKeyStatus = SetupStatus.Neutral(string.Empty);
-        private SetupStatus _desktopThemeStatus = SetupStatus.Neutral(string.Empty);
-        private SetupStatus _fullscreenThemeStatus = SetupStatus.Neutral(string.Empty);
         private bool _toolStatusLoaded;
-        private bool _themeSupportLoaded;
-        private int _themeProbeGeneration;
         private int _toolProbeGeneration;
         private readonly object _toolProbeLock = new object();
 
@@ -1034,18 +1072,6 @@ namespace ImageRotater
         {
             get => _apiKeyStatus;
             set { _apiKeyStatus = value; OnPropertyChanged(); }
-        }
-
-        public SetupStatus DesktopThemeStatus
-        {
-            get => _desktopThemeStatus;
-            set { _desktopThemeStatus = value; OnPropertyChanged(); }
-        }
-
-        public SetupStatus FullscreenThemeStatus
-        {
-            get => _fullscreenThemeStatus;
-            set { _fullscreenThemeStatus = value; OnPropertyChanged(); }
         }
 
         // Reports on the key's SHAPE as it is typed. Whether the key actually
@@ -1216,243 +1242,6 @@ namespace ImageRotater
         // explicit when it is not - and a user who later moves the tool would
         // then have a stale path pinned rather than a search that follows it.
 
-        // Theme support is intentionally checked off the UI thread. A theme may
-        // contain many XAML files, and opening ImageRotater settings should not
-        // become slower just because the user has several themes installed.
-        //
-        // Playnite exposes the active Desktop and Fullscreen theme IDs through
-        // IPlayniteSettingsAPI. We resolve those IDs to their theme.yaml files,
-        // then look for ImageRotater's official custom element names in that
-        // theme's XAML. This detects actual theme integration rather than merely
-        // assuming that an installed plugin means the theme supports it.
-        public void EnsureThemeSupportLoaded()
-        {
-            if (_themeSupportLoaded)
-            {
-                return;
-            }
-
-            _themeSupportLoaded = true;
-            RefreshThemeSupportAsync();
-        }
-
-        private async void RefreshThemeSupportAsync()
-        {
-            int generation = ++_themeProbeGeneration;
-
-            DesktopThemeStatus = SetupStatus.Neutral(Loc.Get("LOCImageRotaterCheckingThemeSupport"));
-            FullscreenThemeStatus = SetupStatus.Neutral(Loc.Get("LOCImageRotaterCheckingThemeSupport"));
-
-            ThemeProbeResult desktop;
-            ThemeProbeResult fullscreen;
-
-            try
-            {
-                string desktopId = plugin?.PlayniteApi?.ApplicationSettings?.DesktopTheme;
-                string fullscreenId = plugin?.PlayniteApi?.ApplicationSettings?.FullscreenTheme;
-                string configPath = plugin?.PlayniteApi?.Paths?.ConfigurationPath;
-                string appPath = plugin?.PlayniteApi?.Paths?.ApplicationPath;
-
-                var result = await Task.Run(() => new[]
-                {
-                    ProbeTheme(desktopId, "Desktop", configPath, appPath),
-                    ProbeTheme(fullscreenId, "Fullscreen", configPath, appPath)
-                });
-
-                desktop = result[0];
-                fullscreen = result[1];
-            }
-            catch (Exception ex)
-            {
-                LogManager.GetLogger().Warn(ex, "ImageRotater: active theme support probe failed");
-                return;
-            }
-
-            if (generation != _themeProbeGeneration)
-            {
-                return;
-            }
-
-            DesktopThemeStatus = DescribeThemeSupport(desktop);
-            FullscreenThemeStatus = DescribeThemeSupport(fullscreen);
-        }
-
-        private sealed class ThemeProbeResult
-        {
-            public string Name;
-            public bool Found;
-            public bool HasBackground;
-            public bool HasCover;
-            public bool HasLogo;
-        }
-
-        private static ThemeProbeResult ProbeTheme(string themeId, string modeFolder, string configPath, string appPath)
-        {
-            var result = new ThemeProbeResult
-            {
-                Name = string.IsNullOrWhiteSpace(themeId) ? Loc.Get("LOCImageRotaterUnknownTheme") : themeId,
-                Found = false
-            };
-
-            if (string.IsNullOrWhiteSpace(themeId))
-            {
-                return result;
-            }
-
-            string[] roots =
-            {
-                string.IsNullOrWhiteSpace(configPath) ? null : Path.Combine(configPath, "Themes", modeFolder),
-                string.IsNullOrWhiteSpace(appPath) ? null : Path.Combine(appPath, "Themes", modeFolder)
-            };
-
-            foreach (string root in roots.Where(a => !string.IsNullOrWhiteSpace(a) && Directory.Exists(a)))
-            {
-                IEnumerable<string> manifests;
-                try
-                {
-                    manifests = Directory.EnumerateFiles(root, "theme.yaml", SearchOption.AllDirectories);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                foreach (string manifest in manifests)
-                {
-                    string id = ReadYamlValue(manifest, "Id");
-                    if (!string.Equals(id, themeId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    result.Found = true;
-                    string displayName = ReadYamlValue(manifest, "Name");
-                    if (!string.IsNullOrWhiteSpace(displayName))
-                    {
-                        result.Name = displayName;
-                    }
-
-                    string themeDir = Path.GetDirectoryName(manifest);
-                    if (string.IsNullOrWhiteSpace(themeDir) || !Directory.Exists(themeDir))
-                    {
-                        return result;
-                    }
-
-                    IEnumerable<string> xamlFiles;
-                    try
-                    {
-                        xamlFiles = Directory.EnumerateFiles(themeDir, "*.xaml", SearchOption.AllDirectories);
-                    }
-                    catch
-                    {
-                        return result;
-                    }
-
-                    foreach (string xaml in xamlFiles)
-                    {
-                        string text;
-                        try
-                        {
-                            text = File.ReadAllText(xaml);
-                        }
-                        catch
-                        {
-                            continue;
-                        }
-
-                        if (!result.HasBackground &&
-                            text.IndexOf("ImageRotater_Background", StringComparison.Ordinal) >= 0)
-                        {
-                            result.HasBackground = true;
-                        }
-
-                        if (!result.HasCover &&
-                            text.IndexOf("ImageRotater_Cover", StringComparison.Ordinal) >= 0)
-                        {
-                            result.HasCover = true;
-                        }
-
-                        if (!result.HasLogo &&
-                            text.IndexOf("ImageRotater_Logo", StringComparison.Ordinal) >= 0)
-                        {
-                            result.HasLogo = true;
-                        }
-
-                        if (result.HasBackground && result.HasCover && result.HasLogo)
-                        {
-                            return result;
-                        }
-                    }
-
-                    return result;
-                }
-            }
-
-            return result;
-        }
-
-        private static string ReadYamlValue(string manifestPath, string key)
-        {
-            try
-            {
-                string prefix = key + ":";
-                foreach (string raw in File.ReadLines(manifestPath))
-                {
-                    string line = raw.Trim();
-                    if (!line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    return line.Substring(prefix.Length).Trim().Trim('"', '\'');
-                }
-            }
-            catch
-            {
-            }
-
-            return null;
-        }
-
-        private static SetupStatus DescribeThemeSupport(ThemeProbeResult result)
-        {
-            if (result == null || !result.Found)
-            {
-                string name = result?.Name ?? Loc.Get("LOCImageRotaterUnknownTheme");
-                return SetupStatus.Neutral(
-                    Loc.Format("LOCImageRotaterThemeSupportUnknown", name));
-            }
-
-            var supported = new List<string>();
-            if (result.HasBackground)
-            {
-                supported.Add(Loc.Get("LOCImageRotaterThemeSupportBackground"));
-            }
-            if (result.HasCover)
-            {
-                supported.Add(Loc.Get("LOCImageRotaterThemeSupportCover"));
-            }
-            if (result.HasLogo)
-            {
-                supported.Add(Loc.Get("LOCImageRotaterThemeSupportLogo"));
-            }
-
-            if (result.HasBackground && result.HasCover)
-            {
-                return SetupStatus.Ok(
-                    Loc.Format("LOCImageRotaterThemeSupportCompatible", result.Name, string.Join(" + ", supported)));
-            }
-
-            if (supported.Count > 0)
-            {
-                return SetupStatus.Warning(
-                    Loc.Format("LOCImageRotaterThemeSupportPartial", result.Name, string.Join(" + ", supported)));
-            }
-
-            return SetupStatus.Problem(
-                Loc.Format("LOCImageRotaterThemeSupportNone", result.Name));
-        }
-
         // Tool probing launches ffmpeg / yt-dlp / deno. Keep it lazy (only
         // when Tools is actually opened) and off the UI thread so opening the
         // settings window stays instant.
@@ -1583,11 +1372,7 @@ namespace ImageRotater
             // and blocking BeginEdit was making ImageRotater settings visibly
             // slower to open than other plugins.
             _toolStatusLoaded = false;
-            _themeSupportLoaded = false;
             ++_toolProbeGeneration;
-            ++_themeProbeGeneration;
-            DesktopThemeStatus = SetupStatus.Neutral(string.Empty);
-            FullscreenThemeStatus = SetupStatus.Neutral(string.Empty);
             FfmpegStatus = SetupStatus.Neutral(string.Empty);
             YtDlpStatus = SetupStatus.Neutral(string.Empty);
             DenoStatus = SetupStatus.Neutral(string.Empty);
@@ -1613,7 +1398,8 @@ namespace ImageRotater
             // restart Playnite before anything used it.
             Services.GifConverter.ConfiguredPath = Settings?.FfmpegPath;
             Transition.Enabled = Settings?.EnableTransitions != false;
-            Transition.CoverStyle = Settings?.CoverTransition ?? TransitionStyle.Crossfade;
+            Transition.CoverStyle = Transition.CoverStyleForSettings(
+                Settings?.CoverTransition ?? TransitionStyle.Crossfade, Settings?.ShowUnfocusedCovers == true);
             Transition.BackgroundStyle = Settings?.BackgroundTransition ?? TransitionStyle.Crossfade;
 
             // Toggled settings apply on the next selection, not whenever each

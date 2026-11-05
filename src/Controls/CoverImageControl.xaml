@@ -54,6 +54,15 @@
                    Visibility="Collapsed"
                    IsHitTestVisible="False"/>
 
+        <!-- Ready still for a deselected video cover. Kept below MediaElement so
+             its asynchronous decode cannot expose native artwork. -->
+        <Image x:Name="UnfocusedStillImage"
+               Visibility="Collapsed"
+               IsHitTestVisible="False"
+               Stretch="UniformToFill"
+               StretchDirection="Both"
+               RenderOptions.BitmapScalingMode="Linear"/>
+
         <!-- Two lightweight shutters used by the Black bars transition. -->
 <!-- Video artwork, a renderer the Image cannot be: WPF's imaging stack
              does not decode containers. Only one of the two draws at a time.

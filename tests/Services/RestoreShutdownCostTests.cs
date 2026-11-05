@@ -87,6 +87,23 @@ namespace ImageRotater.Tests.Services
         }
 
         [Test]
+        public void RestoreArtwork_RestoresOnlyTheRequestedGameAndKind()
+        {
+            string art = Path.Combine(_dir, "pack.png");
+            File.WriteAllBytes(art, new byte[] { 1, 2, 3, 4 });
+            var writer = new RecordingWriter(_dir);
+            Game a = Rotated(writer, art, "own-a");
+            Game b = Rotated(writer, art, "own-b");
+
+            Assert.That(writer.RestoreArtwork(a.Id, ArtworkKind.Cover), Is.EqualTo(1));
+            Assert.That(a.CoverImage, Is.EqualTo("own-a"));
+            Assert.That(b.CoverImage, Is.EqualTo("import-2"));
+            Assert.That(writer.RestoreArtwork(a.Id, ArtworkKind.Cover), Is.Zero);
+            Assert.That(writer.RestoreArtwork(b.Id, ArtworkKind.Cover), Is.EqualTo(1));
+            Assert.That(b.CoverImage, Is.EqualTo("own-b"));
+        }
+
+        [Test]
         public void RestoreAll_CommitsEveryGameInOneBatch_AndAttemptsEachDeleteOnce()
         {
             string art = Path.Combine(_dir, "art.png");

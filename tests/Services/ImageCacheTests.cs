@@ -20,6 +20,22 @@ namespace ImageRotater.Tests.Services
         }
 
         [Test]
+        public void Clear_ReleasesEntriesAndByteAccounting_AndAllowsReuse()
+        {
+            var cache = new ImageCache(1024 * 1024);
+            var bitmap = MakeBitmap(10, 10);
+            cache.Put("a.jpg", 480, bitmap);
+            cache.Put("b.jpg", 960, bitmap);
+            cache.Clear();
+            Assert.That(cache.Count, Is.Zero);
+            Assert.That(cache.CurrentBytes, Is.Zero);
+            Assert.That(cache.Get("a.jpg", 480), Is.Null);
+            cache.Put("c.jpg", 480, bitmap);
+            Assert.That(cache.CurrentBytes, Is.EqualTo(400));
+            Assert.That(cache.Get("c.jpg", 480), Is.SameAs(bitmap));
+        }
+
+        [Test]
         public void Get_Miss_ReturnsNull()
         {
             var cache = new ImageCache(1024 * 1024);

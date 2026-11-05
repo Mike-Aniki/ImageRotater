@@ -93,13 +93,18 @@ namespace ImageRotater.Tests.Services
                 "Windows often cannot decode WebM, so converting it is the point");
         }
 
-        [Test]
-        public void WebpIsConvertibleOnTrust()
+        // WebP is judged by its header, not trusted by extension: only the
+        // VP8X animation flag makes one worth turning into an MP4.
+        [TestCase(true)]
+        [TestCase(false)]
+        public void WebpIsConvertibleOnlyWhenAnimated(bool animated)
         {
             string webp = Path.Combine(_dir, "art.webp");
-            File.WriteAllBytes(webp, new byte[] { 0x52, 0x49, 0x46, 0x46 });
+            byte[] header = System.Text.Encoding.ASCII.GetBytes("RIFF\0\0\0\0WEBPVP8X\x0A\0\0\0\0\0");
+            if (animated) header[20] = 0x02;
+            File.WriteAllBytes(webp, header);
 
-            Assert.IsTrue(GifConverter.IsConvertible(webp));
+            Assert.AreEqual(animated, GifConverter.IsConvertible(webp));
         }
 
         [Test]

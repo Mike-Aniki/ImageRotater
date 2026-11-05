@@ -11,6 +11,8 @@ namespace ImageRotater.Tests.Services
     // Remembered filters: ticks seeded before the first search survive into
     // the options that search builds, and a tab switch (Clear) no longer
     // drops them.
+    // Labels are compared through the same lookup the plugin uses: the test
+    // host has no Playnite resources, so the English text is not available.
     [TestFixture]
     public class SearchPresetSeedTests
     {
@@ -53,17 +55,17 @@ namespace ImageRotater.Tests.Services
             var vm = new SteamGridDbSearchViewModel(new StubClient());
             vm.SeedTicks(new SearchPreset
             {
-                Groups = new List<string> { "1:1 - Square" },
+                Groups = new List<string> { Loc.Get("LOCImageRotaterAspectSquare") },
                 Styles = new List<string> { "alternate" }
             });
 
             Assert.IsTrue(await vm.SearchAsync("game", SteamGridDbArtworkType.Grid));
 
-            AspectGroupOption square = Group(vm, "1:1 - Square");
+            AspectGroupOption square = Group(vm, Loc.Get("LOCImageRotaterAspectSquare"));
             Assert.IsTrue(square.IsChecked);
             Assert.IsTrue(square.Dimensions.All(d => d.IsChecked));
-            Assert.IsFalse(Group(vm, "2:3 - Steam Vertical").IsChecked);
-            Assert.IsFalse(Group(vm, "2:3 - Steam Vertical").Dimensions.Any(d => d.IsChecked));
+            Assert.IsFalse(Group(vm, Loc.Get("LOCImageRotaterAspectSteamVertical")).IsChecked);
+            Assert.IsFalse(Group(vm, Loc.Get("LOCImageRotaterAspectSteamVertical")).Dimensions.Any(d => d.IsChecked));
 
             Assert.IsTrue(vm.StyleOptions.Single(s => s.Value == "alternate").IsChecked);
             Assert.IsFalse(vm.StyleOptions.Single(s => s.Value == "blurred").IsChecked);
@@ -78,8 +80,8 @@ namespace ImageRotater.Tests.Services
             var vm = new SteamGridDbSearchViewModel(new StubClient());
             Assert.IsTrue(await vm.SearchAsync("game", SteamGridDbArtworkType.Grid));
 
-            Group(vm, "1:1 - Square").IsChecked = true;
-            Group(vm, "1:1 - Square").Dimensions.Single(d => d.Value == "512x512").IsChecked = false;
+            Group(vm, Loc.Get("LOCImageRotaterAspectSquare")).IsChecked = true;
+            Group(vm, Loc.Get("LOCImageRotaterAspectSquare")).Dimensions.Single(d => d.Value == "512x512").IsChecked = false;
             vm.StyleOptions.Single(s => s.Value == "blurred").IsChecked = true;
 
             var preset = new SearchPreset();
@@ -95,12 +97,12 @@ namespace ImageRotater.Tests.Services
         {
             var vm = new SteamGridDbSearchViewModel(new StubClient());
             Assert.IsTrue(await vm.SearchAsync("game", SteamGridDbArtworkType.Grid));
-            Group(vm, "1:1 - Square").IsChecked = true;
+            Group(vm, Loc.Get("LOCImageRotaterAspectSquare")).IsChecked = true;
 
             vm.Clear();
             Assert.IsTrue(await vm.SearchAsync("game", SteamGridDbArtworkType.Grid));
 
-            Assert.IsTrue(Group(vm, "1:1 - Square").IsChecked);
+            Assert.IsTrue(Group(vm, Loc.Get("LOCImageRotaterAspectSquare")).IsChecked);
             Assert.AreEqual(2, vm.Results.Count);
         }
 
@@ -111,10 +113,10 @@ namespace ImageRotater.Tests.Services
             Assert.IsTrue(await vm.SearchAsync("game", SteamGridDbArtworkType.Grid));
             Assert.AreEqual(3, vm.Results.Count);
 
-            Group(vm, "1:1 - Square").IsChecked = true;
+            Group(vm, Loc.Get("LOCImageRotaterAspectSquare")).IsChecked = true;
             Assert.AreEqual(2, vm.Results.Count, "group tick");
 
-            Group(vm, "1:1 - Square").Dimensions.Single(d => d.Value == "512x512").IsChecked = false;
+            Group(vm, Loc.Get("LOCImageRotaterAspectSquare")).Dimensions.Single(d => d.Value == "512x512").IsChecked = false;
             Assert.AreEqual(1, vm.Results.Count, "single size untick");
 
             vm.StyleOptions.Single(s => s.Value == "blurred").IsChecked = true;
@@ -126,11 +128,11 @@ namespace ImageRotater.Tests.Services
         {
             var vm = new SteamGridDbSearchViewModel(new StubClient());
             Assert.IsTrue(await vm.SearchAsync("game", SteamGridDbArtworkType.Grid));
-            Group(vm, "1:1 - Square").IsChecked = true;
+            Group(vm, Loc.Get("LOCImageRotaterAspectSquare")).IsChecked = true;
 
             Assert.IsTrue(await vm.SearchAsync("game", SteamGridDbArtworkType.Grid));
 
-            Assert.IsTrue(Group(vm, "1:1 - Square").IsChecked);
+            Assert.IsTrue(Group(vm, Loc.Get("LOCImageRotaterAspectSquare")).IsChecked);
         }
     }
 }

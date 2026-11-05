@@ -23,8 +23,47 @@ namespace ImageRotater.Controls
         private readonly Func<ImageRotaterSettings> _settings;
         private readonly Dictionary<Guid, string> _lastPickByGame = new Dictionary<Guid, string>();
         private string _previousPick;
+        private readonly bool _nativeInjected;
         private int _generation;
+        // The asynchronous renderer can retain a bitmap while a new game's
+        // artwork is loading. Keep ownership explicit so an injected native
+        // Image never paints a decoded logo from the previous game.
+        internal Guid DisplayedGameId { get; private set; }
+        internal bool HasCurrentGameLogo =>
+            GameContext != null && DisplayedGameId == GameContext.Id &&
+            DisplayImage.Source != null;
+
         private int _lastBucket;
+        private readonly FileLogger _fileLogger;
+        internal void TraceLogo(string action, Func<string> details = null)
+        {
+            if (_fileLogger?.IsEnabled != true) return;
+            try
+            {
+                _fileLogger.Log($"LOGO {action} renderer={System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this):x} game={GameContext?.Id} generation={_generation} loading={NativeLoading} {details?.Invoke()}");
+            }
+            catch (Exception) { /* Diagnostics must not affect rendering. */ }
+        }
+
+        internal static string DescribeLogoSource(ImageSource source)
+        {
+            if (source == null) return "null";
+            string identity = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(source).ToString("x");
+            if (source is BitmapSource bitmap)
+                return $"{source.GetType().Name}#{identity}[{bitmap.PixelWidth}x{bitmap.PixelHeight},dpi={bitmap.DpiX:0.##}/{bitmap.DpiY:0.##},format={bitmap.Format},frozen={bitmap.IsFrozen}]";
+            return $"{source.GetType().Name}#{identity}[{source.Width:0.##}x{source.Height:0.##}]";
+        }
+
+        internal bool NativeLoading { get; private set; }
+        internal event Action NativeLoadStateChanged;
+
+        private void SetNativeLoading(bool loading)
+        {
+            if (!_nativeInjected) return;
+            NativeLoading = loading;
+            TraceLogo("load-state");
+            NativeLoadStateChanged?.Invoke();
+        }
 
         public static event Action<Guid> ArtworkChanged;
         public static event Action SettingsChanged;
@@ -33,13 +72,15 @@ namespace ImageRotater.Controls
             IBackgroundImageSource source,
             ImageSelector selector,
             ImageLoader loader,
-            Func<ImageRotaterSettings> settings)
+            Func<ImageRotaterSettings> settings, bool nativeInjected = false, FileLogger fileLogger = null)
         {
             InitializeComponent();
             _source = source;
             _selector = selector;
             _loader = loader;
             _settings = settings;
+            _nativeInjected = nativeInjected;
+            _fileLogger = fileLogger;
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
             SizeChanged += OnSizeChanged;
@@ -73,6 +114,7 @@ namespace ImageRotater.Controls
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
+            TraceLogo("loaded", () => $"injected={_nativeInjected}");
             ApplyThemeLogoLayout();
             ArtworkChanged += OnArtworkChanged;
             SettingsChanged += OnSettingsChanged;
@@ -81,9 +123,13 @@ namespace ImageRotater.Controls
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
+            TraceLogo("unloaded");
             ArtworkChanged -= OnArtworkChanged;
             SettingsChanged -= OnSettingsChanged;
             _generation++;
+            // Ensure a reused native renderer cannot report an old bitmap as
+            // belonging to its next game after detach and reattach.
+            DisplayedGameId = Guid.Empty;
         }
 
 
@@ -98,6 +144,7 @@ namespace ImageRotater.Controls
 
         public override void GameContextChanged(Game oldContext, Game newContext)
         {
+            TraceLogo("context-change", () => $"old={oldContext?.Id} new={newContext?.Id}");
             _previousPick = null;
             _generation++;
             Refresh();
@@ -120,19 +167,51 @@ namespace ImageRotater.Controls
 
         private async void Refresh()
         {
-            await RefreshAsync();
+            // Refresh is invoked by WPF events, so its void entry point must
+            // observe async errors. Otherwise a source/selection exception
+            // can terminate Playnite's UI dispatcher.
+            int requestGeneration = _generation + 1;
+            try
+            {
+                await RefreshAsync();
+            }
+            catch (Exception ex)
+            {
+                Playnite.SDK.LogManager.GetLogger().Warn(ex,
+                    "ImageRotater: logo refresh failed");
+                if (requestGeneration != _generation) return;
+                DisplayedGameId = Guid.Empty;
+                DisplayImage.Source = null;
+                SetNativeLoading(false);
+            }
         }
 
         private async Task RefreshAsync()
         {
             int generation = ++_generation;
+            var watch = _fileLogger?.IsEnabled == true ? System.Diagnostics.Stopwatch.StartNew() : null;
+            TraceLogo("refresh", () => $"injected={_nativeInjected} width={(_nativeInjected ? Width : ActualWidth):0.##}");
+            if (_loader?.IsSuspended == true)
+            {
+                TraceLogo("suspended");
+                DisplayedGameId = Guid.Empty;
+                DisplayImage.Source = null;
+                SetNativeLoading(false);
+                return;
+            }
             Game game = GameContext;
             ImageRotaterSettings settings = _settings != null ? _settings() : null;
 
-            if (game == null || settings == null || !settings.EnableLogoImage)
+            bool enabled = settings != null && (_nativeInjected
+                ? settings.UseExperimentalNativeLogos && settings.CanConfigureLogos
+                : settings.EnableLogoImage);
+            if (game == null || !enabled || !settings.IsArtworkRotationEnabled(game.Id, ArtworkKind.Logo))
             {
+                TraceLogo("disabled", () => $"enabled={enabled}");
+                DisplayedGameId = Guid.Empty;
                 DisplayImage.Source = null;
-                if (settings != null)
+                SetNativeLoading(false);
+                if (settings != null && !_nativeInjected)
                 {
                     settings.HasDataLogo = false;
                 }
@@ -144,10 +223,13 @@ namespace ImageRotater.Controls
                 .Where(File.Exists)
                 .ToList();
 
-            settings.HasDataLogo = candidates.Count > 0;
+            if (!_nativeInjected) settings.HasDataLogo = candidates.Count > 0;
             if (candidates.Count == 0)
             {
+                TraceLogo("no-artwork");
+                DisplayedGameId = Guid.Empty;
                 DisplayImage.Source = null;
+                SetNativeLoading(false);
                 return;
             }
 
@@ -164,15 +246,21 @@ namespace ImageRotater.Controls
 
             if (string.IsNullOrEmpty(path))
             {
+                TraceLogo("no-pick", () => $"candidates={candidates.Count} mode={mode} order={order}");
+                DisplayedGameId = Guid.Empty;
                 DisplayImage.Source = null;
+                SetNativeLoading(false);
                 return;
             }
 
-            int bucket = WidthBucket.ForWidth(ActualWidth);
+            int bucket = WidthBucket.ForWidth(_nativeInjected ? Width : ActualWidth);
             _lastBucket = bucket;
+            TraceLogo("load-start", () => $"candidates={candidates.Count} mode={mode} order={order} bucket={bucket} path={path}");
+            SetNativeLoading(true);
             BitmapSource bitmap = await _loader.LoadAsync(path, bucket);
             if (generation != _generation || GameContext?.Id != game.Id)
             {
+                TraceLogo("load-stale", () => $"request={generation} requestedGame={game.Id} elapsed={watch?.ElapsedMilliseconds}ms path={path}");
                 return;
             }
 
@@ -185,9 +273,11 @@ namespace ImageRotater.Controls
                         continue;
                     }
 
-                    bitmap = await _loader.LoadAsync(candidate, WidthBucket.ForWidth(ActualWidth));
+                    TraceLogo("load-fallback", () => $"request={generation} path={candidate}");
+                    bitmap = await _loader.LoadAsync(candidate, bucket);
                     if (generation != _generation || GameContext?.Id != game.Id)
                     {
+                        TraceLogo("load-stale", () => $"request={generation} requestedGame={game.Id} elapsed={watch?.ElapsedMilliseconds}ms path={candidate}");
                         return;
                     }
 
@@ -201,12 +291,20 @@ namespace ImageRotater.Controls
 
             if (bitmap == null)
             {
-                settings.HasDataLogo = false;
+                TraceLogo("load-failed", () => $"request={generation} elapsed={watch?.ElapsedMilliseconds}ms path={path}");
+                if (!_nativeInjected) settings.HasDataLogo = false;
+                DisplayedGameId = Guid.Empty;
                 DisplayImage.Source = null;
+                SetNativeLoading(false);
                 return;
             }
 
+            TraceLogo("load-ready", () => $"request={generation} elapsed={watch?.ElapsedMilliseconds}ms path={path} source={DescribeLogoSource(bitmap)}");
+            // Set the owner BEFORE raising Image.Source changes: the native
+            // injection listens synchronously and reads HasCurrentGameLogo.
+            DisplayedGameId = game.Id;
             DisplayImage.Source = bitmap;
+            SetNativeLoading(false);
 
             _previousPick = path;
             _lastPickByGame[game.Id] = path;

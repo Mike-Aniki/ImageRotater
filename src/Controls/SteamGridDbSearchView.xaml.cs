@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -28,6 +29,13 @@ namespace ImageRotater.Controls
         private readonly ArtworkKind _kind;
         private readonly bool _embedded;
         private bool _initialSearchStarted;
+
+        // Static posters for animated SteamGridDB results. The UI never loads
+        // the original large WebP merely to draw a 240px search tile.
+        private readonly SteamGridDbStaticThumbnailService _staticThumbnails;
+        private CancellationTokenSource _thumbnailCancellation = new CancellationTokenSource();
+        private readonly HashSet<SteamGridDbArtwork> _thumbnailsInProgress =
+            new HashSet<SteamGridDbArtwork>();
 
         public event EventHandler ArtworkChanged;
 
@@ -89,6 +97,7 @@ namespace ImageRotater.Controls
             _kind = kind;
             _embedded = embedded;
             _webSearch = new WebImageSearch(api);
+            _staticThumbnails = new SteamGridDbStaticThumbnailService(pluginUserDataPath);
 
             if (_embedded)
             {
@@ -185,6 +194,7 @@ namespace ImageRotater.Controls
                 }
 
                 SavePreset();
+                _thumbnailCancellation.Cancel();
 
                 // The web view owns a browser process; leaving it running
                 // behind a closed dialog would leak one per search.
@@ -345,6 +355,10 @@ namespace ImageRotater.Controls
 
         private async Task RunSearch()
         {
+            // A new source/search invalidates the old page's thumbnail jobs.
+            _thumbnailCancellation.Cancel();
+            _thumbnailCancellation = new CancellationTokenSource();
+            _thumbnailsInProgress.Clear();
             int generation = ++_searchGeneration;
             Func<bool> isCurrent = () => generation == _searchGeneration;
 
@@ -652,6 +666,39 @@ namespace ImageRotater.Controls
             {
                 XamlAnimatedGif.AnimationBehavior.SetSourceUri(image, null);
             }
+
+            if (item != null && item.NeedsStaticVideoThumbnail &&
+                string.IsNullOrEmpty(item.TileThumbnailUrl))
+            {
+                // Fire and forget only the small video frame extraction. The
+                // method returns to the UI thread before touching the model.
+                _ = LoadStaticThumbnailAsync(item, _thumbnailCancellation.Token);
+            }
+        }
+
+        private async Task LoadStaticThumbnailAsync(SteamGridDbArtwork item, CancellationToken cancellation)
+        {
+            if (!_thumbnailsInProgress.Add(item)) return;
+            try
+            {
+                string poster = await _staticThumbnails.CreateAsync(item.ThumbnailUrl, cancellation);
+                if (!cancellation.IsCancellationRequested && IsLoaded && poster != null)
+                {
+                    item.SetStaticVideoThumbnail(poster);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Search replaced or window closed.
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: cannot show the animated artwork's still thumbnail");
+            }
+            finally
+            {
+                _thumbnailsInProgress.Remove(item);
+            }
         }
 
         // Starts a GIF playing while the pointer is over its tile.
@@ -799,12 +846,22 @@ namespace ImageRotater.Controls
                 return;
             }
 
-            // GIF and animated WebP are IMAGES to a browser; only real video
-            // goes in a <video> tag.
-            bool isVideo = item.FormatLabel == "MP4"
-                || item.FormatLabel == "WEBM";
+            // Pick the HTML element from the URL we actually preview, not
+            // from the original artwork's format. SteamGridDB serves animated
+            // WEBP originals with WEBM thumbnails: treating that thumbnail as
+            // an <img> produces a blank preview instead of a playing video.
+            string previewUrl = item.MotionPreviewUrl ?? item.Url;
+            Uri previewUri;
+            string previewPath = Uri.TryCreate(previewUrl, UriKind.Absolute, out previewUri)
+                ? previewUri.AbsolutePath
+                : previewUrl ?? string.Empty;
 
-            _previewRenderer.Show(item.MotionPreviewUrl ?? item.Url, isVideo);
+            bool isVideo = previewPath.EndsWith(".webm", StringComparison.OrdinalIgnoreCase)
+                || previewPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
+                || (string.Equals(previewUrl, item.Url, StringComparison.Ordinal)
+                    && (item.FormatLabel == "MP4" || item.FormatLabel == "WEBM"));
+
+            _previewRenderer.Show(previewUrl, isVideo);
         }
 
         private void ShowStill(SteamGridDbArtwork item)

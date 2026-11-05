@@ -685,45 +685,29 @@
                                             Background="#10181D"
                                             BorderThickness="1"
                                             BorderBrush="#263D46">
-                                        <StackPanel>
-                                            <!-- Centred so the badge below sits on
-                                                 the image, not the tile's corner,
-                                                 when the image is narrower than
-                                                 the box. -->
-                                            <Grid HorizontalAlignment="Center">
-                                                <!-- Every tile shows the static THUMBNAIL, animated
-                                                     or not.
+                                        <!-- Use a full-width layout, not an image-sized Grid:
+                                             Steam Hero thumbnails have different aspect ratios.
+                                             The selection icon belongs to the CARD corner,
+                                             and Preview belongs to the CARD footer. -->
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
 
-                                                     GIFs used to play here, which meant handing
-                                                     XamlAnimatedGif the full-size remote URL for
-                                                     every visible result - a dozen whole GIFs
-                                                     downloading and decoding at once, on the UI
-                                                     thread, in a 32-bit process. That froze and
-                                                     crashed Playnite, worst on a web search where
-                                                     results have no size ceiling.
-
-                                                     Animation lives in the preview window now:
-                                                     one file at a time, and only when asked for.
-
-                                                     Uniform, not UniformToFill: the whole image,
-                                                     letterboxed if need be. Filling the box cropped
-                                                     every square cover to a banner strip, so the
-                                                     result on screen was not the result on offer. -->
+                                            <!-- Keep the lightweight still thumbnail, even for
+                                                 animated WebP/video results. The real animation
+                                                 is only loaded when Preview is requested. -->
+                                            <Grid Grid.Row="0">
                                                 <Image Height="{Binding ThumbnailHeight, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                       HorizontalAlignment="Center"
                                                        Stretch="Uniform"
-                                                       Source="{Binding ThumbnailUrl}"
+                                                       Source="{Binding TileThumbnailUrl}"
                                                        Loaded="ResultImage_Loaded"
                                                        MouseEnter="ResultImage_MouseEnter"
                                                        MouseLeave="ResultImage_MouseLeave"/>
 
-                                                <!-- Badge so animated results are identifiable at a
-                                                     glance even before the frames arrive. -->
-                                                <!-- Badged for ANY animated format, not just GIF.
-                                                     Every animated result SteamGridDB returns is
-                                                     WebP with a WebM thumbnail, so a GIF-only badge
-                                                     marked almost nothing - and WPF can decode
-                                                     neither, so those tiles were unlabelled AND
-                                                     frequently blank. -->
                                                 <Border Visibility="{Binding IsAnimated, Converter={StaticResource BoolToVisibility}}"
                                                         HorizontalAlignment="Left"
                                                         VerticalAlignment="Top"
@@ -737,23 +721,6 @@
                                                                Foreground="White"/>
                                                 </Border>
 
-                                                <!-- Length, on video results only.
-                                                     A background loops, so a 20-second
-                                                     clip reads very differently from a
-                                                     ten-minute one - and it is the only
-                                                     hint before committing to a download.
-
-                                                     Bottom LEFT. It was bottom-right,
-                                                     underneath the preview button, which
-                                                     is 26x26, opaque, in the same cell and
-                                                     declared after it - so a later sibling
-                                                     painted straight over it and the
-                                                     duration was never once visible. The
-                                                     button's own comment says it was put
-                                                     there to clear the ANIMATED badge and
-                                                     the tick; this badge arrived
-                                                     afterwards and took the last free
-                                                     corner it did not have. -->
                                                 <Border Visibility="{Binding IsYouTube, Converter={StaticResource BoolToVisibility}}"
                                                         HorizontalAlignment="Left"
                                                         VerticalAlignment="Bottom"
@@ -766,56 +733,11 @@
                                                                FontWeight="Bold"
                                                                Foreground="White"/>
                                                 </Border>
-
-                                                <!-- Only shown once selected, so an
-                                                     unpicked grid stays uncluttered. -->
-                                                <Border x:Name="Tick"
-                                                        Visibility="Collapsed"
-                                                        HorizontalAlignment="Right"
-                                                        VerticalAlignment="Top"
-                                                        Margin="4"
-                                                        Width="22" Height="22"
-                                                        CornerRadius="11"
-                                                        Background="{DynamicResource GlyphBrush}">
-                                                    <TextBlock Text="&#x2713;"
-                                                               HorizontalAlignment="Center"
-                                                               VerticalAlignment="Center"
-                                                               FontWeight="Bold"
-                                                               Foreground="{DynamicResource TextBrushDarker}"/>
-                                                </Border>
-
-                                                <!-- Opens the full image, at size, in its own
-                                                     window - and it is where an animated result
-                                                     actually plays.
-
-                                                     A thumbnail says almost nothing about whether a
-                                                     1920x620 banner is the right shape for a
-                                                     background, or how much a GIF actually moves.
-                                                     Bottom-right so it does not sit under the GIF
-                                                     badge or the selection tick. -->
-                                                <Button Content="&#x1F441;"
-                                                        ToolTip="{DynamicResource LOCImageRotaterPreviewFullTooltip}"
-                                                        Click="Preview_Click"
-                                                        Tag="{Binding}"
-                                                        HorizontalAlignment="Right"
-                                                        VerticalAlignment="Bottom"
-                                                        Margin="4"
-                                                        Width="26" Height="26"
-                                                        Padding="0"
-                                                        FontSize="13"
-                                                        Focusable="False"/>
                                             </Grid>
 
-                                            <!-- Size and the real file format. The
-                                                 format matters because WPF cannot
-                                                 display all of them - a WEBP will
-                                                 not show here even though it
-                                                 downloads fine.
-
-                                                 CaptionText rather than Dimensions:
-                                                 a YouTube result has no size to state.
-                                                 See the property. -->
-                                            <StackPanel Orientation="Horizontal"
+                                            <!-- Keep the caption centred across the whole tile. -->
+                                            <StackPanel Grid.Row="1"
+                                                        Orientation="Horizontal"
                                                         HorizontalAlignment="Center"
                                                         Margin="0,4,0,0">
                                                 <TextBlock Text="{Binding CaptionText}"/>
@@ -823,11 +745,78 @@
                                                            Margin="6,0,0,0"
                                                            Foreground="Gray"/>
                                             </StackPanel>
-                                            <TextBlock Text="{Binding Style}"
-                                                       HorizontalAlignment="Center"
-                                                       FontSize="11"
-                                                       Foreground="Gray"/>
-                                        </StackPanel>
+
+                                            <!-- The bottom-right action is anchored to the
+                                                 tile itself, never to the image dimensions.
+                                                 Symmetric side columns keep the style label
+                                                 visually centred and clear of the button. -->
+                                            <Grid Grid.Row="2" Height="34" Margin="0,2,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="36"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="36"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="{Binding Style}"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           FontSize="11"
+                                                           Foreground="Gray"/>
+                                                <Button Grid.Column="2"
+                                                        ToolTip="{DynamicResource LOCImageRotaterPreviewFullTooltip}"
+                                                        Click="Preview_Click"
+                                                        Tag="{Binding}"
+                                                        HorizontalAlignment="Right"
+                                                        VerticalAlignment="Center"
+                                                        Width="30" Height="30"
+                                                        MinWidth="0" MinHeight="0"
+                                                        Padding="0"
+                                                        Background="#152830"
+                                                        BorderBrush="#476571"
+                                                        Focusable="False">
+                                                    <Viewbox Width="18" Height="18">
+                                                        <Grid Width="24" Height="24">
+                                                            <!-- Vector eye: consistent across fonts/DPI. -->
+                                                            <Path Data="M 2,12 C 4.5,7.7 8,5.5 12,5.5 C 16,5.5 19.5,7.7 22,12 C 19.5,16.3 16,18.5 12,18.5 C 8,18.5 4.5,16.3 2,12 Z"
+                                                                  Stroke="#DDF7FC" StrokeThickness="1.8"
+                                                                  StrokeLineJoin="Round" Fill="Transparent"/>
+                                                            <Ellipse Width="6" Height="6"
+                                                                     HorizontalAlignment="Center"
+                                                                     VerticalAlignment="Center"
+                                                                     Stroke="#DDF7FC" StrokeThickness="1.8"/>
+                                                        </Grid>
+                                                    </Viewbox>
+                                                </Button>
+                                            </Grid>
+
+                                            <!-- Compact, crisp selected state (no font-dependent
+                                                 checkmark or oversized filled circle). Always
+                                                 aligned with the tile's upper-right corner. -->
+                                            <Border x:Name="Tick"
+                                                    Grid.Row="0"
+                                                    Visibility="Collapsed"
+                                                    IsHitTestVisible="False"
+                                                    HorizontalAlignment="Right"
+                                                    VerticalAlignment="Top"
+                                                    Margin="5"
+                                                    Width="28" Height="28"
+                                                    CornerRadius="7"
+                                                    BorderBrush="{DynamicResource GlyphBrush}"
+                                                    BorderThickness="1.4"
+                                                    Background="#EC10242A">
+                                                <Path Data="M 1,6 L 6,11 L 15,1"
+                                                      Width="16" Height="12"
+                                                      Stroke="{DynamicResource GlyphBrush}"
+                                                      StrokeThickness="2.5"
+                                                      StrokeStartLineCap="Round"
+                                                      StrokeEndLineCap="Round"
+                                                      StrokeLineJoin="Round"
+                                                      Stretch="Fill"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"/>
+                                            </Border>
+                                        </Grid>
                                     </Border>
 
                                     <ControlTemplate.Triggers>

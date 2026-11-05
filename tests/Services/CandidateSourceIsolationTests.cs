@@ -97,20 +97,39 @@ namespace ImageRotater.Tests.Services
                 "a candidate resolved into Playnite's library store");
         }
 
-        // The preserved original is ours, in our folder, and is never deleted by
-        // rotation - which is how the user's own artwork stays in the rotation
-        // without the store being a source.
+        // A preserved original_* copy is a safety copy of the game's own
+        // artwork, not artwork the user set up: on its own it must not opt the
+        // game into rotation.
         [Test]
-        public void PreservedOriginal_IsAnOrdinaryCandidateInOurFolder()
+        public void PreservedOriginalAloneDoesNotOptTheGameIn()
         {
-            string preserved = _store.AddImage(
-                _gameId, MakeSourceFile("original_theirs.jpg"), ArtworkKind.Background);
+            _store.AddImage(_gameId, MakeSourceFile("original_theirs.jpg"), ArtworkKind.Background);
 
             var paths = new FolderImageSource(_store, ArtworkKind.Background)
                 .GetImagePaths(GameWithPlayniteArtwork());
 
-            Assert.AreEqual(1, paths.Count);
-            Assert.AreEqual(preserved, paths[0]);
+            Assert.AreEqual(0, paths.Count);
+        }
+
+        // The per-tile check must agree with the full candidate list it replaces.
+        [TestCase("")]
+        [TestCase("original_theirs.jpg")]
+        [TestCase("ours.png")]
+        [TestCase("original_theirs.jpg,ours.png")]
+        public void HasArtworkAgreesWithTheCandidateList(string files)
+        {
+            byte seed = 0;
+            foreach (string name in files.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string path = Path.Combine(_root, name);
+                File.WriteAllBytes(path, new byte[] { 1, 2, 3, ++seed });
+                _store.AddImage(_gameId, path, ArtworkKind.Cover);
+            }
+
+            var source = new FolderImageSource(_store, ArtworkKind.Cover);
+            Game game = GameWithPlayniteArtwork();
+
+            Assert.AreEqual(source.GetImagePaths(game).Count > 0, source.HasArtwork(game));
         }
 
         [Test]

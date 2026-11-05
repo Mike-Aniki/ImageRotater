@@ -20,6 +20,63 @@ namespace ImageRotater
     {
         private static readonly ILogger Logger = LogManager.GetLogger();
         private Window _navigationWindow;
+        private NativeFadeImageHost _nativeFadeImageHost;
+        private NativeCoverHost _nativeCoverHost;
+        private NativeLogoHost _nativeLogoHost;
+        private Game _nativeSelectedGame;
+        private bool _nativeHostUpdateQueued;
+        private bool _nativeHostsStopping;
+
+        private void SyncNativeFadeImageHost(Game selected)
+        {
+            _nativeSelectedGame = selected;
+            if (_nativeHostsStopping || _nativeHostUpdateQueued) return;
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
+            _nativeHostUpdateQueued = true;
+            dispatcher.BeginInvoke(new Action(() =>
+            {
+                _nativeHostUpdateQueued = false;
+                if (!_nativeHostsStopping) ApplyNativeHosts(_nativeSelectedGame);
+            }), System.Windows.Threading.DispatcherPriority.DataBind);
+        }
+
+        private void ApplyNativeHosts(Game selected)
+        {
+            try
+            {
+                if (_nativeFadeImageHost == null && Settings?.UseExperimentalFadeImage == true)
+                    _nativeFadeImageHost = new NativeFadeImageHost(() => Settings,
+                        () => new BackgroundImageControl(_imageSource, _selector, _loader,
+                            () => Settings, _fileLogger,
+                            imageId => PlayniteApi.Database.GetFullFilePath(imageId),
+                            () => PlayniteApi.MainView.FilteredGames, nativeInjected: true),
+                        () => Application.Current?.MainWindow);
+                _nativeFadeImageHost?.Update(selected);
+            }
+            catch (Exception ex) { Logger.Warn(ex, "ImageRotater: native background selection update failed"); }
+            try
+            {
+                if (_nativeCoverHost == null && Settings?.UseExperimentalNativeCovers == true)
+                    _nativeCoverHost = new NativeCoverHost(() => Settings,
+                        () => new CoverImageControl(_coverSource, _selector, () => Settings, PlayniteApi, nativeInjected: true, fileLogger: _fileLogger),
+                        id => PlayniteApi.Database.Games.Get(id),
+                        game => (_coverSource as FolderImageSource)?.HasArtwork(game) ?? _coverSource.GetImagePaths(game).Count > 0,
+                        () => Application.Current?.MainWindow);
+                _nativeCoverHost?.Update(selected);
+            }
+            catch (Exception ex) { Logger.Warn(ex, "ImageRotater: native cover selection update failed"); }
+            try
+            {
+                if (_nativeLogoHost == null && Settings?.UseExperimentalNativeLogos == true)
+                    _nativeLogoHost = new NativeLogoHost(() => Settings,
+                        () => new LogoImageControl(_logoSource, _selector, _loader, () => Settings, nativeInjected: true, fileLogger: _fileLogger),
+                        id => PlayniteApi.Database.Games.Get(id), () => Application.Current?.MainWindow,
+                        game => _packs.IsEnabled(game.Id) || _store.HasAnyImage(game.Id, ArtworkKind.Logo));
+                _nativeLogoHost?.Update(selected);
+            }
+            catch (Exception ex) { Logger.Warn(ex, "ImageRotater: native logo selection update failed"); }
+        }
 
         // 150 MB of decoded bitmaps. Playnite is a 32-bit process sharing
         // ~2 GB of address space with Chromium, and decoded frames are large
@@ -32,6 +89,8 @@ namespace ImageRotater
         private readonly ImageLoader _loader;
         private readonly ImageSelector _selector;
         private readonly SessionSelectionCache _sessionCache;
+        private readonly ArtworkPackService _packs;
+        private readonly SessionSelectionCache _packCache;
         private readonly GameImageStore _store;
         private readonly ImageMenuHandler _menuHandler;
         private readonly ISteamGridDbClient _steamGridDb;
@@ -44,15 +103,6 @@ namespace ImageRotater
         private readonly OriginalArtPreserver _preserver;
         private readonly BackgroundRotationService _rotationService;
         private readonly FileLogger _fileLogger;
-        private readonly ArtworkPublisher _publisher;
-        private readonly CoverTileTransition _coverTransition;
-
-        // Native still-cover transitions need to know whether this is the first
-        // visit to a game in the current Playnite session. EverySelection
-        // animates on every visit; the other modes only need an arrival
-        // transition when their session/day/slideshow pick can first be applied.
-        private readonly HashSet<Guid> _coverTransitionVisited = new HashSet<Guid>();
-        private Guid? _lastCoverTransitionGameId;
 
         // Slideshow state: the game currently selected, and when each kind is
         // next due. One coarse timer serves both kinds - sub-second precision
@@ -60,75 +110,10 @@ namespace ImageRotater
         private System.Windows.Threading.DispatcherTimer _slideshowTimer;
         private Game _slideshowGame;
 
-        // Bumped on every selection. A queued background write compares the
-        // value it captured against this one to tell whether the user has moved
-        // on again since - see PlayniteBackgroundWriter.SelectionGeneration.
-        private int _selectionGeneration;
-
-        // Session cover choices are primed once at startup. Visible library
-        // items are handled first; the remaining games are filled in later in
-        // small dispatcher batches so Playnite startup is not blocked on all
-        // configured covers.
-        private readonly HashSet<Guid> _startupStableCoverPrimeDone = new HashSet<Guid>();
-        private bool _startupStableCoverPrimeStopping;
-        private const int DeferredStableCoverPrimeBatchSize = 3;
-
         private DateTime _backgroundDue = DateTime.MaxValue;
-        private DateTime _lastFadeRetime = DateTime.MinValue;
         private DateTime _coverDue = DateTime.MaxValue;
 
-        // Fullscreen rebuilds its visual tree when switching between List,
-        // Details and other views. The FadeImage instance tuned a moment ago
-        // can therefore disappear and be replaced by a fresh stock instance.
-        // A small generation + one-shot retry makes re-binding deterministic
-        // without polling or scanning continuously.
-        private int _fadeRebindGeneration;
-        private System.Windows.Threading.DispatcherTimer _fadeRebindTimer;
-
-        // Slideshow intervals are user-selectable from 1 to 60 seconds.
         private const int MinimumSlideshowSeconds = 1;
-
-        // Delay background pre-staging briefly so fast scrolling skips intermediate games.
-        private const int BackgroundSettleMilliseconds = 250;
-
-        // Background pre-staging state for the settled selection.
-        private Game _settling;
-        private Guid _settledGameId;
-        private System.Windows.Threading.DispatcherTimer _settleTimer;
-
-        private System.Windows.Threading.DispatcherTimer SettleTimer
-        {
-            get
-            {
-                if (_settleTimer == null)
-                {
-                    _settleTimer = new System.Windows.Threading.DispatcherTimer(
-                        System.Windows.Threading.DispatcherPriority.Normal)
-                    {
-                        Interval = TimeSpan.FromMilliseconds(BackgroundSettleMilliseconds)
-                    };
-
-                    _settleTimer.Tick += OnSelectionSettled;
-                }
-
-                return _settleTimer;
-            }
-        }
-
-        // Marks the selection as settled for background pre-staging.
-        private void OnSelectionSettled(object sender, EventArgs e)
-        {
-            SettleTimer.Stop();
-
-            Game game = _settling;
-            if (game == null)
-            {
-                return;
-            }
-
-            _settledGameId = game.Id;
-        }
-
 
         private int _lastLoggedLogicalScreenWidth = -1;
         private int _lastLoggedPhysicalScreenWidth = -1;
@@ -239,7 +224,8 @@ namespace ImageRotater
             // without dragging the whole plugin along.
             GifConverter.ConfiguredPath = Settings?.FfmpegPath;
             Transition.Enabled = Settings?.EnableTransitions != false;
-            Transition.CoverStyle = Settings?.CoverTransition ?? TransitionStyle.Crossfade;
+            Transition.CoverStyle = Transition.CoverStyleForSettings(
+                Settings?.CoverTransition ?? TransitionStyle.Crossfade, Settings?.ShowUnfocusedCovers == true);
             Transition.BackgroundStyle = Settings?.BackgroundTransition ?? TransitionStyle.Crossfade;
 
             // A getter, not a snapshot: a settings save replaces the whole
@@ -268,51 +254,28 @@ namespace ImageRotater
             // Compatibility safe from Playnite reclaiming an unreferenced original.
             _writer = new PlayniteBackgroundWriter(api, GetPluginUserDataPath(), _fileLogger);
 
-            // A background write is queued to the UI thread, so it commits
-            // after the selection that triggered it - and during fast scrolling
-            // after the NEXT one too, which is what showed as another game's
-            // background appearing under the selected one.
-            //
-            // The writer captures this when the write starts and asks again
-            // when it commits. A background rotation is FOR the game being
-            // left, so the departing game is never the current selection and an
-            // id comparison would suppress every background write there is - a
-            // counter is the only thing that distinguishes "one selection
-            // behind", which is normal, from "two or more", which is the bug.
-            _writer.SelectionGeneration = () => _selectionGeneration;
-
-            // Backgrounds are levelled to one width per game, because Playnite
-            // blurs at a fixed radius after scaling - see NormaliseIfBackground.
-            _writer.NormaliseBackgrounds = () => Settings?.NormaliseBackgroundSize == true;
-
-            // IMPORTANT: Background normalisation works in physical image pixels,
-            // not WPF device-independent pixels (DIPs). SystemParameters.PrimaryScreenWidth
-            // returns DIPs, so on a 1920px display at 125% scaling it reports 1536.
-            // Using that value for cache names/normalisation creates unnecessary .w1536
-            // variants and invalidates the target-width cache. Convert the WPF width back
-            // to physical pixels before handing it to the background writer.
-            _writer.ScreenWidth = GetPhysicalPrimaryScreenWidth;
             // The writer is handed over so the preserver can recognise artwork
             // this plugin wrote and leave it alone.
             _preserver = new OriginalArtPreserver(api, _store, _writer);
+            _extraMetadataLogos = new ExtraMetadataLogoSource(api.Paths.ConfigurationPath);
+            _packCache = new SessionSelectionCache(System.IO.Path.Combine(GetPluginUserDataPath(), "Packs", "session-picks.json"));
+            _packs = new ArtworkPackService(_store, () => Settings,
+                (game, kind) => kind == ArtworkKind.Logo ? _extraMetadataLogos.GetLogoPath(game.Id) :
+                    _preserver.ResolveOriginalPath(game, kind),
+                _packCache);
 
             // Candidate sources expose one coherent pool to every selection mode:
             // plugin files + live virtual Original in Theme Integration, or
             // plugin files + preserved Original in Compatibility.
             _imageSource = new FolderImageSource(
-                _store, ArtworkKind.Background, _preserver, () => Settings);
+                _store, ArtworkKind.Background, _preserver, () => Settings) { Packs = _packs };
             _coverSource = new FolderImageSource(
-                _store, ArtworkKind.Cover, _preserver, () => Settings);
-            _extraMetadataLogos = new ExtraMetadataLogoSource(api.Paths.ConfigurationPath);
+                _store, ArtworkKind.Cover, _preserver, () => Settings) { Packs = _packs };
             _logoSource = new FolderImageSource(
-                _store, ArtworkKind.Logo, null, () => Settings, _extraMetadataLogos);
-
-            _publisher = new ArtworkPublisher(_store, _fileLogger);
-            _coverTransition = new CoverTileTransition(_fileLogger);
+                _store, ArtworkKind.Logo, null, () => Settings, _extraMetadataLogos) { Packs = _packs };
 
             _rotationService = new BackgroundRotationService(
-                _imageSource, _coverSource, _selector, _writer, _preserver, _store, () => Settings,
-                _fileLogger, _publisher);
+                _imageSource, _coverSource, _selector, _store, () => Settings, _fileLogger);
 
             // Adding or removing images changes what a game can rotate to, so
             // the rotation service must drop its once-per-game guard for it -
@@ -446,42 +409,13 @@ namespace ImageRotater
         // Populated only while verbose diagnostics are enabled.
         private readonly long[] _selectionPhases = new long[3];
 
-        private static long Timed(Action action)
-        {
-            var timer = System.Diagnostics.Stopwatch.StartNew();
-            action();
-            return timer.ElapsedMilliseconds;
-        }
 
         private void HandleGameSelected(OnGameSelectedEventArgs args)
         {
-            // Views rebuild their FadeImages when the user switches layouts,
-            // and a rebuilt instance carries stock timing again. Rescanning is
-            // idempotent and skips patched instances, so a light throttle is
-            // all the restraint it needs.
-            if (ShouldTuneNativeBackground() &&
-                (DateTime.UtcNow - _lastFadeRetime).TotalSeconds > 10)
-            {
-                _lastFadeRetime = DateTime.UtcNow;
-                if (_fileLogger != null && _fileLogger.IsEnabled)
-                {
-                    int patchedFadeImages = 0;
-                    _selectionPhases[0] = Timed(() => patchedFadeImages = FadeImageTuner.Apply());
-                    _fileLogger.Log(
-                        $"background transition tuner patched={patchedFadeImages} " +
-                        $"style={Transition.BackgroundStyle} " +
-                        $"duration={Transition.BackgroundDuration.TotalMilliseconds:0}ms");
-                }
-                else
-                {
-                    FadeImageTuner.Apply();
-                }
-            }
-
             Game selected = args?.NewValue?.FirstOrDefault();
 
-            // Advance the generation before rotation so queued background writes can detect stale selections.
-            _selectionGeneration++;
+            _packs.SelectGame(selected);
+            if (selected != null && _packs.IsEnabled(selected.Id)) ApplyCurrentPack(selected);
 
             if (selected != null)
             {
@@ -499,73 +433,10 @@ namespace ImageRotater
                         $"selected \"{selected.Name}\" ({selected.Id}) hasDataCover={Settings?.HasDataCover}");
                 }
 
-                // Covers are resolved lazily when a game is first visited.
-                // Route native still-cover changes through CoverTileTransition as well:
-                // previously that transition service was only used by slideshow ticks,
-                // so "Every Selection" could hard-cut even when a fade was configured.
-                // Compatibility mode must update Playnite's own CoverImage.
-                // Theme integration does not: the hosted cover control reads
-                // directly from ImageRotater's folder when the selection
-                // notification below arrives. Avoiding this call also avoids a
-                // second EverySelection pick for the same tile.
-                if (Settings?.UseThemeIntegration != true)
-                {
-                    if (_fileLogger != null && _fileLogger.IsEnabled)
-                    {
-                        _selectionPhases[1] = Timed(() => ApplyCoverForSelection(selected));
-                    }
-                    else
-                    {
-                        ApplyCoverForSelection(selected);
-                    }
-                }
             }
 
-            // Notify after publishing so theme controls read the same cover choice.
+            // Notify the injected covers after the selected game has changed.
             CoverImageControl.NotifySelectionChanged(selected?.Id ?? Guid.Empty);
-
-            // The two kinds rotate at different moments, deliberately.
-            //
-            // BACKGROUNDS rotate for the game being LEFT. Writing the arriving
-            // game's background landed ~11ms after Playnite had started
-            // rendering its stored image, so every switch painted it twice -
-            // the second swap mid-transition was the crop/blur flash. Rotating
-            // on the way out pre-stages the next image, and arrivals render
-            // once.
-            //
-            // COVERS rotate for the game ARRIVED AT - the user wants to watch
-            // the tile change, not discover later that it did. A cover swap is
-            // not part of the switch transition, so it has no flash to cause,
-            // and the write alone updates the tile: Playnite notifies the
-            // property both Desktop and Fullscreen tiles bind.
-            //
-            // Backgrounds rotate only after the selection settles; covers rotate on arrival.
-            Game left = args?.OldValue?.FirstOrDefault();
-            if (Settings?.UseThemeIntegration != true &&
-                left != null && left.Id == _settledGameId)
-            {
-                if (_fileLogger != null && _fileLogger.IsEnabled)
-                {
-                    _selectionPhases[2] = Timed(() => _rotationService.ApplyTo(left, ArtworkKind.Background));
-                }
-                else
-                {
-                    _rotationService.ApplyTo(left, ArtworkKind.Background);
-                }
-            }
-
-            _settledGameId = Guid.Empty;
-            _settling = Settings?.UseThemeIntegration == true ? null : selected;
-
-            if (selected != null && Settings?.UseThemeIntegration != true)
-            {
-                SettleTimer.Stop();
-                SettleTimer.Start();
-            }
-            else if (_settleTimer != null)
-            {
-                _settleTimer.Stop();
-            }
 
             // Restart the slideshow clock for a NEW selection: a slideshow
             // interval measures "how long the user has been LOOKING at this
@@ -578,6 +449,7 @@ namespace ImageRotater
             // the "slideshow timing is inconsistent" complaint.
             bool changed = selected?.Id != _slideshowGame?.Id;
             _slideshowGame = selected;
+            SyncNativeFadeImageHost(selected);
 
             if (changed || _slideshowTimer == null)
             {
@@ -585,86 +457,15 @@ namespace ImageRotater
             }
         }
 
-        private void ApplyCoverForSelection(Game game)
+        private void ApplyCurrentPack(Game game)
         {
-            if (game == null || _rotationService == null)
-            {
-                return;
-            }
-
-            ImageRotaterSettings settings = Settings;
-            if (settings == null || !settings.EnableRotation || !settings.RotateCovers)
-            {
-                _rotationService.ApplyTo(game, ArtworkKind.Cover);
-                return;
-            }
-
-            // Theme integration renders directly in CoverImageControl. This
-            // method is the native/compatibility path and must not create a
-            // second selection or any Playnite metadata work.
-            if (settings.UseThemeIntegration)
-            {
-                return;
-            }
-
-            SelectionMode mode = settings.GetSelectionMode(
-                game.Id, ArtworkKind.Cover, settings.CoverSelectionMode);
-
-
-            bool firstVisit = _coverTransitionVisited.Add(game.Id);
-            int candidateCount = 0;
-            try
-            {
-                candidateCount = _coverSource != null
-                    ? _coverSource.GetImagePaths(game).Count
-                    : 0;
-            }
-            catch (Exception)
-            {
-                candidateCount = 0;
-            }
-
-            bool hasArtwork = candidateCount > 0;
-            bool hasAlternatives = candidateCount > 1;
-            bool changedGame = !_lastCoverTransitionGameId.HasValue ||
-                _lastCoverTransitionGameId.Value != game.Id;
-            _lastCoverTransitionGameId = game.Id;
-
-            // Only animate when selecting the game can actually rotate its
-            // artwork. Session / Daily / Fixed choose a stable cover and keep it,
-            // so running the custom transition while merely navigating between
-            // games is wasted UI work. Slideshow transitions are handled by the
-            // slideshow timer below when the cover really changes.
-            //
-            // EverySelection is the only selection-driven mode that can change
-            // the current cover here, and it needs at least two candidates.
-            bool animate = !CoverImageControl.IsHostedByTheme &&
-                mode == SelectionMode.EverySelection &&
-                hasAlternatives;
-
-            if (_fileLogger != null && _fileLogger.IsEnabled)
-            {
-                _fileLogger.Log(
-                    $"cover transition request game=\"{game.Name}\" mode={mode} " +
-                    $"firstVisit={firstVisit} changedGame={changedGame} candidates={candidateCount} " +
-                    $"alternatives={hasAlternatives} animate={animate} " +
-                    $"style={Transition.CoverStyle} duration={Transition.CoverDuration.TotalMilliseconds:0}ms " +
-                    $"themeHosted={CoverImageControl.IsHostedByTheme}");
-            }
-
-            if (!animate)
-            {
-                _rotationService.ApplyTo(game, ArtworkKind.Cover);
-                if (IsStartupStableCoverMode(mode))
-                {
-                    _startupStableCoverPrimeDone.Add(game.Id);
-                }
-                return;
-            }
-
-            _coverTransition.Run(
-                game.Id,
-                () => _rotationService.ApplyTo(game, ArtworkKind.Cover));
+            _rotationService.Forget(game.Id);
+            _rotationService.ApplyTo(game);
+            UpdateHasDataCover(game);
+            UpdateHasDataLogo(game);
+            BackgroundImageControl.NotifyBackgroundRotated(game.Id);
+            CoverImageControl.NotifyArtworkRotated(game.Id);
+            LogoImageControl.NotifyArtworkChanged(game.Id);
         }
 
         // Arms the per-kind due times and makes sure the timer only runs when
@@ -687,6 +488,14 @@ namespace ImageRotater
                 && coverMode == SelectionMode.Slideshow
                 ? Settings.CoverSlideshowSeconds
                 : 0;
+
+            if (_slideshowGame != null && _packs.IsEnabled(_slideshowGame.Id))
+            {
+                var config = _packs.Configuration(_slideshowGame.Id);
+                bg = Settings.PackSelectionMode == SelectionMode.Slideshow && config.Packs.Count(p => p != null && !p.Excluded) > 1
+                    ? Settings.PackSlideshowSeconds : 0;
+                cover = 0;
+            }
 
             _backgroundDue = bg >= MinimumSlideshowSeconds && _slideshowGame != null
                 ? DateTime.UtcNow.AddSeconds(bg)
@@ -790,6 +599,7 @@ namespace ImageRotater
             try
             {
                 Game game = _slideshowGame;
+                if (game != null && _packs.IsEnabled(game.Id)) return;
                 if (game == null || Settings == null || !Settings.EnableRotation ||
                     !Settings.RotateBackgrounds ||
                     Settings.GetSelectionMode(game.Id, ArtworkKind.Background, Settings.SelectionMode) != SelectionMode.Slideshow ||
@@ -862,6 +672,18 @@ namespace ImageRotater
                 _gameRunningPaused = false;
                 DateTime now = DateTime.UtcNow;
 
+                if (_packs.IsEnabled(game.Id))
+                {
+                    if (now >= _backgroundDue)
+                    {
+                        _packs.Advance(game.Id);
+                        ApplyCurrentPack(game);
+                        _backgroundDue = now.AddSeconds(Math.Max(MinimumSlideshowSeconds,
+                            Settings.PackSlideshowSeconds));
+                    }
+                    return;
+                }
+
                 // Ticks are skipped outright for games with fewer than two
                 // images of the kind: ApplyNext would re-pick the same file
                 // and the write would be skipped, but the cover fade would
@@ -914,21 +736,8 @@ namespace ImageRotater
                         // fading the tile underneath would be invisible work,
                         // and for a video pick would animate something nobody
                         // can see. Then the swap just runs.
-                        if (Settings.UseThemeIntegration || CoverImageControl.IsHostedByTheme)
-                        {
-                            _rotationService.ApplyNext(game, ArtworkKind.Cover);
-                            CoverImageControl.NotifyArtworkRotated(game.Id);
-                        }
-                        else
-                        {
-                            _coverTransition.Run(
-                                game.Id,
-                                () =>
-                                {
-                                    _rotationService.ApplyNext(game, ArtworkKind.Cover);
-                                    CoverImageControl.NotifyArtworkRotated(game.Id);
-                                });
-                        }
+                        _rotationService.ApplyNext(game, ArtworkKind.Cover);
+                        CoverImageControl.NotifyArtworkRotated(game.Id);
                     }
 
                     _coverDue = now.AddSeconds(Settings.CoverSlideshowSeconds);
@@ -948,51 +757,10 @@ namespace ImageRotater
             }
         }
 
-        // Reads the store directly rather than the candidate source, for the
-        // same reason HasPluginArtwork does: only the plugin's own folder
-        // distinguishes a game the user set up from one they scrolled past.
-        private void UpdateHasDataCover(Game game)
-        {
-            if (Settings == null)
-            {
-                return;
-            }
-
-            try
-            {
-                Settings.HasDataCover = _store.HasAnyImage(game.Id, ArtworkKind.Cover);
-            }
-            catch (Exception)
-            {
-                // An unreadable folder means we cannot promise a cover, so the
-                // theme should keep showing its own.
-                Settings.HasDataCover = false;
-            }
-        }
-
-        private void UpdateHasDataLogo(Game game)
-        {
-            if (Settings == null)
-            {
-                return;
-            }
-
-            try
-            {
-                Settings.HasDataLogo = Settings.EnableLogoImage && game != null && _store.GetImagePaths(game.Id, ArtworkKind.Logo).Any(IsSupportedLogoPath);
-            }
-            catch (Exception)
-            {
-                Settings.HasDataLogo = false;
-            }
-        }
-
-        private static bool IsSupportedLogoPath(string path)
-        {
-            string ext = (System.IO.Path.GetExtension(path) ?? string.Empty).ToLowerInvariant();
-            return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp";
-        }
-
+        // Legacy theme hosts must stand down; injected adapters own these slots.
+        // No directory scan is needed merely to update an old visibility flag.
+        private void UpdateHasDataCover(Game game) { if (Settings != null) Settings.HasDataCover = false; }
+        private void UpdateHasDataLogo(Game game) { if (Settings != null) Settings.HasDataLogo = false; }
         public override Control GetGameViewControl(GetGameViewControlArgs args)
         {
             // Only ImageRotater's own theme elements arrive here. Keeping
@@ -1032,7 +800,7 @@ namespace ImageRotater
 
                 if (args.Name == "Logo")
                 {
-                    return new LogoImageControl(_logoSource, _selector, _loader, () => Settings);
+                    return new LogoImageControl(_logoSource, _selector, _loader, () => Settings, fileLogger: _fileLogger);
                 }
             }
             catch (Exception ex)
@@ -1046,145 +814,6 @@ namespace ImageRotater
         public override IEnumerable<GameMenuItem> GetGameMenuItems(GetGameMenuItemsArgs args)
         {
             return GameMenuBuilder.Build(args.Games, _menuHandler);
-        }
-
-        // Converts every GIF in the plugin's own folders to MP4.
-        //
-        // Same trade as the download-time conversion, applied to what is
-        // already stored: markedly smaller on disk, and playback moves from
-        // decoding frames on the UI thread to hardware-assisted H.264. On a
-        // real library GIF that was 4.7 MB down to 1.0 MB.
-        //
-        // Each source is deleted only after its MP4 exists, so an interrupted
-        // run costs disk rather than artwork.
-        private void ConvertStoredGifs()
-        {
-            if (!GifConverter.IsAvailable)
-            {
-                PlayniteApi.Dialogs.ShowMessage(
-                    Loc.Get("LOCImageRotaterNeedFfmpeg"),
-                    "ImageRotater");
-                return;
-            }
-
-            List<string> gifs = FindStoredGifs();
-
-            if (gifs.Count == 0)
-            {
-                PlayniteApi.Dialogs.ShowMessage(
-                    Loc.Get("LOCImageRotaterNoGifs"), "ImageRotater");
-                return;
-            }
-
-            long totalBytes = 0;
-
-            foreach (string gif in gifs)
-            {
-                try { totalBytes += new System.IO.FileInfo(gif).Length; }
-                catch (Exception) { }
-            }
-
-            var confirm = PlayniteApi.Dialogs.ShowMessage(
-                Loc.Format("LOCImageRotaterConvertGifsQuestion", gifs.Count, totalBytes / 1024 / 1024),
-                "ImageRotater",
-                System.Windows.MessageBoxButton.YesNo);
-
-            if (confirm != System.Windows.MessageBoxResult.Yes)
-            {
-                return;
-            }
-
-            int converted = 0;
-            long saved = 0;
-
-            PlayniteApi.Dialogs.ActivateGlobalProgress(
-                progress =>
-                {
-                    progress.ProgressMaxValue = gifs.Count;
-
-                    for (int i = 0; i < gifs.Count; i++)
-                    {
-                        if (progress.CancelToken.IsCancellationRequested)
-                        {
-                            break;
-                        }
-
-                        string gif = gifs[i];
-                        progress.Text = Loc.Format("LOCImageRotaterConvertingFile", System.IO.Path.GetFileName(gif));
-                        progress.CurrentProgressValue = i;
-
-                        try
-                        {
-                            long before = new System.IO.FileInfo(gif).Length;
-                            string mp4 = GifConverter.Convert(gif);
-
-                            if (string.IsNullOrEmpty(mp4))
-                            {
-                                continue;
-                            }
-
-                            long after = new System.IO.FileInfo(mp4).Length;
-
-                            // Only now is the source expendable.
-                            System.IO.File.Delete(gif);
-
-                            converted++;
-                            saved += before - after;
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Warn(ex, $"ImageRotater: could not convert {gif}");
-                        }
-                    }
-                },
-                new GlobalProgressOptions(Loc.Get("LOCImageRotaterConvertingGifs"), true)
-                {
-                    IsIndeterminate = false
-                });
-
-            // Every converted file changed a game's candidate list, so any
-            // remembered pick may name a file that no longer exists.
-            _sessionCache.Clear();
-            _rotationService.ForgetAll();
-
-            PlayniteApi.Dialogs.ShowMessage(
-                converted == 0
-                    ? Loc.Get("LOCImageRotaterNoGifsConverted")
-                    : Loc.Format("LOCImageRotaterGifsConverted", converted, gifs.Count, saved / 1024 / 1024),
-                "ImageRotater");
-        }
-
-        // Every GIF the plugin owns, skipping its own caches - a poster frame
-        // is a JPEG and a published copy is a duplicate of a real candidate.
-        private List<string> FindStoredGifs()
-        {
-            var found = new List<string>();
-
-            try
-            {
-                if (!System.IO.Directory.Exists(_store.ImagesRoot))
-                {
-                    return found;
-                }
-
-                foreach (string file in System.IO.Directory.GetFiles(
-                    _store.ImagesRoot, "*.gif", System.IO.SearchOption.AllDirectories))
-                {
-                    if (file.IndexOf(PosterFrame.CacheFolderName, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        file.IndexOf(Letterboxer.CacheFolderName, StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        continue;
-                    }
-
-                    found.Add(file);
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn(ex, "ImageRotater: could not list stored GIFs");
-            }
-
-            return found;
         }
 
         // Plumbing for whole-library image jobs: progress
@@ -1617,16 +1246,48 @@ namespace ImageRotater
                 if (_navigationWindow != null)
                 {
                     _navigationWindow.PreviewKeyDown -= NavigationWindow_PreviewKeyDown;
+                    _navigationWindow.StateChanged -= NavigationWindow_StateChanged;
+                    _navigationWindow.IsVisibleChanged -= NavigationWindow_IsVisibleChanged;
                 }
 
                 _navigationWindow = window;
                 _navigationWindow.PreviewKeyDown += NavigationWindow_PreviewKeyDown;
+                _navigationWindow.StateChanged += NavigationWindow_StateChanged;
+                _navigationWindow.IsVisibleChanged += NavigationWindow_IsVisibleChanged;
+                NavigationWindow_StateChanged(window, EventArgs.Empty);
             }
             catch
             {
                 // Direction tracking is cosmetic only. Rotation must never fail
                 // because a window was unavailable during startup.
             }
+        }
+
+        private void NavigationWindow_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            NavigationWindow_StateChanged(sender, EventArgs.Empty);
+        }
+
+        private void NavigationWindow_StateChanged(object sender, EventArgs e)
+        {
+            Window window = sender as Window;
+            if (window == null || _loader == null) return;
+            bool minimized = window.WindowState == WindowState.Minimized || !window.IsVisible;
+            if (minimized == _loader.IsSuspended) return;
+
+            long cachedBytes = _cache.CurrentBytes;
+            if (minimized) _loader.Suspend();
+            else _loader.Resume();
+
+            // Release hosted media too: clearing only the LRU would leave
+            // active WPF images and decoders holding the same resources.
+            BackgroundImageControl.NotifyPlaybackPolicyChanged();
+            CoverImageControl.NotifyPlaybackPolicyChanged();
+            LogoImageControl.NotifySettingsChanged();
+            _nativeCoverHost?.Update(_slideshowGame);
+            _nativeLogoHost?.Update(_slideshowGame);
+            if (_fileLogger?.IsEnabled == true)
+                _fileLogger.Log($"MEM window minimized={minimized} cache-before={cachedBytes} cache-after={_cache.CurrentBytes}");
         }
 
         private void NavigationWindow_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -1648,91 +1309,14 @@ namespace ImageRotater
             }
         }
 
-        private bool ShouldTuneNativeBackground()
-        {
-            return Settings?.EnableTransitions == true &&
-                   (Settings.UseThemeIntegration != true || Settings.EnableBackgroundImage != true);
-        }
-
-        private void RequestBackgroundTransitionRebind(string reason)
-        {
-            int generation = ++_fadeRebindGeneration;
-
-            // Force the normal selection fallback to be allowed to scan again
-            // immediately if Playnite rebuilds the control one more time.
-            _lastFadeRetime = DateTime.MinValue;
-
-            try
-            {
-                // First pass: run after the current view-change work has built
-                // most of the new visual tree.
-                Application.Current?.Dispatcher.BeginInvoke(
-                    new Action(() =>
-                    {
-                        if (generation != _fadeRebindGeneration)
-                        {
-                            return;
-                        }
-
-                        int patched = FadeImageTuner.Apply();
-                        if (_fileLogger != null && _fileLogger.IsEnabled)
-                        {
-                            _fileLogger.Log(
-                                $"background transition rebind reason={reason} pass=immediate patched={patched} " +
-                                $"style={Transition.BackgroundStyle}");
-                        }
-                    }),
-                    System.Windows.Threading.DispatcherPriority.Loaded);
-
-                // Second pass: some Fullscreen themes create/replace FadeImage
-                // one dispatcher turn later. This one-shot retry catches that
-                // final instance. Rapid view changes cancel older generations.
-                if (_fadeRebindTimer == null)
-                {
-                    _fadeRebindTimer = new System.Windows.Threading.DispatcherTimer(
-                        System.Windows.Threading.DispatcherPriority.Background)
-                    {
-                        Interval = TimeSpan.FromMilliseconds(300)
-                    };
-
-                    _fadeRebindTimer.Tick += (s, e) =>
-                    {
-                        _fadeRebindTimer.Stop();
-
-                        int current = _fadeRebindGeneration;
-                        int patched = FadeImageTuner.Apply();
-
-                        if (_fileLogger != null && _fileLogger.IsEnabled)
-                        {
-                            _fileLogger.Log(
-                                $"background transition rebind reason=fullscreen-view pass=settled generation={current} " +
-                                $"patched={patched} style={Transition.BackgroundStyle}");
-                        }
-                    };
-                }
-
-                _fadeRebindTimer.Stop();
-                _fadeRebindTimer.Start();
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn(ex, "ImageRotater: could not rebind background transition after view change");
-            }
-        }
-
         public override void OnFullscreenViewChanged(OnFullscreenViewChangedArgs args)
         {
             base.OnFullscreenViewChanged(args);
-
-            if (ShouldTuneNativeBackground())
-            {
-                RequestBackgroundTransitionRebind(
-                    args != null ? $"fullscreen-{args.NewView}" : "fullscreen-view");
-            }
+            SyncNativeFadeImageHost(PlayniteApi.MainView.SelectedGames?.FirstOrDefault());
         }
-
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
         {
+            SyncNativeFadeImageHost(PlayniteApi.MainView.SelectedGames?.FirstOrDefault());
             var startupTotal = System.Diagnostics.Stopwatch.StartNew();
 
             // Debug diagnostics are intentionally temporary. Expire forgotten
@@ -1747,7 +1331,7 @@ namespace ImageRotater
             if (_fileLogger != null && _fileLogger.IsEnabled)
             {
                 _fileLogger.Log($"Plugin loaded (mode={PlayniteApi.ApplicationInfo.Mode}).");
-                _fileLogger.Log($"Render path={(Settings?.UseThemeIntegration == true ? "ThemeIntegration" : "Compatibility")}");
+                _fileLogger.Log("Render path=NativeInjection");
                 _fileLogger.Log($"Session previous-picks loaded={_sessionCache?.PreviousSessionCount ?? 0}");
             }
 
@@ -1789,13 +1373,14 @@ namespace ImageRotater
             // untouched, so restore those references once before direct
             // rendering starts. With no saved compatibility writes this is a
             // no-op and costs no per-game rotation work.
-            if (Settings?.UseThemeIntegration == true)
+            if (Settings?.UsesDirectRendering(ArtworkKind.Background) == true ||
+                Settings?.UsesDirectRendering(ArtworkKind.Cover) == true)
             {
                 try
                 {
                     var restoreTimer = System.Diagnostics.Stopwatch.StartNew();
-                    int restored = _writer.RestoreKind(ArtworkKind.Background);
-                    restored += _writer.RestoreKind(ArtworkKind.Cover);
+                    int restored = Settings.UsesDirectRendering(ArtworkKind.Background) ? _writer.RestoreKind(ArtworkKind.Background) : 0;
+                    if (Settings.UsesDirectRendering(ArtworkKind.Cover)) restored += _writer.RestoreKind(ArtworkKind.Cover);
                     restoreTimer.Stop();
 
                     if (_fileLogger != null && _fileLogger.IsEnabled)
@@ -1810,116 +1395,6 @@ namespace ImageRotater
                 }
             }
 
-            if (ShouldTuneNativeBackground())
-            {
-                RequestBackgroundTransitionRebind("startup");
-            }
-
-            // Build the startup artwork index once and share it between the
-            // stable-cover prime and the published-file safety seed. Besides
-            // avoiding a duplicate filesystem scan, this lets the prime skip
-            // games that have no actual ImageRotater cover candidate at all.
-            HashSet<string> startupArtworkIndex = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (Settings?.UseThemeIntegration != true)
-            {
-                try
-                {
-                    var artworkIndexTimer = System.Diagnostics.Stopwatch.StartNew();
-                    startupArtworkIndex = _store.GetStartupArtworkIndex();
-                    artworkIndexTimer.Stop();
-
-                    if (_fileLogger != null && _fileLogger.IsEnabled)
-                    {
-                        _fileLogger.Log(
-                            $"PERF startup-artwork-index total={artworkIndexTimer.ElapsedMilliseconds}ms " +
-                            $"configuredKinds={startupArtworkIndex.Count}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warn(ex, "ImageRotater: could not build shared startup artwork index");
-                    startupArtworkIndex = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                }
-            }
-            else if (_fileLogger != null && _fileLogger.IsEnabled)
-            {
-                _fileLogger.Log("PERF startup-artwork-index skipped=theme-integration");
-            }
-
-            // Build the small list of games whose cover is supposed to be
-            // stable before the user selects them. Session, Daily and Fixed all
-            // have that contract; EverySelection intentionally stays lazy.
-            // Do NOT apply these synchronously here: visible tiles are handled
-            // first and the rest are deferred in tiny dispatcher batches.
-            //
-            // Resolve the effective mode per game so artwork-manager overrides
-            // are honoured even when the global cover mode is different.
-            List<Game> startupStableCoverGames = null;
-            if (Settings != null &&
-                !Settings.UseThemeIntegration &&
-                Settings.EnableRotation &&
-                Settings.RotateCovers)
-            {
-                startupStableCoverGames = new List<Game>();
-
-                foreach (Game game in PlayniteApi.Database.Games)
-                {
-                    if (game == null ||
-                        !startupArtworkIndex.Contains(
-                            GameImageStore.StartupIndexKey(game.Id, ArtworkKind.Cover)))
-                    {
-                        continue;
-                    }
-
-                    SelectionMode effectiveMode = Settings.GetSelectionMode(
-                        game.Id,
-                        ArtworkKind.Cover,
-                        Settings.CoverSelectionMode);
-
-                    if (!IsStartupStableCoverMode(effectiveMode))
-                    {
-                        continue;
-                    }
-
-                    startupStableCoverGames.Add(game);
-                }
-            }
-
-            // Before any tile renders. Themes load these with OnLoad, which
-            // throws FileNotFoundException on a missing file - inside
-            // FullscreenTilePanel.MeasureOverride, which is fatal. Seeding
-            // guarantees the file exists for every game that has artwork, so
-            // the throw is impossible rather than merely unlikely.
-            //
-            // Time the synchronous startup seed for debug diagnostics and slow-start warnings.
-            if (Settings?.UseThemeIntegration != true)
-            {
-                try
-                {
-                    var timer = System.Diagnostics.Stopwatch.StartNew();
-                    int seeded = _publisher.SeedEveryGame(PlayniteApi.Database.Games, startupArtworkIndex);
-                    timer.Stop();
-
-                    string seedPerf =
-                        $"PERF startup-seed total={timer.ElapsedMilliseconds}ms "
-                        + $"games={PlayniteApi.Database.Games.Count} wrote={seeded}";
-
-                    if (_fileLogger != null && _fileLogger.IsEnabled)
-                    {
-                        _fileLogger.Log(seedPerf);
-                    }
-
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error(ex, "ImageRotater: could not seed published artwork files");
-                }
-            }
-            else if (_fileLogger != null && _fileLogger.IsEnabled)
-            {
-                _fileLogger.Log("PERF startup-seed skipped=theme-integration");
-            }
-
             startupTotal.Stop();
             if (_fileLogger != null && _fileLogger.IsEnabled)
             {
@@ -1928,165 +1403,24 @@ namespace ImageRotater
                     + $"mode={PlayniteApi.ApplicationInfo.Mode} games={PlayniteApi.Database.Games.Count}");
             }
 
-            if (startupStableCoverGames != null && startupStableCoverGames.Count > 0)
-            {
-                ScheduleVisibleFirstStableCoverPrime(startupStableCoverGames);
-            }
-
-            // Resolve Playnite's library grid only once, after startup work and
-            // only when the dispatcher is idle. The first real cover
-            // transition used to pay this visual-tree search synchronously,
-            // which could make the first click feel like a large freeze.
-        }
-
-        private static bool IsStartupStableCoverMode(SelectionMode mode)
-        {
-            return mode == SelectionMode.Session ||
-                mode == SelectionMode.Daily ||
-                mode == SelectionMode.Fixed;
-        }
-
-        private void ScheduleVisibleFirstStableCoverPrime(List<Game> games)
-        {
-            if (games == null || games.Count == 0 || _coverTransition == null)
-            {
-                return;
-            }
-
-            var allTimer = System.Diagnostics.Stopwatch.StartNew();
-            var lookup = games.ToDictionary(g => g.Id, g => g);
-
-            _coverTransition.DiscoverVisibleGameIdsAsync(visibleIds =>
-            {
-                if (_startupStableCoverPrimeStopping)
-                {
-                    return;
-                }
-
-                var visibleTimer = System.Diagnostics.Stopwatch.StartNew();
-                int visibleProcessed = 0;
-
-                _writer.BeginStartupBatch();
-                try
-                {
-                    foreach (Guid id in visibleIds)
-                    {
-                        Game game;
-                        if (!lookup.TryGetValue(id, out game) ||
-                            _startupStableCoverPrimeDone.Contains(id))
-                        {
-                            continue;
-                        }
-
-                        _rotationService.ApplyTo(game, ArtworkKind.Cover);
-                        _startupStableCoverPrimeDone.Add(id);
-                        visibleProcessed++;
-                    }
-                }
-                finally
-                {
-                    _writer.EndStartupBatch();
-                }
-
-                visibleTimer.Stop();
-
-                if (_fileLogger != null && _fileLogger.IsEnabled)
-                {
-                    _fileLogger.Log(
-                        $"PERF startup-cover-stable-visible total={visibleTimer.ElapsedMilliseconds}ms " +
-                        $"visible={visibleIds.Count} processed={visibleProcessed} eligible={games.Count}");
-                }
-
-                var remaining = new Queue<Game>(
-                    games.Where(g => !_startupStableCoverPrimeDone.Contains(g.Id)));
-
-                PrimeDeferredStableCoverBatch(remaining, allTimer, 0, 0, 0);
-            });
-        }
-
-        private void PrimeDeferredStableCoverBatch(
-            Queue<Game> remaining,
-            System.Diagnostics.Stopwatch allTimer,
-            int processed,
-            int batches,
-            long maxBatchMilliseconds)
-        {
-            if (_startupStableCoverPrimeStopping || remaining == null)
-            {
-                return;
-            }
-
-            try
-            {
-                Application.Current?.Dispatcher?.BeginInvoke(
-                    System.Windows.Threading.DispatcherPriority.ContextIdle,
-                    new Action(() =>
-                    {
-                        if (_startupStableCoverPrimeStopping)
-                        {
-                            return;
-                        }
-
-                        if (remaining.Count == 0)
-                        {
-                            allTimer.Stop();
-                            if (_fileLogger != null && _fileLogger.IsEnabled)
-                            {
-                                _fileLogger.Log(
-                                    $"PERF startup-cover-stable-deferred total={allTimer.ElapsedMilliseconds}ms " +
-                                    $"games={processed} batches={batches} maxBatch={maxBatchMilliseconds}ms");
-                            }
-                            return;
-                        }
-
-                        var batchTimer = System.Diagnostics.Stopwatch.StartNew();
-                        int batchProcessed = 0;
-
-                        _writer.BeginStartupBatch();
-                        try
-                        {
-                            while (remaining.Count > 0 && batchProcessed < DeferredStableCoverPrimeBatchSize)
-                            {
-                                Game game = remaining.Dequeue();
-                                if (game == null || _startupStableCoverPrimeDone.Contains(game.Id))
-                                {
-                                    continue;
-                                }
-
-                                _rotationService.ApplyTo(game, ArtworkKind.Cover);
-                                _startupStableCoverPrimeDone.Add(game.Id);
-                                batchProcessed++;
-                            }
-                        }
-                        finally
-                        {
-                            _writer.EndStartupBatch();
-                        }
-
-                        batchTimer.Stop();
-                        long nextMax = Math.Max(maxBatchMilliseconds, batchTimer.ElapsedMilliseconds);
-
-                        PrimeDeferredStableCoverBatch(
-                            remaining,
-                            allTimer,
-                            processed + batchProcessed,
-                            batches + 1,
-                            nextMax);
-                    }));
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn(ex, "ImageRotater: deferred stable cover prime failed");
-            }
         }
 
         public override void OnApplicationStopped(OnApplicationStoppedEventArgs args)
         {
-            _startupStableCoverPrimeStopping = true;
+            _nativeHostsStopping = true;
+            _nativeSelectedGame = null;
+            _nativeFadeImageHost?.Dispose();
+            _nativeFadeImageHost = null;
+            _nativeCoverHost?.Dispose();
+            _nativeLogoHost?.Dispose();
+            _nativeLogoHost = null;
+            _nativeCoverHost = null;
 
             if (_navigationWindow != null)
             {
                 _navigationWindow.PreviewKeyDown -= NavigationWindow_PreviewKeyDown;
+                _navigationWindow.StateChanged -= NavigationWindow_StateChanged;
+                _navigationWindow.IsVisibleChanged -= NavigationWindow_IsVisibleChanged;
                 _navigationWindow = null;
             }
 
@@ -2101,21 +1435,14 @@ namespace ImageRotater
                 _slideshowTimer = null;
             }
 
-            if (_settleTimer != null)
-            {
-                _settleTimer.Stop();
-                _settleTimer.Tick -= OnSelectionSettled;
-                _settleTimer = null;
-            }
-
-            _settling = null;
-
             _slideshowGame = null;
 
             // Persist only Session-mode choices once, at clean shutdown. This
             // lets the next Playnite launch avoid reopening on the exact same
             // cover/background without adding disk I/O to normal navigation.
             int savedSessionPicks = _sessionCache != null ? _sessionCache.SaveSessionChoices() : 0;
+            _packCache.SaveSessionChoices();
+            _packCache.SaveDailyChoices();
             int savedDailyPicks = _sessionCache != null ? _sessionCache.SaveDailyChoices() : 0;
             if (_fileLogger != null && _fileLogger.IsEnabled)
             {
@@ -2382,23 +1709,26 @@ namespace ImageRotater
         // as the toggle being broken.
         public void NotifySettingsSaved()
         {
+            Settings?.NotifyPacksChanged();
+            BackgroundImageControl.NotifyPlaybackPolicyChanged();
+            CoverImageControl.NotifyPlaybackPolicyChanged();
             if (Settings != null && _writer != null)
             {
                 // Switching to theme integration must immediately put the user's
                 // native Playnite artwork back. From this point on the plugin
                 // controls render ImageRotater files directly and database
                 // artwork updates are no longer part of the display path.
-                if (Settings.UseThemeIntegration || !Settings.EnableRotation || !Settings.RotateBackgrounds)
+                if (Settings.UsesDirectRendering(ArtworkKind.Background) || !Settings.EnableRotation || !Settings.RotateBackgrounds)
                 {
                     _writer.RestoreKind(ArtworkKind.Background);
                 }
 
-                if (Settings.UseThemeIntegration || !Settings.EnableRotation || !Settings.RotateCovers)
+                if (Settings.UsesDirectRendering(ArtworkKind.Cover) || !Settings.EnableRotation || !Settings.RotateCovers)
                 {
                     _writer.RestoreKind(ArtworkKind.Cover);
                 }
 
-                if (Settings.UseThemeIntegration)
+                if (Settings.UsesDirectRendering(ArtworkKind.Cover))
                 {
                     Settings.CurrentCoverPath = string.Empty;
                     Settings.CurrentCoverGameId = string.Empty;
@@ -2407,20 +1737,24 @@ namespace ImageRotater
             }
 
             _rotationService?.ForgetAll();
+            if (_slideshowGame != null)
+            {
+                _packs.Forget(_slideshowGame.Id);
+                if (_packs.IsEnabled(_slideshowGame.Id)) ApplyCurrentPack(_slideshowGame);
+                else
+                {
+                    UpdateHasDataCover(_slideshowGame);
+                    BackgroundImageControl.NotifyBackgroundRotated(_slideshowGame.Id);
+                    CoverImageControl.NotifyArtworkRotated(_slideshowGame.Id);
+                }
+            }
             LogoImageControl.NotifySettingsChanged();
             if (_slideshowGame != null)
             {
                 UpdateHasDataLogo(_slideshowGame);
             }
 
-            if (Settings?.EnableTransitions != true)
-            {
-                FadeImageTuner.Restore();
-            }
-            else if (ShouldTuneNativeBackground())
-            {
-                RequestBackgroundTransitionRebind("settings-changed");
-            }
+            SyncNativeFadeImageHost(_slideshowGame ?? PlayniteApi.MainView.SelectedGames?.FirstOrDefault());
 
             // A changed interval - or a slideshow switched on - takes effect
             // now, not at the next selection change.
@@ -2518,6 +1852,13 @@ namespace ImageRotater
             // Stops the rotation service handing out picks that point at files
             // this method just deleted.
             _rotationService?.ForgetAll();
+            if (result.FoldersFailed == 0 && Settings?.ArtworkPacks != null)
+            {
+                foreach (Guid id in Settings.ArtworkPacks.Keys.ToList()) _packs.Forget(id);
+                Settings.ArtworkPacks.Clear();
+                Settings.NotifyPacksChanged();
+                SavePluginSettings(Settings);
+            }
 
             PlayniteApi.Dialogs.ShowMessage(
                 summary + Loc.Get("LOCImageRotaterRestartNotice"),

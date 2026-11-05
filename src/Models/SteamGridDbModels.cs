@@ -41,6 +41,38 @@ namespace ImageRotater.Models
         public int Id { get; set; }
         public string Url { get; set; }
         public string ThumbnailUrl { get; set; }
+
+        // SteamGridDB returns a .webm video in "thumb" for animated WebP
+        // artwork. WPF Image cannot show any frame of that video. Keep the
+        // regular thumbnail for still images; for videos, show the cached JPEG
+        // frame once it has been created asynchronously.
+        private string _staticVideoThumbnailUrl;
+
+        public bool NeedsStaticVideoThumbnail
+        {
+            get
+            {
+                System.Uri uri;
+                return System.Uri.TryCreate(ThumbnailUrl, System.UriKind.Absolute, out uri)
+                    && uri.AbsolutePath.EndsWith(".webm", System.StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        public string TileThumbnailUrl
+        {
+            get { return NeedsStaticVideoThumbnail ? _staticVideoThumbnailUrl : ThumbnailUrl; }
+        }
+
+        public void SetStaticVideoThumbnail(string imageUrl)
+        {
+            if (!NeedsStaticVideoThumbnail || string.IsNullOrEmpty(imageUrl)
+                || string.Equals(_staticVideoThumbnailUrl, imageUrl, System.StringComparison.Ordinal))
+            {
+                return;
+            }
+            _staticVideoThumbnailUrl = imageUrl;
+            OnPropertyChanged(nameof(TileThumbnailUrl));
+        }
         public int Width { get; set; }
         public int Height { get; set; }
         public string Style { get; set; }

@@ -10,23 +10,20 @@ namespace ImageRotater.Services
     // Rotation source for one artwork kind.
     //
     // ImageRotater-owned files always come from the game's plugin folder. The
-    // native Playnite artwork is then added as one logical "Original" candidate:
-    //
-    // - Theme Integration: use the live Playnite file directly. No copy.
-    // - Compatibility: use the preserved safety copy, because Compatibility
-    //   temporarily replaces Playnite's own artwork id during rotation.
+    // native Playnite artwork is then added as one logical "Original" candidate,
+    // read live from Playnite (or from the safety copy a release before 1.6 left).
     //
     // The source only activates when the user has at least one real
     // ImageRotater image. A native image alone must not opt the game into
     // rotation simply because a theme hosts our control.
     public class FolderImageSource : IBackgroundImageSource
     {
+        public ArtworkPackService Packs { get; set; }
         private static readonly IReadOnlyList<string> Empty = new string[0];
 
         private readonly GameImageStore _store;
         private readonly ArtworkKind _kind;
         private readonly OriginalArtPreserver _preserver;
-        private readonly Func<ImageRotaterSettings> _settings;
         private readonly ExtraMetadataLogoSource _extraMetadataLogos;
 
         public FolderImageSource(
@@ -39,7 +36,6 @@ namespace ImageRotater.Services
             _store = store;
             _kind = kind;
             _preserver = preserver;
-            _settings = settings;
             _extraMetadataLogos = extraMetadataLogos;
         }
 
@@ -49,12 +45,59 @@ namespace ImageRotater.Services
             return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp";
         }
 
+        // Passive video->still handoff needs a static image even when the
+        // active Artwork Pack contains only a video. Do not add the Original
+        // to the pack's rotation pool: doing so would break synchronized packs.
+        // Resolve it solely for the unfocused display fallback.
+        public string GetOriginalStillPath(Game game)
+        {
+            if (game == null || _kind != ArtworkKind.Cover || _preserver == null)
+                return null;
+
+            string original = _preserver.ResolveOriginalPath(game, _kind);
+            if (string.IsNullOrEmpty(original) || !File.Exists(original))
+                return null;
+            string ext = (Path.GetExtension(original) ?? string.Empty).ToLowerInvariant();
+            return ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
+                   ext == ".bmp" || ext == ".gif" || ext == ".tif" || ext == ".tiff"
+                ? original : null;
+        }
+
+        // Same answer as GetImagePaths(game).Count > 0, cheap enough for every
+        // visible tile on every scan. The store's listing is cached against
+        // the folder's write time, so no file is re-checked, and the live
+        // Original is never resolved: it only joins games that already qualify.
+        public bool HasArtwork(Game game)
+        {
+            if (game == null || _store == null)
+            {
+                return false;
+            }
+
+            IReadOnlyList<string> packPaths;
+            if (Packs != null && Packs.TryGetPaths(game, _kind, out packPaths)) return packPaths.Count > 0;
+
+            foreach (string path in _store.GetImagePaths(game.Id, _kind))
+            {
+                if (!string.IsNullOrEmpty(path) && !GameImageStore.IsPreservedOriginal(path) &&
+                    (_kind != ArtworkKind.Logo || IsSupportedLogo(path)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public IReadOnlyList<string> GetImagePaths(Game game)
         {
             if (game == null || _store == null)
             {
                 return Empty;
             }
+
+            IReadOnlyList<string> packPaths;
+            if (Packs != null && Packs.TryGetPaths(game, _kind, out packPaths)) return packPaths;
 
             IReadOnlyList<string> stored = _store.GetImagePaths(game.Id, _kind);
 
@@ -85,35 +128,8 @@ namespace ImageRotater.Services
                 return pluginArtwork;
             }
 
-            ImageRotaterSettings settings = _settings != null ? _settings() : null;
-            bool themeIntegration = settings?.UseThemeIntegration == true;
-
-            if (!themeIntegration)
-            {
-                // Compatibility replaces Playnite's native id, so first make
-                // sure the latest user-selected artwork has a stable copy.
-                string compatibilityOriginal = _preserver?.Preserve(game, _kind);
-
-                // Re-read after Preserve because it may have created or refreshed
-                // original_native.*. Collapse any legacy original_* duplicates
-                // to the one authoritative safety copy so old restart bugs cannot
-                // weight Original multiple times in the rotation.
-                IReadOnlyList<string> refreshed = _store.GetImagePaths(game.Id, _kind);
-                var compatibilityPool = refreshed
-                    .Where(path => !GameImageStore.IsPreservedOriginal(path))
-                    .ToList();
-
-                if (!string.IsNullOrEmpty(compatibilityOriginal) && File.Exists(compatibilityOriginal) &&
-                    !_store.IsArtworkExcluded(game.Id, _kind, compatibilityOriginal))
-                {
-                    compatibilityPool.Insert(0, compatibilityOriginal);
-                }
-
-                return compatibilityPool;
-            }
-
-            // Theme Integration never copies native artwork. Resolve the live
-            // Playnite image and insert it as the virtual Original candidate.
+            // Native artwork is never copied. Resolve the live Playnite image
+            // and insert it as the virtual Original candidate.
             // If the current id is a leftover Compatibility write, the preserver
             // resolves the logical original from its safety copy instead.
             string themeOriginal = _preserver?.ResolveOriginalPath(game, _kind);

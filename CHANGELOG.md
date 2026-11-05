@@ -6,6 +6,24 @@ All notable changes to ImageRotater. The format follows
 ## [Unreleased]
 
 ### Added
+- Tools settings include download-page buttons for FFmpeg, yt-dlp and Deno, with FR/EN/ES labels.
+
+- Automatic native artwork injection is now the default. Rendering-mode and experimental toggles are removed from settings; per-kind rotation, transitions, media options and packs remain configurable. Old saved rendering-mode choices migrate automatically.
+- Automatic logo source injection for Extra Metadata Loader controls and direct per-game logo PNG images, with native source restoration and FR/EN/ES settings.
+- Native covers: adapts standard `PART_ImageCover` elements and direct `CoverImageObject` bindings without theme
+  edits, respects selected-only/all-visible cover playback, restores native bindings on
+  disable, and releases plugin media when tiles leave the viewport or are recycled.
+- Native FadeImage background rendering: hosts ImageRotater's
+  image/video renderer inside Playnite's existing background, restores native bindings
+  when released, and avoids background metadata writes.
+- Theme background display state: `IsBackgroundDisplayed` lets themes hide their
+  native background while ImageRotater renders custom or native artwork.
+- Synchronized artwork packs per game: group an existing cover, background and logo,
+  preview their composition, and rotate the whole set with one shared selection and slideshow
+  interval. Includes fixed packs, ordering, exclusions and original-artwork fallback for empty
+  or missing slots. Open the dedicated Pack Manager from a game's ImageRotater
+  context menu; its visual picker and composition preview focus on creating packs.
+  Configure shared rotation and slideshow behavior in the plugin's Packs settings.
 - Library > Migration page: import the covers and backgrounds you gave BackgroundChanger. Copies only;
   BackgroundChanger's own files are untouched, and running it again only adds what is new.
 - The search dialog remembers how you left it, separately for covers and backgrounds: source tab,
@@ -17,6 +35,10 @@ All notable changes to ImageRotater. The format follows
   on the Animation pages: rotation and transitions need two or more.
 
 ### Changed
+- Returning to the native cover fades only the injected renderer, so themes that place both images in one wrapper keep the native cover visible underneath.
+- Removed legacy startup publication, metadata rotation, native FadeImage retuning and manual-theme support probing from the active runtime. Old rendering switches can no longer select another mode.
+- Native artwork discovery handles direct Image Loaded events, with weak subscriptions and a five-second safety scan for covers/logos. Disabled cover rotation does not keep a discovery timer running.
+
 - Search result tiles show the whole image instead of cropping it to a banner. Cover searches get a
   square box, background searches keep the wide one.
 - Every search filter applies as it is ticked; the Apply button is gone.
@@ -32,6 +54,31 @@ All notable changes to ImageRotater. The format follows
   file once, instead of one write per game and a 2.5 s retry per file still held by a tile.
 
 ### Fixed
+- Fade injected covers back to native artwork when losing selection, with cancellation on quick reselection.
+- Hold a bounded cached frame over video loop seeks; serialize optional poster extraction off the UI thread and release loop resources with playback.
+- Leave native-only logo placements alone and restore style/binding-based visibility after suppressing a native reload.
+- Add opt-in cover geometry traces for investigating theme-specific aspect ratio issues.
+
+- Release logo adapters when their source changes to unrelated artwork, and refresh cover/logo discovery immediately when the main window becomes visible.
+- Align DLL and build-script version metadata with the existing 1.4.2 manifest.
+
+- Injected backgrounds honor the native stretch/alignment and incoming-media size.
+  Themes without a standard background part can keep their existing ImageRotater host
+  as a compatibility fallback. Video-open timings are logged.
+- Native cover geometry follows each ready image/video even when playback remains
+  active; outgoing transition layers no longer enlarge auto-width cover boxes.
+- Native artwork updates are coalesced after binding propagation. Grid/Canvas covers
+  retain their native template part and overlays no longer reparent it during selection.
+- Native cover injection no longer reveals the original cover while loading the IR
+  selection. Game-detail controls are reused for handoffs, and known covers update
+  immediately when the selected game or its view model changes.
+- Cover rotation and animation settings remain accessible with native injection;
+  their existing options are unchanged.
+- Browsing games without ImageRotater backgrounds no longer fills the plugin's
+  bitmap cache with native artwork or preloads native-only neighbours. Minimizing
+  Playnite clears the cache and releases hosted media; pending decodes cannot refill
+  it while minimized or after restoring. Image decoding is limited to two concurrent
+  operations to reduce transient memory spikes during fast browsing.
 - Playnite starting one to two seconds slower with the plugin enabled. The startup pass over the
   library was reading every pair of same-length files in full to collapse duplicates - and a library
   brought over from BackgroundChanger holds a preserved original beside an identical copy for most

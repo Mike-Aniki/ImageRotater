@@ -44,6 +44,8 @@ namespace ImageRotater.Controls
             public Grid Container { get; }
             public Image Image { get; }
             public MediaElement Video { get; }
+            public int LoopGeneration;
+            public DispatcherTimer LoopTimer;
             public string Name { get; }
 
             public SlotKind Kind;
@@ -53,6 +55,7 @@ namespace ImageRotater.Controls
             public int RequestToken;
             public int Bucket;
             public Stopwatch VideoOpenWatch;
+            public bool Ready;
         }
 
         private readonly IBackgroundImageSource _source;
@@ -62,6 +65,18 @@ namespace ImageRotater.Controls
         private readonly FileLogger _fileLogger;
         private readonly Func<string, string> _resolveFullPath;
         private readonly Func<IEnumerable<Game>> _filteredGames;
+        private readonly bool _nativeInjected;
+
+        protected override Size MeasureOverride(Size constraint)
+        {
+            Size measured = base.MeasureOverride(constraint);
+            if (!_nativeInjected && _settings?.Invoke()?.UseThemeBackgroundFallback != true) return measured;
+            RenderSlot slot = _pendingSlot?.Ready == true ? _pendingSlot : _activeSlot;
+            FrameworkElement media = slot?.Kind == SlotKind.Video ? (FrameworkElement)slot.Video : slot?.Image;
+            if (media?.Visibility == Visibility.Visible && media.DesiredSize.Width > 0 && media.DesiredSize.Height > 0)
+                return media.DesiredSize;
+            return measured;
+        }
 
         // Theme Integration renders Playnite's native background inside this
         // control when a game has no ImageRotater backgrounds. GameContext does
@@ -76,6 +91,43 @@ namespace ImageRotater.Controls
         private RenderSlot _slotB;
         private RenderSlot _activeSlot;
         private RenderSlot _pendingSlot;
+
+        private readonly HashSet<RenderSlot> _displayedSlots = new HashSet<RenderSlot>();
+        private ImageRotaterSettings _publishedSettings;
+
+        private static readonly DependencyPropertyKey IsBackgroundDisplayedPropertyKey =
+            DependencyProperty.RegisterReadOnly(nameof(IsBackgroundDisplayed), typeof(bool),
+                typeof(BackgroundImageControl), new PropertyMetadata(false));
+        public static readonly DependencyProperty IsBackgroundDisplayedProperty =
+            IsBackgroundDisplayedPropertyKey.DependencyProperty;
+        public bool IsBackgroundDisplayed => (bool)GetValue(IsBackgroundDisplayedProperty);
+
+        internal event Action NativeBackgroundReady;
+
+        private void PublishBackgroundState()
+        {
+            ImageRotaterSettings settings = _settings?.Invoke();
+            if (!ReferenceEquals(settings, _publishedSettings))
+            {
+                _publishedSettings?.SetBackgroundDisplayed(this, false);
+                _publishedSettings = settings;
+            }
+            bool displayed = _displayedSlots.Count != 0;
+            SetValue(IsBackgroundDisplayedPropertyKey, displayed);
+            // Injected media already lives inside the native background. Publishing
+            // it globally would make updated themes collapse its own parent.
+            _publishedSettings?.SetBackgroundDisplayed(this, displayed && !_nativeInjected);
+        }
+
+        private void ReleaseBackground()
+        {
+            _requestToken++;
+            _rapidSelectionTimer.Stop();
+            _initialLayoutTimer.Stop();
+            ShowPlaceholder();
+            MissingImagePlaceholder.Visibility = Visibility.Collapsed;
+            PublishBackgroundState();
+        }
 
         private string _previousPick;
         private int _requestToken;
@@ -116,7 +168,8 @@ namespace ImageRotater.Controls
             Func<ImageRotaterSettings> settings,
             FileLogger fileLogger = null,
             Func<string, string> resolveFullPath = null,
-            Func<IEnumerable<Game>> filteredGames = null)
+            Func<IEnumerable<Game>> filteredGames = null,
+            bool nativeInjected = false)
         {
             InitializeComponent();
 
@@ -127,6 +180,7 @@ namespace ImageRotater.Controls
             _fileLogger = fileLogger;
             _resolveFullPath = resolveFullPath;
             _filteredGames = filteredGames;
+            _nativeInjected = nativeInjected;
 
             _slotA = new RenderSlot(SlotA, SlotAImage, SlotAVideo, "A");
             _slotB = new RenderSlot(SlotB, SlotBImage, SlotBVideo, "B");
@@ -401,7 +455,7 @@ namespace ImageRotater.Controls
             // would only duplicate work. This listener exists for the live
             // Playnite fallback used by Theme Integration.
             ImageRotaterSettings settings = _settings != null ? _settings() : null;
-            if (settings?.UseThemeIntegration != true)
+            if (settings?.UsesDirectRendering(ArtworkKind.Background) != true)
             {
                 return;
             }
@@ -500,6 +554,27 @@ namespace ImageRotater.Controls
 
         private async void Refresh()
         {
+            ImageRotaterSettings renderingSettings = _settings?.Invoke();
+            if (renderingSettings == null ||
+                (_nativeInjected ? !renderingSettings.UseExperimentalFadeImage :
+                    !renderingSettings.UseThemeIntegration ||
+                    (renderingSettings.UseExperimentalFadeImage && !renderingSettings.UseThemeBackgroundFallback)) ||
+                (_nativeInjected ? !renderingSettings.ShouldRenderBackground(GameContext?.Id ?? Guid.Empty) :
+                    !renderingSettings.EnableRotation || !renderingSettings.IsArtworkRotationEnabled(GameContext?.Id ?? Guid.Empty, ArtworkKind.Background)))
+            {
+                ReleaseBackground();
+                return;
+            }
+            PublishBackgroundState();
+            if (_loader?.IsSuspended == true)
+            {
+                _requestToken++;
+                _rapidSelectionTimer.Stop();
+                _initialLayoutTimer.Stop();
+                ShowPlaceholder();
+                MissingImagePlaceholder.Visibility = Visibility.Collapsed;
+                return;
+            }
             if (!_initialLayoutReady)
             {
                 ScheduleInitialLayoutRefresh();
@@ -529,7 +604,8 @@ namespace ImageRotater.Controls
                 }
 
                 ImageRotaterSettings settings = _settings != null ? _settings() : null;
-                if (settings != null && (!settings.EnableRotation || !settings.RotateBackgrounds))
+                if (settings != null && (_nativeInjected ? !settings.ShouldRenderBackground(GameContext?.Id ?? Guid.Empty) :
+                    !settings.EnableRotation || !settings.IsArtworkRotationEnabled(GameContext?.Id ?? Guid.Empty, ArtworkKind.Background)))
                 {
                     TransitionToNothing(token);
                     return;
@@ -548,7 +624,8 @@ namespace ImageRotater.Controls
                     return;
                 }
 
-                IReadOnlyList<string> candidates = _source != null
+                IReadOnlyList<string> candidates = _source != null && settings?.EnableRotation == true &&
+                    settings.IsArtworkRotationEnabled(game.Id, ArtworkKind.Background)
                     ? _source.GetImagePaths(game)
                     : null;
 
@@ -783,7 +860,7 @@ namespace ImageRotater.Controls
                 : null;
 
             BitmapSource bitmap = _loader != null
-                ? await _loader.LoadAsync(path, bucket)
+                ? await _loader.LoadAsync(path, bucket, cacheResult: !nativeFallback)
                 : null;
 
             if (token != _requestToken || GameContext == null || GameContext.Id != game.Id)
@@ -822,7 +899,7 @@ namespace ImageRotater.Controls
             // safely warm the two adjacent games in the visible library order.
             // EverySelection is intentionally excluded: choosing its artwork
             // before focus would subtly change that mode's semantics.
-            PreloadNeighbourBackgrounds(game, bucket, path);
+            if (!nativeFallback) PreloadNeighbourBackgrounds(game, bucket, path);
 
             if (!nativeFallback)
             {
@@ -832,6 +909,7 @@ namespace ImageRotater.Controls
 
         private async void PreloadNeighbourBackgrounds(Game currentGame, int bucket, string currentPath)
         {
+            int requestToken = _requestToken;
             try
             {
                 ImageRotaterSettings settings = _settings != null ? _settings() : null;
@@ -857,6 +935,7 @@ namespace ImageRotater.Controls
                 int[] neighbourIndexes = { index - 1, index + 1 };
                 foreach (int neighbourIndex in neighbourIndexes)
                 {
+                    if (requestToken != _requestToken || _loader.IsSuspended) return;
                     if (neighbourIndex < 0 || neighbourIndex >= games.Count)
                     {
                         continue;
@@ -869,7 +948,8 @@ namespace ImageRotater.Controls
                     }
 
                     string path = null;
-                    IReadOnlyList<string> candidates = _source != null
+                    IReadOnlyList<string> candidates = _source != null && settings?.EnableRotation == true &&
+                    settings.IsArtworkRotationEnabled(neighbour.Id, ArtworkKind.Background)
                         ? _source.GetImagePaths(neighbour)
                         : null;
 
@@ -880,10 +960,8 @@ namespace ImageRotater.Controls
                             settings.GetSelectionMode(neighbour.Id, ArtworkKind.Background, settings.SelectionMode),
                             settings.GetSelectionOrder(neighbour.Id, ArtworkKind.Background, settings.BackgroundSelectionOrder));
                     }
-                    else
-                    {
-                        path = ResolveNativeBackground(neighbour);
-                    }
+                    // A native-only neighbour is not opted into rotation. Let
+                    // it decode on demand rather than filling the plugin cache.
 
                     if (string.IsNullOrEmpty(path) ||
                         string.Equals(path, currentPath, StringComparison.OrdinalIgnoreCase) ||
@@ -998,7 +1076,8 @@ namespace ImageRotater.Controls
             RenderSlot incoming = GetInactiveSlot();
             PrepareSlotBase(incoming, game, path, SlotKind.Video, token, 0);
 
-            incoming.VideoOpenWatch = _fileLogger != null && _fileLogger.IsEnabled
+            incoming.VideoOpenWatch = _nativeInjected || _settings?.Invoke()?.UseExperimentalFadeImage == true ||
+                (_fileLogger != null && _fileLogger.IsEnabled)
                 ? Stopwatch.StartNew()
                 : null;
 
@@ -1099,6 +1178,11 @@ namespace ImageRotater.Controls
 
             RenderSlot outgoing = _activeSlot;
 
+            incoming.Ready = true;
+            InvalidateMeasure();
+            _displayedSlots.Add(incoming);
+            PublishBackgroundState();
+
             if (outgoing == incoming)
             {
                 if (Transition.BackgroundStyle == TransitionStyle.SlideFromRight)
@@ -1177,6 +1261,7 @@ namespace ImageRotater.Controls
                 _activeSlot = incoming;
                 _pendingSlot = null;
                 LogTransition(outgoing, incoming, style);
+                NativeBackgroundReady?.Invoke();
                 return;
             }
 
@@ -1273,8 +1358,7 @@ namespace ImageRotater.Controls
             ResetSlotTranslation(incoming);
             ResetSlotTranslation(outgoing);
 
-            // Theme-hosted fullscreen backgrounds use THIS renderer, not
-            // FadeImageTuner. Keep the slide compact and make the outgoing image
+            // Keep the slide compact and make the outgoing image
             // disappear substantially sooner so it doesn't dominate the hand-off.
             double distance = 54.0;
             var incomingT = new TranslateTransform();
@@ -2128,21 +2212,6 @@ namespace ImageRotater.Controls
                 });
         }
 
-        private static void AnimateSlotZoomToScale(
-            RenderSlot slot,
-            double targetScale,
-            TimeSpan duration,
-            IEasingFunction easing)
-        {
-            if (slot == null)
-            {
-                return;
-            }
-
-            AnimateElementZoomToScale(slot.Image, targetScale, duration, easing);
-            AnimateElementZoomToScale(slot.Video, targetScale, duration, easing);
-        }
-
         private static void AnimateElementZoomToScale(
             FrameworkElement element,
             double targetScale,
@@ -2397,26 +2466,17 @@ namespace ImageRotater.Controls
             RenderSlot keep = null;
             Guid currentGameId = GameContext?.Id ?? Guid.Empty;
 
-            // If a slide is interrupted, keep the already-active/outgoing slot
-            // rather than the partially-arrived pending slot. In the V70 slide
-            // the outgoing image is physically fixed, so this gives us a clean
-            // cancellation point with no positional snap. The half-transitioned
-            // incoming slot is discarded and rebuilt only after the 400 ms settle.
-            if (_pendingSlot != null &&
-                _activeSlot != null &&
-                _activeSlot != _pendingSlot &&
-                _activeSlot.Kind != SlotKind.None)
+            // Once the incoming media is visible, finish the interrupted handoff
+            // on that media. Keeping the outgoing slot here would resurrect A
+            // while navigating A -> B -> C, even though B was already on screen.
+            // A video still waiting for MediaOpened must not replace the old image.
+            if (_pendingSlot != null && _pendingSlot.Ready &&
+                _pendingSlot.Kind != SlotKind.None &&
+                _pendingSlot.Container.Visibility == Visibility.Visible &&
+                (_pendingSlot == _slotA ? a : b) > 0.001)
             {
-                keep = _activeSlot;
-
-                if (_fileLogger != null && _fileLogger.IsEnabled)
-                {
-                    _fileLogger.Log(
-                        $"BG PERF transition-cancel keep={_activeSlot.Name} " +
-                        $"drop={_pendingSlot.Name} game=\"{_activeSlot.GameName}\"");
-                }
+                keep = _pendingSlot;
             }
-
             // During rapid 1-2-1-2 navigation a transition can be interrupted
             // while the outgoing slot is still more opaque than the incoming
             // slot. The old logic kept whichever slot happened to be brighter,
@@ -2521,6 +2581,7 @@ namespace ImageRotater.Controls
                 return;
             }
 
+            StopBackgroundVideoLoop(slot);
             slot.Container.BeginAnimation(OpacityProperty, null);
             ResetSlotTranslation(slot);
             slot.Container.OpacityMask = null;
@@ -2558,6 +2619,9 @@ namespace ImageRotater.Controls
             slot.RequestToken = 0;
             slot.Bucket = 0;
             slot.VideoOpenWatch = null;
+            slot.Ready = false;
+            _displayedSlots.Remove(slot);
+            PublishBackgroundState();
         }
 
         private void ShowPlaceholder()
@@ -2602,6 +2666,9 @@ namespace ImageRotater.Controls
             {
                 Logger.Warn(ex, "ImageRotater: could not resume background video after reload");
             }
+
+            // The loop timer stops itself while the control is unloaded.
+            ScheduleBackgroundVideoLoop(slot);
         }
 
         private void SlotVideo_MediaOpened(object sender, RoutedEventArgs e)
@@ -2621,9 +2688,11 @@ namespace ImageRotater.Controls
                 string.IsNullOrEmpty(slot.Path) ||
                 !string.Equals(slot.Video.Source.LocalPath, slot.Path, StringComparison.OrdinalIgnoreCase);
 
-            if (slot.VideoOpenWatch != null && _fileLogger != null)
+            if (slot.VideoOpenWatch != null)
             {
-                _fileLogger.Log(
+                if (_nativeInjected || _settings?.Invoke()?.UseExperimentalFadeImage == true)
+                    Logger.Info($"ImageRotater background video open: game={slot.GameId} elapsed={slot.VideoOpenWatch.ElapsedMilliseconds}ms stale={stale}");
+                _fileLogger?.Log(
                     $"BG PERF video-open \"{slot.GameName}\" {slot.VideoOpenWatch.ElapsedMilliseconds}ms " +
                     $"slot={slot.Name} size={slot.Video.NaturalVideoWidth}x{slot.Video.NaturalVideoHeight} " +
                     $"stale={stale} path={slot.Path}");
@@ -2640,6 +2709,7 @@ namespace ImageRotater.Controls
                 return;
             }
 
+            ScheduleBackgroundVideoLoop(slot);
             BeginTransition(slot);
         }
 
@@ -2651,15 +2721,10 @@ namespace ImageRotater.Controls
                 return;
             }
 
-            try
-            {
-                slot.Video.Position = TimeSpan.Zero;
-                slot.Video.Play();
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn(ex, "ImageRotater: could not loop background video");
-            }
+            // Fallback only: the pre-end timer normally restarts the video
+            // before the player reaches end-of-stream.
+            RestartBackgroundVideo(slot, "ended", slot.Video.Position);
+            ScheduleBackgroundVideoLoop(slot);
         }
 
         private void SlotVideo_MediaFailed(object sender, ExceptionRoutedEventArgs e)

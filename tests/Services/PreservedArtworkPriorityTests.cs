@@ -67,18 +67,16 @@ namespace ImageRotater.Tests.Services
             return _store.GetImagePaths(_gameId, ArtworkKind.Cover);
         }
 
+        // Since 1.3.0 the game's own artwork is part of the rotation, so the
+        // store keeps listing it beside what the user added. The Artwork
+        // Manager shows it there, and the rotation source decides its place.
         [Test]
-        public void PreservedArtIsExcludedWhenTheGameHasOtherArtwork()
+        public void PreservedArtStaysListedBesideTheUsersArtwork()
         {
-            Add("original_steamgrid.jpg");
-            Add("web_chosen.jpg");
+            string preserved = Add("original_steamgrid.jpg");
+            string chosen = Add("web_chosen.jpg");
 
-            var listed = Candidates();
-
-            Assert.AreEqual(1, listed.Count,
-                "the preserved original must step aside for artwork the user added");
-
-            Assert.IsFalse(GameImageStore.IsPreservedOriginal(listed[0]));
+            CollectionAssert.AreEquivalent(new[] { preserved, chosen }, Candidates());
         }
 
         // The safety guarantee: the file is still there, still restorable. Only

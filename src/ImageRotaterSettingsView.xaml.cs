@@ -1,4 +1,4 @@
-﻿using ImageRotater.Services;
+using ImageRotater.Services;
 using System;
 using System.ComponentModel;
 using System.Windows;
@@ -15,6 +15,29 @@ namespace ImageRotater
     // Settings state, tool detection and validation remain owned by the view model.
     public partial class ImageRotaterSettingsView : UserControl
     {
+        private void DownloadTool_Click(object sender, RoutedEventArgs e)
+        {
+            string url;
+            switch ((sender as Button)?.Tag as string)
+            {
+                case "ffmpeg": url = "https://www.gyan.dev/ffmpeg/builds/"; break;
+                case "yt-dlp": url = "https://github.com/yt-dlp/yt-dlp/releases/latest"; break;
+                case "deno": url = "https://github.com/denoland/deno/releases/latest"; break;
+                default: return;
+            }
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
+                { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                Playnite.SDK.LogManager.GetLogger().Warn(ex, "ImageRotater: could not open tool download page");
+                MessageBox.Show(Loc.Get("LOCImageRotaterOpenToolLinkFailed"), "ImageRotater",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
         private ImageRotaterSettings _observedSettings;
         private BitmapImage _backgroundPreviewA;
         private BitmapImage _backgroundPreviewB;
@@ -22,6 +45,13 @@ namespace ImageRotater
         private BitmapImage _coverPreviewB;
         private bool _backgroundPreviewShowsA = true;
         private bool _coverPreviewShowsA = true;
+        private void PackDisplaySettings_Click(object sender, RoutedEventArgs e)
+        {
+            string target = (sender as Button)?.Tag as string;
+            var tab = target == "Backgrounds" ? BackgroundsTab : target == "Covers" ? CoversTab : LogosTab;
+            MainSettingsTabs.SelectedItem = tab;
+            if (tab.Content is TabControl pages) pages.SelectedIndex = 1;
+        }
         private int _backgroundPreviewGeneration;
         private int _coverPreviewGeneration;
 
@@ -34,7 +64,7 @@ namespace ImageRotater
 
         private void ImageRotaterSettingsView_Loaded(object sender, RoutedEventArgs e)
         {
-            (DataContext as ImageRotaterSettingsViewModel)?.EnsureThemeSupportLoaded();
+
             EnsurePreviewImages();
             ObserveSettings();
         }

@@ -64,6 +64,27 @@ namespace ImageRotater.Services
             return IsAnimated(path) || IsVideo(path);
         }
 
+        // Optional ffmpeg-backed stand-in used by packs on standard themes and
+        // their composition preview. Kept separate from the GDI+ GIF path.
+        public static string ForVideo(string path)
+        {
+            if (!IsVideo(path) || !File.Exists(path)) return null;
+            try
+            {
+                string folder = Path.Combine(Path.GetDirectoryName(path), CacheFolderName);
+                string poster = Path.Combine(folder, Path.GetFileName(path) + ".png");
+                if (File.Exists(poster) && File.GetLastWriteTimeUtc(poster) >= File.GetLastWriteTimeUtc(path))
+                    return poster;
+                Directory.CreateDirectory(folder);
+                return GifConverter.ExtractPoster(path, poster);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "ImageRotater: could not prepare a pack video poster");
+                return null;
+            }
+        }
+
         // The static stand-in for an animated pick - or the original path when
         // it is not animated, or null when a poster cannot be produced (the
         // caller treats that pick as unusable and falls back to another

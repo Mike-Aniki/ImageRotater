@@ -1,10 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -34,6 +35,7 @@ namespace ImageRotater.Controls
         private SteamGridDbSearchView _searchView;
         private readonly Func<SteamGridDbSearchView> _searchViewFactory;
         private bool _managerLoaded;
+        private bool _conversionInProgress;
         private readonly ObservableCollection<ArtworkManagerItem> _items =
             new ObservableCollection<ArtworkManagerItem>();
 
@@ -226,20 +228,8 @@ namespace ImageRotater.Controls
             StopPreview();
             _items.Clear();
 
-            // Artwork Manager mirrors the selector's Original semantics.
-            // Theme Integration keeps Original virtual and points directly at
-            // Playnite. Compatibility uses the preserved safety copy once the
-            // game has real ImageRotater artwork.
-            bool hasPluginArtwork = _store.HasAnyImage(_game.Id, _kind);
-            ImageRotaterSettings currentSettings = _settings != null ? _settings() : null;
-            bool themeIntegration = currentSettings?.UseThemeIntegration == true;
+            // Original is a read-only reference to Playnite's native artwork.
             bool supportsNativeOriginal = _kind != ArtworkKind.Logo;
-
-            string compatibilityOriginalPath = null;
-            if (supportsNativeOriginal && hasPluginArtwork && !themeIntegration)
-            {
-                compatibilityOriginalPath = _preserver?.Preserve(_game, _kind);
-            }
 
             string fixedArtwork = _store.GetFixedArtworkPath(_game.Id, _kind);
             int artworkIndex = 0;
@@ -264,17 +254,15 @@ namespace ImageRotater.Controls
                 }
             }
 
-            // In Theme Integration Original is always the live Playnite image.
-            // For an untouched game it is also virtual in Compatibility because
-            // there is no reason to create a safety copy until rotation starts.
-            if (supportsNativeOriginal && (themeIntegration || !hasPluginArtwork))
+            // Keep Original virtual; opening the manager must not copy native files.
+            if (supportsNativeOriginal)
             {
                 string nativePath = _preserver?.ResolveOriginalPath(_game, _kind)
                     ?? ResolveCurrentPlayniteArtworkPath();
 
                 if (!string.IsNullOrEmpty(nativePath))
                 {
-                    bool virtualOriginalIsFixed = themeIntegration &&
+                    bool virtualOriginalIsFixed =
                         !string.IsNullOrEmpty(fixedArtwork) &&
                         GameImageStore.IsPreservedOriginal(fixedArtwork);
 
@@ -295,25 +283,8 @@ namespace ImageRotater.Controls
                 .Where(path => _kind != ArtworkKind.Logo || IsSupportedLogoPath(path))
                 .Where(path => !string.IsNullOrEmpty(path) && File.Exists(path)))
             {
-                // original_* is Compatibility's technical safety copy. In Theme
-                // Integration the live virtual Original above replaces it; on an
-                // untouched game an old leftover backup must not appear either.
-                if (GameImageStore.IsPreservedOriginal(path))
-                {
-                    if (themeIntegration || !hasPluginArtwork)
-                    {
-                        continue;
-                    }
-
-                    // Old versions could leave several original_* files behind.
-                    // Show only the one Compatibility currently treats as the
-                    // authoritative Original.
-                    if (string.IsNullOrEmpty(compatibilityOriginalPath) ||
-                        !string.Equals(path, compatibilityOriginalPath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-                }
+                // Historical safety copies are represented by the virtual Original.
+                if (GameImageStore.IsPreservedOriginal(path)) continue;
 
                 bool isFixed = !string.IsNullOrEmpty(fixedArtwork) &&
                     string.Equals(path, fixedArtwork, StringComparison.OrdinalIgnoreCase);
@@ -338,6 +309,7 @@ namespace ImageRotater.Controls
                 ItemsList.SelectedItem = null;
                 UpdateDeleteButton();
                 UpdateOrderButtons();
+                UpdateConvertWebpButton();
                 return;
             }
 
@@ -357,6 +329,7 @@ namespace ImageRotater.Controls
             ItemsList.ScrollIntoView(target);
             UpdateDeleteButton();
             UpdateFixedArtworkButton();
+            UpdateConvertWebpButton();
         }
 
         private static bool IsSupportedLogoPath(string path)
@@ -537,6 +510,115 @@ namespace ImageRotater.Controls
             SetFixedArtworkButton.IsEnabled =
                 ItemsList.SelectedItems.Count == 1 && selected != null &&
                 !selected.IsFixed && !selected.IsVirtualOriginal;
+        }
+
+        private void UpdateConvertWebpButton()
+        {
+            if (ConvertWebpButton == null || ItemsList == null)
+            {
+                return;
+            }
+
+            var selected = ItemsList.SelectedItem as ArtworkManagerItem;
+            bool eligible = ItemsList.SelectedItems.Count == 1 && selected != null &&
+                selected.IsAnimatedWebp && !selected.IsNativeOriginal && !selected.IsVirtualOriginal;
+
+            ConvertWebpButton.Visibility = eligible ? Visibility.Visible : Visibility.Collapsed;
+            ConvertWebpButton.IsEnabled = eligible && !_conversionInProgress;
+            ConvertWebpButton.Content = Loc.Get(_conversionInProgress
+                ? "LOCImageRotaterManagerWebpConverting"
+                : "LOCImageRotaterManagerWebpConvert");
+        }
+
+        private async void ConvertWebpButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_conversionInProgress || ItemsList.SelectedItems.Count != 1)
+            {
+                return;
+            }
+
+            ArtworkManagerItem selected = SelectedArtwork();
+            if (selected == null || !selected.IsAnimatedWebp ||
+                selected.IsNativeOriginal || selected.IsVirtualOriginal ||
+                !File.Exists(selected.Path))
+            {
+                return;
+            }
+
+            // Settings can be edited after the converter was first initialized.
+            // An explicit bad path must not silently fall back to some other ffmpeg.
+            GifConverter.ConfiguredPath = _settings?.Invoke()?.FfmpegPath;
+            if (!GifConverter.IsAvailable)
+            {
+                _api.Dialogs.ShowMessage(
+                    Loc.Get("LOCImageRotaterManagerWebpNoFfmpeg"), "ImageRotater");
+                return;
+            }
+
+            string source = selected.Path;
+            string folder = Path.GetDirectoryName(source);
+            string stem = Path.GetFileNameWithoutExtension(source);
+            string output = Path.Combine(folder, stem + ".mp4");
+            int suffix = 1;
+            while (File.Exists(output))
+            {
+                output = Path.Combine(folder, stem + "_converted_" + suffix++ + ".mp4");
+            }
+
+            _conversionInProgress = true;
+            UpdateConvertWebpButton();
+            // Stop the image decoder before touching the source file, and do
+            // not block Playnite's UI while ffmpeg encodes the animation.
+            StopPreview();
+
+            try
+            {
+                string produced = await Task.Run(() => GifConverter.Convert(source, output));
+                if (string.IsNullOrEmpty(produced) || !File.Exists(produced))
+                {
+                    _api.Dialogs.ShowMessage(
+                        Loc.Get("LOCImageRotaterManagerWebpFailed"), "ImageRotater");
+                    ShowPreviewIfSelected(source);
+                    return;
+                }
+
+                if (!_store.ReplaceConvertedArtwork(_game.Id, _kind, source, produced))
+                {
+                    // Do not delete either file on failure. The MP4 is safe on
+                    // disk and can be inspected from the manager after a refresh.
+                    NotifyImagesChanged();
+                    ReloadItems(produced);
+                    _api.Dialogs.ShowMessage(
+                        Loc.Get("LOCImageRotaterManagerWebpReplaceFailed"), "ImageRotater");
+                    return;
+                }
+
+                NotifyImagesChanged();
+                ReloadItems(produced);
+                _api.Dialogs.ShowMessage(
+                    Loc.Get("LOCImageRotaterManagerWebpSuccess"), "ImageRotater");
+            }
+            catch (Exception ex)
+            {
+                LogManager.GetLogger().Warn(ex, "ImageRotater: could not convert animated WebP in manager");
+                _api.Dialogs.ShowMessage(
+                    Loc.Get("LOCImageRotaterManagerWebpFailed"), "ImageRotater");
+                ShowPreviewIfSelected(source);
+            }
+            finally
+            {
+                _conversionInProgress = false;
+                UpdateConvertWebpButton();
+            }
+        }
+
+        private void ShowPreviewIfSelected(string path)
+        {
+            ArtworkManagerItem current = SelectedArtwork();
+            if (current != null && string.Equals(current.Path, path, StringComparison.OrdinalIgnoreCase))
+            {
+                ShowPreview(current);
+            }
         }
 
         private void UpdateOrderButtons()
@@ -838,7 +920,7 @@ namespace ImageRotater.Controls
             }
 
             MessageBoxResult confirm = _api.Dialogs.ShowMessage(
-                Loc.Format("LOCImageRotaterManagerDeleteQuestion", selected.Count),
+                Loc.Format("LOCImageRotaterManagerDeleteQuestion", selected.Count) + PackDeletionWarning(selected),
                 "ImageRotater",
                 MessageBoxButton.YesNo);
 
@@ -869,6 +951,19 @@ namespace ImageRotater.Controls
                 "ImageRotater");
         }
 
+        private string PackDeletionWarning(IEnumerable<ArtworkManagerItem> selected)
+        {
+            ArtworkPackConfiguration config;
+            if (_settings?.Invoke()?.ArtworkPacks?.TryGetValue(_game.Id, out config) != true || config?.Packs == null)
+                return string.Empty;
+            var names = new HashSet<string>(selected.Select(p => Path.GetFileName(p.Path)), StringComparer.OrdinalIgnoreCase);
+            var affected = config.Packs.Where(p => p != null && names.Contains(
+                _kind == ArtworkKind.Cover ? p.Cover ?? string.Empty : _kind == ArtworkKind.Logo ? p.Logo ?? string.Empty : p.Background ?? string.Empty))
+                .Select(p => p.Name).ToList();
+            return affected.Count == 0 ? string.Empty : "\n\n" +
+                Loc.Format("LOCImageRotaterPacksDeletionWarning", string.Join(", ", affected));
+        }
+
         private void OpenFolderButton_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -892,6 +987,7 @@ namespace ImageRotater.Controls
             UpdateDeleteButton();
             UpdateFixedArtworkButton();
             UpdateOrderButtons();
+            UpdateConvertWebpButton();
 
             ArtworkManagerItem item = ItemsList.SelectedItem as ArtworkManagerItem;
             if (item == null)
@@ -1088,6 +1184,8 @@ namespace ImageRotater.Controls
                 IsVideo = string.Equals(ext, ".mp4", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(ext, ".webm", StringComparison.OrdinalIgnoreCase);
                 IsGif = string.Equals(ext, ".gif", StringComparison.OrdinalIgnoreCase);
+                IsAnimatedWebp = string.Equals(ext, ".webp", StringComparison.OrdinalIgnoreCase)
+                    && GifConverter.IsAnimatedWebp(path);
 
                 if (IsVideo)
                 {
@@ -1096,6 +1194,10 @@ namespace ImageRotater.Controls
                 else if (IsGif)
                 {
                     TypeLabel = Loc.Get("LOCImageRotaterManagerAnimatedGif");
+                }
+                else if (IsAnimatedWebp)
+                {
+                    TypeLabel = Loc.Get("LOCImageRotaterManagerAnimatedWebp");
                 }
                 else
                 {
@@ -1129,6 +1231,7 @@ namespace ImageRotater.Controls
             public string Name { get; }
             public bool IsVideo { get; }
             public bool IsGif { get; }
+            public bool IsAnimatedWebp { get; }
             public string TypeLabel { get; }
             public string SizeLabel { get; }
             public string ModifiedLabel { get; }

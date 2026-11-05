@@ -1,3 +1,5 @@
+> Historical design document. Its rendering/integration instructions are superseded by the [current Theme Developer Guide](../../THEME_INTEGRATION.md).
+
 # ImageRotater v0.1 — Background Rendering Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

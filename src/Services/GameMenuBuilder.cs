@@ -18,6 +18,13 @@ namespace ImageRotater.Services
         {
             var selected = games?.ToList() ?? new List<Game>();
 
+            yield return new GameMenuItem
+            {
+                MenuSection = "ImageRotater",
+                Description = Loc.Get("LOCImageRotaterPackManager"),
+                Action = a => handler.ManagePacks(selected.FirstOrDefault())
+            };
+
             foreach (ArtworkKind kind in new[] { ArtworkKind.Background, ArtworkKind.Cover, ArtworkKind.Logo })
             {
                 // Captured per iteration: the lambdas below outlive the loop,

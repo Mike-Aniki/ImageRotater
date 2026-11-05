@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -65,7 +65,7 @@ namespace ImageRotater.Services
             }
         }
 
-        // Every GIF in the library, converted to MP4.
+        // Animated GIFs and WebPs in the library, converted to MP4.
         public static Result GifsToMp4(GameImageStore store, Action<int, int, string> onProgress = null, Func<bool> isCancelled = null)
         {
             var result = new Result();
@@ -76,8 +76,12 @@ namespace ImageRotater.Services
                 return result;
             }
 
+            // Include animated SteamGridDB WebPs already in the library.
+            // GifConverter.IsConvertible checks the WebP animation flag before
+            // a conversion; ordinary static WebPs stay untouched.
             List<string> files = EveryArtworkFile(store)
-                .Where(file => file.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+                .Where(file => file.EndsWith(".gif", StringComparison.OrdinalIgnoreCase)
+                    || file.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             onProgress?.Invoke(0, files.Count, null);
@@ -90,8 +94,7 @@ namespace ImageRotater.Services
                     break;
                 }
 
-                // A single-frame GIF is a still, and turning it into a video
-                // would make it unplayable as a cover on a still-only theme.
+                // Still GIFs and WebPs must not become single-frame videos.
                 if (!GifConverter.IsConvertible(file))
                 {
                     result.Skipped++;

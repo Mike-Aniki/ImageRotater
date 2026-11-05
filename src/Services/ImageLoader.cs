@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using System.Threading;
 using System.Windows.Media.Imaging;
 
 namespace ImageRotater.Services
@@ -22,20 +23,58 @@ namespace ImageRotater.Services
     public class ImageLoader
     {
         private readonly ImageCache _cache;
+        private readonly Func<string, int, BitmapSource> _decode;
         private readonly object _inFlightLock = new object();
+        private readonly SemaphoreSlim _decodeGate = new SemaphoreSlim(2);
+        private bool _suspended;
+        private int _cacheGeneration;
         private readonly Dictionary<string, Task<BitmapSource>> _inFlight =
             new Dictionary<string, Task<BitmapSource>>(StringComparer.OrdinalIgnoreCase);
 
-        public ImageLoader(ImageCache cache)
+        public ImageLoader(ImageCache cache) : this(cache, Decode)
         {
-            _cache = cache;
         }
 
-        public async Task<BitmapSource> LoadAsync(string path, int bucket)
+        internal ImageLoader(ImageCache cache, Func<string, int, BitmapSource> decode)
+        {
+            _cache = cache;
+            _decode = decode;
+        }
+
+        public bool IsSuspended { get { lock (_inFlightLock) { return _suspended; } } }
+
+        public void Suspend()
+        {
+            lock (_inFlightLock)
+            {
+                _suspended = true;
+                _cacheGeneration++;
+                _cache?.Clear();
+            }
+        }
+
+        public void Resume()
+        {
+            lock (_inFlightLock) { _suspended = false; }
+        }
+
+        public Task<BitmapSource> LoadAsync(string path, int bucket)
+        {
+            return LoadAsync(path, bucket, cacheResult: true);
+        }
+
+        public async Task<BitmapSource> LoadAsync(string path, int bucket, bool cacheResult)
         {
             if (string.IsNullOrEmpty(path))
             {
                 return null;
+            }
+
+            int generation;
+            lock (_inFlightLock)
+            {
+                if (_suspended) return null;
+                generation = _cacheGeneration;
             }
 
             // A cache hit must still be backed by a real file. Write mode
@@ -54,13 +93,14 @@ namespace ImageRotater.Services
             // An already-decoded larger bucket can safely satisfy a smaller
             // request. Reusing it avoids another WIC decode after a resize or
             // layout change without ever lowering image quality.
-            BitmapSource cached = _cache != null ? _cache.GetAtLeast(path, bucket) : null;
+            BitmapSource cached = cacheResult && _cache != null ? _cache.GetAtLeast(path, bucket) : null;
             if (cached != null)
             {
-                return cached;
+                lock (_inFlightLock)
+                    return !_suspended && generation == _cacheGeneration ? cached : null;
             }
 
-            string key = bucket.ToString() + "|" + path;
+            string key = generation + "|" + cacheResult + "|" + bucket + "|" + path;
             Task<BitmapSource> decodeTask;
             bool ownsTask = false;
 
@@ -70,9 +110,10 @@ namespace ImageRotater.Services
             // instead of making WIC decode the same file twice concurrently.
             lock (_inFlightLock)
             {
+                if (_suspended || generation != _cacheGeneration) return null;
                 if (!_inFlight.TryGetValue(key, out decodeTask))
                 {
-                    decodeTask = Task.Run(() => Decode(path, bucket));
+                    decodeTask = DecodeLimitedAsync(path, bucket, generation);
                     _inFlight[key] = decodeTask;
                     ownsTask = true;
                 }
@@ -82,9 +123,10 @@ namespace ImageRotater.Services
             {
                 BitmapSource decoded = await decodeTask.ConfigureAwait(false);
 
-                if (decoded != null && _cache != null)
+                lock (_inFlightLock)
                 {
-                    _cache.Put(path, bucket, decoded);
+                    if (_suspended || generation != _cacheGeneration) return null;
+                    if (cacheResult && decoded != null) _cache?.Put(path, bucket, decoded);
                 }
 
                 return decoded;
@@ -104,6 +146,20 @@ namespace ImageRotater.Services
                     }
                 }
             }
+        }
+
+        private async Task<BitmapSource> DecodeLimitedAsync(string path, int bucket, int generation)
+        {
+            await _decodeGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                lock (_inFlightLock)
+                {
+                    if (_suspended || generation != _cacheGeneration) return null;
+                }
+                return await Task.Run(() => _decode(path, bucket)).ConfigureAwait(false);
+            }
+            finally { _decodeGate.Release(); }
         }
 
         private static BitmapSource Decode(string path, int bucket)

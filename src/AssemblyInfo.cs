@@ -11,6 +11,6 @@ using System.Runtime.InteropServices;
 [assembly: Guid("72b7d457-0621-429b-8368-665bc53ff896")]
 
 // Version information - updated automatically by scripts from version.txt
-[assembly: AssemblyVersion("1.0.0")]
-[assembly: AssemblyFileVersion("1.0.0")]
-[assembly: AssemblyInformationalVersion("1.0.0")]
+[assembly: AssemblyVersion("1.6.0")]
+[assembly: AssemblyFileVersion("1.6.0")]
+[assembly: AssemblyInformationalVersion("1.6.0")]

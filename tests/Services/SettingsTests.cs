@@ -22,10 +22,11 @@ namespace ImageRotater.Tests.Services
         }
 
         [Test]
-        public void OptimiseDownloadedImages_DefaultsToFalse()
+        public void OptimiseDownloadedImages_DefaultsToTrue()
         {
+            // On by default since 1.3.0: new downloads are optimised automatically.
             var s = new ImageRotaterSettings();
-            Assert.IsFalse(s.OptimiseDownloadedImages);
+            Assert.IsTrue(s.OptimiseDownloadedImages);
         }
 
         [Test]

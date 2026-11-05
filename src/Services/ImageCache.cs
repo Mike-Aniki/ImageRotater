@@ -41,6 +41,16 @@ namespace ImageRotater.Services
             get { lock (_lock) { return _entries.Count; } }
         }
 
+        public void Clear()
+        {
+            lock (_lock)
+            {
+                _entries.Clear();
+                _lru.Clear();
+                _currentBytes = 0;
+            }
+        }
+
         private static string MakeKey(string path, int bucket)
         {
             return bucket.ToString() + "|" + path;

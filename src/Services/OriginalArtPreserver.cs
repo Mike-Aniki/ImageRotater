@@ -196,11 +196,6 @@ namespace ImageRotater.Services
             return null;
         }
 
-        public string GetPreservedPath(Guid gameId, ArtworkKind kind)
-        {
-            return FindExisting(gameId, kind);
-        }
-
         private string FindExisting(Guid gameId, ArtworkKind kind)
         {
             string key = Key(gameId, kind);

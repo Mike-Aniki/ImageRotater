@@ -97,7 +97,7 @@ namespace ImageRotater.Tests.Services
                 Directory.GetFiles(_store.GetGameFolder(_known, ArtworkKind.Background)).Select(Path.GetFileName));
 
             Assert.IsFalse(Directory.Exists(Path.Combine(_store.ImagesRoot, _unknown.ToString())));
-            StringAssert.Contains("Convert all GIFs to MP4", result.Summary);
+            StringAssert.Contains(Loc.Format("LOCImageRotaterWebPCopied", 1), result.Summary);
         }
 
         [Test]
@@ -130,7 +130,8 @@ namespace ImageRotater.Tests.Services
             BackgroundChangerImporter.Result result = Import();
 
             Assert.AreEqual(0, result.Copied);
-            StringAssert.Contains(_bcRoot, result.Summary);
+            Assert.AreEqual(Loc.Format("LOCImageRotaterNoBcAt", result.SourcePath), result.Summary);
+            StringAssert.StartsWith(_bcRoot, result.SourcePath);
         }
     }
 }

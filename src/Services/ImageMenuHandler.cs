@@ -397,6 +397,52 @@ namespace ImageRotater.Services
             _onImagesChanged?.Invoke(gameId);
         }
 
+        private static void ShowManagerMaximized(Window window)
+        {
+            window.WindowState = WindowState.Maximized;
+            RoutedEventHandler loaded = null;
+            loaded = (sender, args) =>
+            {
+                window.Loaded -= loaded;
+                // Reapply after the host has restored its initial window layout.
+                // This runs only on opening; the user can still restore the window.
+                window.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
+                    new Action(() =>
+                    {
+                        if (window.IsVisible) window.WindowState = WindowState.Maximized;
+                    }));
+            };
+            window.Loaded += loaded;
+            window.ShowDialog();
+        }
+
+        public void ManagePacks(Game game)
+        {
+            if (game == null) return;
+            try
+            {
+                var view = new Controls.ArtworkPacksView(_api, _store, game, _preserver, _settings, _saveSettings);
+                Window window = _api.Dialogs.CreateWindow(new WindowCreationOptions
+                {
+                    ShowMinimizeButton = false, ShowMaximizeButton = true, ShowCloseButton = true
+                });
+                window.Title = Loc.Format("LOCImageRotaterPackManagerTitle", game.Name);
+                window.Width = Math.Min(1400, SystemParameters.PrimaryScreenWidth * 0.92);
+                window.Height = Math.Min(920, SystemParameters.PrimaryScreenHeight * 0.90);
+                window.MinWidth = Math.Min(900, window.Width);
+                window.MinHeight = Math.Min(650, window.Height);
+                window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                window.Content = view;
+                window.Closing += (sender, args) => { if (!view.TryClose()) args.Cancel = true; };
+                ShowManagerMaximized(window);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "ImageRotater: could not open the pack manager");
+                _api.Dialogs.ShowErrorMessage(Loc.Get("LOCImageRotaterPackManagerOpenFailed"), "ImageRotater");
+            }
+        }
+
         public void ManageImages(Game game, ArtworkKind kind)
         {
             if (game == null)
@@ -431,7 +477,6 @@ namespace ImageRotater.Services
                 // Open the manager maximized so the artwork grid and preview have the
                 // full desktop available immediately. Users can still restore the window
                 // with the standard title-bar button if they want a smaller view.
-                window.WindowState = WindowState.Maximized;
 
                 // Search is intentionally lazy. Building the search view and immediately
                 // querying online sources used to happen while the manager was opening,
@@ -459,7 +504,7 @@ namespace ImageRotater.Services
                     () => DownloadFromSteamGridDb(new[] { game }, kind),
                     _settings,
                     _saveSettings);
-                window.ShowDialog();
+                ShowManagerMaximized(window);
             }
             catch (Exception ex)
             {
@@ -540,7 +585,7 @@ namespace ImageRotater.Services
                 // create a duplicate there.
                 if (kind != ArtworkKind.Logo &&
                     _store.HasAnyImage(game.Id, kind) &&
-                    currentSettings?.UseThemeIntegration != true)
+                    currentSettings?.UsesDirectRendering(kind) != true)
                 {
                     _preserver?.Preserve(game, kind);
                 }

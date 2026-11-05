@@ -1,7 +1,5 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -12,18 +10,12 @@ using ImageRotater.Models;
 
 namespace ImageRotater.Services
 {
-    // Writes the chosen image into Playnite's own Game.BackgroundImage field.
+    // Undoes the artwork writes made by releases before 1.6, which stored the
+    // rotation in Playnite's own Game.BackgroundImage / CoverImage fields.
     //
-    // Why this mode exists: the theme element only renders where a theme
-    // explicitly places <ContentControl x:Name="ImageRotater_Background" />.
-    // In every other theme the plugin loads, the menus work, and nothing ever
-    // appears. Writing Playnite's own field works in EVERY theme with no theme
-    // support at all.
-    //
-    // The trade: this mutates the user's library data instead of overlaying it,
-    // and rendering is then Playnite's, so the decode-sizing work does not
-    // apply in this mode. Because it mutates library data, every original value
-    // is recorded before the first change so the whole thing can be undone.
+    // Rendering is now injected and never writes the library. This class keeps
+    // the record of every original value those older releases replaced, so
+    // startup, shutdown, Restore and Reset can still put each game back.
     public class PlayniteBackgroundWriter
     {
         private static readonly ILogger Logger = LogManager.GetLogger();
@@ -58,15 +50,6 @@ namespace ImageRotater.Services
         // copy per rotation, forever.
         private Dictionary<string, string> _imported = new Dictionary<string, string>();
 
-        // Reads the plugin's selection counter, so a queued write can tell
-        // whether the user moved on again while it waited.
-        //
-        // A callback rather than a reference to the plugin, so the writer stays
-        // testable without the Playnite API and the dependency points one way.
-        // Null means "never stale", which is what tests and any caller that
-        // does not care about selection get.
-        public Func<int> SelectionGeneration { get; set; }
-
         // Every artwork id this plugin has written, so "is this the user's own
         // artwork or something we put there?" can be answered exactly.
         //
@@ -98,27 +81,6 @@ namespace ImageRotater.Services
         // Obsolete library files can be deleted on the next startup.
         private List<string> _deferredDeletePaths = new List<string>();
 
-        // Cache builds are deliberately kept off the selection path. A missing
-        // normalised background used to decode/resize/encode synchronously while
-        // the user was moving between games, which produced 100-400ms stalls.
-        // The first visit now uses the source immediately and prepares the cache
-        // in the background for the next visit.
-        private readonly ConcurrentDictionary<string, byte> _normaliseJobs =
-            new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
-
-        // Startup Session cover priming can touch many games before the first
-        // library render. Updating the Playnite database and serialising the
-        // writer state once per game made that prime unnecessarily expensive.
-        // While this batch is active, game updates, state saves and cleanup are
-        // accumulated and flushed once at the end. Normal interactive rotation
-        // still uses the immediate path below.
-        private int _startupBatchDepth;
-        private readonly List<Game> _startupBatchGames = new List<Game>();
-        private readonly HashSet<Guid> _startupBatchGameIds = new HashSet<Guid>();
-        private readonly List<Tuple<Game, ArtworkKind, string>> _startupBatchDeletes =
-            new List<Tuple<Game, ArtworkKind, string>>();
-        private bool _startupBatchStateDirty;
-
         private void NoteWritten(string artworkId)
         {
             if (string.IsNullOrEmpty(artworkId))
@@ -126,19 +88,8 @@ namespace ImageRotater.Services
                 return;
             }
 
-            bool added = _written.Add(artworkId);
-            if (_startupBatchDepth > 0)
+            if (_written.Add(artworkId))
             {
-                if (added)
-                {
-                    _startupBatchStateDirty = true;
-                }
-            }
-            else
-            {
-                // Preserve the normal interactive behaviour: SetArtwork used
-                // to persist here on every completed write. Only startup batch
-                // mode coalesces those saves.
                 Save();
             }
         }
@@ -185,14 +136,7 @@ namespace ImageRotater.Services
             }
 
             _originals[key] = current;
-            if (_startupBatchDepth > 0)
-            {
-                _startupBatchStateDirty = true;
-            }
-            else
-            {
-                Save();
-            }
+            Save();
 
             return true;
         }
@@ -293,70 +237,10 @@ namespace ImageRotater.Services
             get { return _originals.Count; }
         }
 
-        // Batches the expensive persistence work used by startup Session-cover
-        // priming. AddFile still happens per selected cover (Playnite needs a
-        // library id for each file), but database updates and our JSON state are
-        // committed once instead of once per game.
-        public void BeginStartupBatch()
-        {
-            _startupBatchDepth++;
-        }
-
-        public void EndStartupBatch()
-        {
-            if (_startupBatchDepth <= 0)
-            {
-                return;
-            }
-
-            _startupBatchDepth--;
-            if (_startupBatchDepth > 0)
-            {
-                return;
-            }
-
-            try
-            {
-                if (_startupBatchGames.Count > 0)
-                {
-                    InvokeOnUi(() => CommitGames(_startupBatchGames));
-                }
-
-                if (_startupBatchStateDirty)
-                {
-                    Save();
-                }
-
-                // Only after the bulk database commit is it safe to remove the
-                // library files that the newly selected covers replaced.
-                foreach (var pending in _startupBatchDeletes)
-                {
-                    DeleteReplacedCopyNow(pending.Item1, pending.Item2, pending.Item3);
-                }
-            }
-            finally
-            {
-                _startupBatchGames.Clear();
-                _startupBatchGameIds.Clear();
-                _startupBatchDeletes.Clear();
-                _startupBatchStateDirty = false;
-            }
-        }
-
-        // Points a game's background at the given file. No-ops when the value is
-        // already correct, so this can be called on every selection without
-        // writing to the database each time.
-        public bool SetBackground(Game game, string imagePath)
-        {
-            return SetArtwork(game, imagePath, ArtworkKind.Background);
-        }
-
-        // Writes either Playnite field. Covers and backgrounds share the whole
-        // mechanism - import the file, swap the id, delete the file we
-        // replaced, remember the original - so the only difference is which
-        // property is touched.
-        // virtual so tests can count writes without standing up the whole
-        // Playnite API. Nothing in the plugin overrides it.
+        // Writes either Playnite field the way releases before 1.6 did.
+        // Rendering no longer writes the library; this remains so the restore
+        // path, which still repairs those older writes, is tested against the
+        // state they actually left behind.
         public virtual bool SetArtwork(Game game, string imagePath, ArtworkKind kind)
         {
             if (game == null || string.IsNullOrEmpty(imagePath) || !File.Exists(imagePath))
@@ -364,540 +248,37 @@ namespace ImageRotater.Services
                 return false;
             }
 
-            bool trace = kind == ArtworkKind.Background && _fileLogger != null && _fileLogger.IsEnabled;
-            Stopwatch total = trace ? Stopwatch.StartNew() : null;
-            Stopwatch step = trace ? Stopwatch.StartNew() : null;
-            long rememberMs = 0;
-            long normaliseMs = 0;
-            long importMs = 0;
-            long stateMs = 0;
-            long commitMs = 0;
-            long cleanupMs = 0;
-            string toImport = imagePath;
-
             try
             {
                 RememberOriginal(game, kind);
-                if (trace)
-                {
-                    rememberMs = step.ElapsedMilliseconds;
-                    step.Restart();
-                }
-
                 string previousId = GetCurrent(game, kind);
-                toImport = NormaliseIfBackground(game, kind, imagePath);
-                if (trace)
-                {
-                    normaliseMs = step.ElapsedMilliseconds;
-                    step.Restart();
-                }
-
-                string newId = ImportFile(toImport, game.Id);
-                if (trace)
-                {
-                    importMs = step.ElapsedMilliseconds;
-                    step.Restart();
-                }
-
+                string newId = ImportFile(imagePath, game.Id);
                 if (string.IsNullOrEmpty(newId))
                 {
-                    if (trace)
-                    {
-                        _fileLogger.Log(
-                            $"BG PERF writer \"{game.Name}\" failed=import total={total.ElapsedMilliseconds}ms " +
-                            $"remember={rememberMs}ms normalise={normaliseMs}ms import={importMs}ms source={imagePath} importPath={toImport}");
-                    }
                     return false;
                 }
 
                 NoteWritten(newId);
-                if (trace)
-                {
-                    stateMs = step.ElapsedMilliseconds;
-                    step.Restart();
-                }
-
-                int generation = SelectionGeneration != null ? SelectionGeneration() : 0;
-                bool committed = true;
-
                 InvokeOnUi(() =>
                 {
-                    if (kind == ArtworkKind.Background &&
-                        SelectionGeneration != null &&
-                        SelectionGeneration() != generation)
-                    {
-                        committed = false;
-                        return;
-                    }
-
                     SetCurrent(game, kind, newId);
                     CommitGame(game);
                 });
-
-                if (trace)
-                {
-                    commitMs = step.ElapsedMilliseconds;
-                    step.Restart();
-                }
-
-                if (!committed)
-                {
-                    DeleteReplacedCopy(game, kind, newId);
-                    if (trace)
-                    {
-                        cleanupMs = step.ElapsedMilliseconds;
-                        _fileLogger.Log(
-                            $"BG PERF writer \"{game.Name}\" stale=true total={total.ElapsedMilliseconds}ms " +
-                            $"remember={rememberMs}ms normalise={normaliseMs}ms import={importMs}ms state={stateMs}ms " +
-                            $"commit={commitMs}ms cleanup={cleanupMs}ms source={imagePath} importPath={toImport}");
-                    }
-                    return false;
-                }
-
                 DeleteReplacedCopy(game, kind, previousId);
-                if (trace)
-                {
-                    cleanupMs = step.ElapsedMilliseconds;
-                    _fileLogger.Log(
-                        $"BG PERF writer \"{game.Name}\" total={total.ElapsedMilliseconds}ms " +
-                        $"remember={rememberMs}ms normalise={normaliseMs}ms import={importMs}ms state={stateMs}ms " +
-                        $"commit={commitMs}ms cleanup={cleanupMs}ms source={imagePath} importPath={toImport}");
-                }
-
                 return true;
             }
             catch (Exception ex)
             {
                 Logger.Warn(ex, $"ImageRotater: could not set {kind} for {game.Name}");
-                if (trace)
-                {
-                    _fileLogger.Log(
-                        $"BG PERF writer \"{game.Name}\" failed=exception total={total.ElapsedMilliseconds}ms " +
-                        $"source={imagePath} importPath={toImport} error={ex.GetType().Name}: {ex.Message}");
-                }
                 return false;
             }
         }
 
-        // Puts every touched game back the way it was, and forgets the backup.
-        //
-        // Virtual as a test seam: LibraryReset must not delete anything when this
-        // fails, and that ordering is only testable with a restore that fails.
         // Whether this plugin has written artwork into the library at all.
         //
         // Read before a reset deletes anything: a restore that put nothing back
         // is fine on a library the plugin never touched, and a disaster on one
         // where it did.
-        // Set by the plugin so this can size backgrounds to the display, and
-        // left null in tests, where there is no screen.
-        public Func<int> ScreenWidth { get; set; }
-
-        // Whether background widths are levelled at all. Off restores the old
-        // behaviour of importing each candidate exactly as it is.
-        public Func<bool> NormaliseBackgrounds { get; set; }
-
-        // Returns a copy of the background resized to this game's common width,
-        // or the original path when nothing needs doing.
-        private string NormaliseIfBackground(Game game, ArtworkKind kind, string imagePath)
-        {
-            if (kind != ArtworkKind.Background)
-            {
-                return imagePath;
-            }
-
-            bool trace = _fileLogger != null && _fileLogger.IsEnabled;
-            Stopwatch normalisePlan = trace ? Stopwatch.StartNew() : null;
-
-            if (NormaliseBackgrounds != null && !NormaliseBackgrounds())
-            {
-                if (trace)
-                {
-                    _fileLogger.Log($"BG PERF normalise-plan \"{game.Name}\" decision=disabled total={normalisePlan.ElapsedMilliseconds}ms source={imagePath}");
-                }
-                return imagePath;
-            }
-
-            try
-            {
-                string folder = Path.Combine(
-                    _imagesRoot, game.Id.ToString(), "backgrounds");
-
-                if (!Directory.Exists(folder))
-                {
-                    if (trace)
-                    {
-                        _fileLogger.Log($"BG PERF normalise-plan \"{game.Name}\" decision=no-folder total={normalisePlan.ElapsedMilliseconds}ms source={imagePath}");
-                    }
-                    return imagePath;
-                }
-
-                Stopwatch targetWatch = trace ? Stopwatch.StartNew() : null;
-                int target = TargetWidthFor(folder, imagePath);
-                long targetMs = trace ? targetWatch.ElapsedMilliseconds : 0;
-
-                if (target <= 0)
-                {
-                    if (trace)
-                    {
-                        _fileLogger.Log($"BG PERF normalise-plan \"{game.Name}\" decision=no-target total={normalisePlan.ElapsedMilliseconds}ms targetCalc={targetMs}ms source={imagePath}");
-                    }
-                    return imagePath;
-                }
-
-                // The levelled copy is KEPT, beside the source, and reused.
-                //
-                // It used to be a temp file deleted after import, so every
-                // rotation onto a picture whose width differed from the target
-                // paid the full decode, bicubic resize and PNG encode again -
-                // 100 to 300 ms on the UI thread for a 1080p or 4K source,
-                // which is the "brief freeze" on switching games. The same
-                // picture at the same width is the same bytes; encode it once.
-                //
-                // In the letterboxer's cache folder, so every place that
-                // already knows to skip that folder - the listing, the bulk
-                // conversions, the optimiser - skips this too. A source that
-                // is itself letterboxed already lives there.
-                string dir = Path.GetDirectoryName(imagePath);
-                string cacheDir = string.Equals(
-                        Path.GetFileName(dir), Letterboxer.CacheFolderName,
-                        StringComparison.OrdinalIgnoreCase)
-                    ? dir
-                    : Path.Combine(dir, Letterboxer.CacheFolderName);
-
-                string cacheStem = Path.Combine(
-                    cacheDir,
-                    Path.GetFileNameWithoutExtension(imagePath) + ".w" + target);
-                string cached = cacheStem + BackgroundNormaliser.CacheExtensionFor(imagePath);
-
-                // Rebuilt when the source is newer - downloads overwrite files
-                // under the same name, and a stale copy would resurrect the
-                // old artwork.
-                DateTime sourceStamp = File.GetLastWriteTimeUtc(imagePath);
-                if (File.Exists(cached) &&
-                    File.GetLastWriteTimeUtc(cached) >= sourceStamp)
-                {
-                    if (trace)
-                    {
-                        _fileLogger.Log(
-                            $"BG PERF normalise-plan \"{game.Name}\" decision=cache-hit total={normalisePlan.ElapsedMilliseconds}ms " +
-                            $"targetCalc={targetMs}ms target={target} source={imagePath} cache={cached}");
-                    }
-                    return cached;
-                }
-
-                // Versions before the JPEG-cache optimisation always wrote
-                // normalised copies as PNG. Keep using a fresh legacy copy so
-                // upgrading does not force every user's existing background
-                // cache through one expensive re-encode. A changed/new source
-                // naturally moves to the faster JPEG cache on its next write.
-                if (string.Equals(Path.GetExtension(cached), ".jpg", StringComparison.OrdinalIgnoreCase))
-                {
-                    string legacyPng = cacheStem + ".png";
-                    if (File.Exists(legacyPng) &&
-                        File.GetLastWriteTimeUtc(legacyPng) >= sourceStamp)
-                    {
-                        if (trace)
-                        {
-                            _fileLogger.Log(
-                                $"BG PERF normalise-plan \"{game.Name}\" decision=legacy-cache-hit total={normalisePlan.ElapsedMilliseconds}ms " +
-                                $"targetCalc={targetMs}ms target={target} source={imagePath} cache={legacyPng}");
-                        }
-                        return legacyPng;
-                    }
-                }
-
-                // If the source is already exactly the target width, do not even
-                // construct a GDI+ Bitmap. Merely opening a large JPEG/PNG through
-                // Bitmap can cost hundreds of milliseconds, despite there being
-                // no resize to perform.
-                int sourceWidth;
-                Stopwatch widthWatch = trace ? Stopwatch.StartNew() : null;
-                bool widthKnown = BackgroundNormaliser.TryGetPixelWidth(imagePath, out sourceWidth);
-                long widthMs = trace ? widthWatch.ElapsedMilliseconds : 0;
-                if (widthKnown && sourceWidth == target)
-                {
-                    if (trace)
-                    {
-                        _fileLogger.Log(
-                            $"BG PERF normalise-plan \"{game.Name}\" decision=source-already-target total={normalisePlan.ElapsedMilliseconds}ms " +
-                            $"targetCalc={targetMs}ms widthProbe={widthMs}ms sourceWidth={sourceWidth} target={target} source={imagePath}");
-                    }
-                    return imagePath;
-                }
-
-                if (trace)
-                {
-                    _fileLogger.Log(
-                        $"BG PERF normalise-plan \"{game.Name}\" decision=queue-cache total={normalisePlan.ElapsedMilliseconds}ms " +
-                        $"targetCalc={targetMs}ms widthProbe={widthMs}ms sourceWidth={(widthKnown ? sourceWidth : 0)} target={target} source={imagePath} cache={cached}");
-                }
-
-                // A missing cache must never block navigation. Use the source for
-                // this selection and build the levelled copy in the background.
-                // The next time this candidate is selected, the freshness check
-                // above will pick up the finished cache immediately.
-                QueueNormalisedCacheBuild(imagePath, target, cached, sourceStamp);
-                return imagePath;
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn(ex, "ImageRotater: could not normalise the background");
-                return imagePath;
-            }
-        }
-
-        private void QueueNormalisedCacheBuild(
-            string sourcePath,
-            int targetWidth,
-            string cachedPath,
-            DateTime sourceStamp)
-        {
-            string jobKey = cachedPath + "|" + sourceStamp.Ticks;
-            if (!_normaliseJobs.TryAdd(jobKey, 0))
-            {
-                return;
-            }
-
-            Task.Run(() =>
-            {
-                Stopwatch watch = _fileLogger != null && _fileLogger.IsEnabled
-                    ? Stopwatch.StartNew()
-                    : null;
-                string temp = cachedPath + ".tmp." + Guid.NewGuid().ToString("N");
-
-                try
-                {
-                    // Source may have been overwritten while this queued job was
-                    // waiting. Never publish a cache for bytes that are no longer
-                    // current.
-                    if (!File.Exists(sourcePath) || File.GetLastWriteTimeUtc(sourcePath) != sourceStamp)
-                    {
-                        return;
-                    }
-
-                    Directory.CreateDirectory(Path.GetDirectoryName(cachedPath));
-                    string written = BackgroundNormaliser.NormaliseTo(sourcePath, targetWidth, temp);
-                    if (!string.Equals(written, temp, StringComparison.OrdinalIgnoreCase) ||
-                        !File.Exists(temp))
-                    {
-                        return;
-                    }
-
-                    if (!File.Exists(sourcePath) || File.GetLastWriteTimeUtc(sourcePath) != sourceStamp)
-                    {
-                        return;
-                    }
-
-                    if (File.Exists(cachedPath))
-                    {
-                        File.Delete(cachedPath);
-                    }
-
-                    File.Move(temp, cachedPath);
-
-                    if (watch != null)
-                    {
-                        _fileLogger.Log(
-                            $"BG PERF normalise-async total={watch.ElapsedMilliseconds}ms " +
-                            $"source={sourcePath} cache={cachedPath}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warn(ex, "ImageRotater: could not build normalised background cache in background");
-                    if (watch != null)
-                    {
-                        _fileLogger.Log(
-                            $"BG PERF normalise-async failed total={watch.ElapsedMilliseconds}ms " +
-                            $"source={sourcePath} cache={cachedPath} error={ex.GetType().Name}: {ex.Message}");
-                    }
-                }
-                finally
-                {
-                    try
-                    {
-                        if (File.Exists(temp))
-                        {
-                            File.Delete(temp);
-                        }
-                    }
-                    catch
-                    {
-                    }
-
-                    byte ignored;
-                    _normaliseJobs.TryRemove(jobKey, out ignored);
-                }
-            });
-        }
-
-        // The final common width per game folder, remembered until the folder
-        // changes. The original implementation measured every candidate on the
-        // UI/navigation path. On libraries with large PNG/JPEG backgrounds that
-        // could stall selection for hundreds of milliseconds.
-        //
-        // Keep the exact same "one common width per game" behaviour, but resolve
-        // an unknown width in the background. Until that one-time scan finishes,
-        // the current selection simply uses its source unchanged. No feature is
-        // removed; the optional blur-normalisation just becomes non-blocking.
-        private readonly Dictionary<string, Tuple<DateTime, int>> _targetWidths =
-            new Dictionary<string, Tuple<DateTime, int>>(StringComparer.OrdinalIgnoreCase);
-        private readonly object _targetWidthsLock = new object();
-        private readonly ConcurrentDictionary<string, byte> _targetWidthJobs =
-            new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
-
-        private int TargetWidthFor(string folder, string currentSourcePath)
-        {
-            bool trace = _fileLogger != null && _fileLogger.IsEnabled;
-            Stopwatch watch = trace ? Stopwatch.StartNew() : null;
-            DateTime stamp = Directory.GetLastWriteTimeUtc(folder);
-
-            Tuple<DateTime, int> hit;
-            lock (_targetWidthsLock)
-            {
-                if (_targetWidths.TryGetValue(folder, out hit) && hit.Item1 == stamp)
-                {
-                    if (trace)
-                    {
-                        _fileLogger.Log(
-                            $"BG PERF target-width decision=cache-hit total={watch.ElapsedMilliseconds}ms target={hit.Item2} folder={folder}");
-                    }
-                    return hit.Item2;
-                }
-            }
-
-            int screenWidth = ScreenWidth == null ? 0 : ScreenWidth();
-            int cap = screenWidth > 0
-                ? Math.Min(screenWidth, BackgroundNormaliser.MaximumWidth)
-                : BackgroundNormaliser.MaximumWidth;
-
-            // Exact zero-cost proof: if the CURRENT top-level candidate already
-            // reaches the cap, no other file can change the answer because the
-            // final target is min(widestCandidate, cap).
-            bool sourceIsTopLevel = false;
-            try
-            {
-                sourceIsTopLevel = !string.IsNullOrEmpty(currentSourcePath) &&
-                    string.Equals(
-                        Path.GetFullPath(Path.GetDirectoryName(currentSourcePath)),
-                        Path.GetFullPath(folder),
-                        StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                sourceIsTopLevel = false;
-            }
-
-            if (sourceIsTopLevel)
-            {
-                int sourceWidth;
-                Stopwatch probeWatch = trace ? Stopwatch.StartNew() : null;
-                bool widthKnown = BackgroundNormaliser.TryGetPixelWidth(currentSourcePath, out sourceWidth);
-                long probeMs = trace ? probeWatch.ElapsedMilliseconds : 0;
-
-                if (widthKnown && sourceWidth >= cap)
-                {
-                    int fastTarget = cap;
-                    lock (_targetWidthsLock)
-                    {
-                        _targetWidths[folder] = Tuple.Create(stamp, fastTarget);
-                    }
-
-                    if (trace)
-                    {
-                        _fileLogger.Log(
-                            $"BG PERF target-width decision=fast-current total={watch.ElapsedMilliseconds}ms " +
-                            $"widthProbe={probeMs}ms sourceWidth={sourceWidth} screenPx={screenWidth} cap={cap} " +
-                            $"target={fastTarget} stamp={stamp:O} source={currentSourcePath} folder={folder}");
-                    }
-
-                    return fastTarget;
-                }
-
-                if (trace)
-                {
-                    _fileLogger.Log(
-                        $"BG PERF target-width fast-current-miss widthProbe={probeMs}ms " +
-                        $"widthKnown={widthKnown} sourceWidth={(widthKnown ? sourceWidth : 0)} " +
-                        $"screenPx={screenWidth} cap={cap} source={currentSourcePath}");
-                }
-            }
-
-            // Do NOT scan all candidates while the user is navigating. Queue the
-            // expensive exact calculation once for this folder/stamp and use the
-            // source as-is for this selection. The completed result is cached and
-            // subsequent selections get the same common-width semantics as before.
-            QueueTargetWidthScan(folder, stamp, screenWidth);
-
-            if (trace)
-            {
-                _fileLogger.Log(
-                    $"BG PERF target-width decision=async-pending total={watch.ElapsedMilliseconds}ms " +
-                    $"screenPx={screenWidth} stamp={stamp:O} folder={folder}");
-            }
-
-            return 0;
-        }
-
-        private void QueueTargetWidthScan(string folder, DateTime stamp, int screenWidth)
-        {
-            string jobKey = folder + "|" + stamp.Ticks + "|" + screenWidth;
-            if (!_targetWidthJobs.TryAdd(jobKey, 0))
-            {
-                return;
-            }
-
-            Task.Run(() =>
-            {
-                bool trace = _fileLogger != null && _fileLogger.IsEnabled;
-                Stopwatch watch = trace ? Stopwatch.StartNew() : null;
-                try
-                {
-                    string[] files = Directory.GetFiles(folder);
-                    int target = BackgroundNormaliser.TargetWidthFor(files, screenWidth);
-
-                    // A download/add/remove may have changed the directory while
-                    // the scan was running. Never publish a result for an old set.
-                    DateTime currentStamp = Directory.GetLastWriteTimeUtc(folder);
-                    if (currentStamp == stamp)
-                    {
-                        lock (_targetWidthsLock)
-                        {
-                            _targetWidths[folder] = Tuple.Create(stamp, target);
-                        }
-
-                        if (trace)
-                        {
-                            _fileLogger.Log(
-                                $"BG PERF target-width-async decision=ready total={watch.ElapsedMilliseconds}ms " +
-                                $"files={files.Length} screenPx={screenWidth} target={target} stamp={stamp:O} folder={folder}");
-                        }
-                    }
-                    else if (trace)
-                    {
-                        _fileLogger.Log(
-                            $"BG PERF target-width-async decision=stale total={watch.ElapsedMilliseconds}ms " +
-                            $"screenPx={screenWidth} oldStamp={stamp:O} newStamp={currentStamp:O} folder={folder}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warn(ex, "ImageRotater: could not calculate background target width in background");
-                    if (trace)
-                    {
-                        _fileLogger.Log(
-                            $"BG PERF target-width-async failed total={watch.ElapsedMilliseconds}ms " +
-                            $"screenPx={screenWidth} folder={folder} error={ex.GetType().Name}: {ex.Message}");
-                    }
-                }
-                finally
-                {
-                    byte ignored;
-                    _targetWidthJobs.TryRemove(jobKey, out ignored);
-                }
-            });
-        }
-
         public bool HasWrittenArtwork
         {
             get { return _written.Count > 0; }
@@ -975,7 +356,9 @@ namespace ImageRotater.Services
             return RestoreAllCore(false, null);
         }
 
-        public int RestoreAll(Action<int, int> onProgress)
+        // Virtual as a test seam: LibraryReset calls this overload, and its
+        // "nothing is deleted when the restore fails" rule needs a failing one.
+        public virtual int RestoreAll(Action<int, int> onProgress)
         {
             return RestoreAllCore(false, onProgress);
         }
@@ -1144,6 +527,16 @@ namespace ImageRotater.Services
 
         public virtual int RestoreKind(ArtworkKind targetKind)
         {
+            return RestoreKind(targetKind, null);
+        }
+
+        public int RestoreArtwork(Guid gameId, ArtworkKind kind)
+        {
+            return RestoreKind(kind, gameId);
+        }
+
+        private int RestoreKind(ArtworkKind targetKind, Guid? onlyGame)
+        {
             int restored = 0;
             var touched = new List<Game>();
             var toDelete = new List<string>();
@@ -1152,7 +545,8 @@ namespace ImageRotater.Services
             foreach (KeyValuePair<string, string> entry in _originals.ToList())
             {
                 Guid gameId;
-                if (!TryParseKey(entry.Key, out gameId) || KindFromKey(entry.Key) != targetKind)
+                if (!TryParseKey(entry.Key, out gameId) || KindFromKey(entry.Key) != targetKind ||
+                    (onlyGame.HasValue && gameId != onlyGame.Value))
                 {
                     continue;
                 }
@@ -1237,15 +631,6 @@ namespace ImageRotater.Services
 
         protected virtual void CommitGame(Game game)
         {
-            if (_startupBatchDepth > 0)
-            {
-                if (game != null && _startupBatchGameIds.Add(game.Id))
-                {
-                    _startupBatchGames.Add(game);
-                }
-                return;
-            }
-
             _api.Database.Games.Update(game);
         }
 
@@ -1296,12 +681,6 @@ namespace ImageRotater.Services
         {
             if (string.IsNullOrEmpty(previousId))
             {
-                return;
-            }
-
-            if (_startupBatchDepth > 0)
-            {
-                _startupBatchDeletes.Add(Tuple.Create(game, kind, previousId));
                 return;
             }
 
@@ -1395,14 +774,7 @@ namespace ImageRotater.Services
             }
 
             _originals[key] = GetCurrent(game, kind) ?? string.Empty;
-            if (_startupBatchDepth > 0)
-            {
-                _startupBatchStateDirty = true;
-            }
-            else
-            {
-                Save();
-            }
+            Save();
         }
 
         // Backgrounds and covers are backed up independently, so the key

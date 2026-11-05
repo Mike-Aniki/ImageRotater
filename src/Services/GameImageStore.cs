@@ -71,111 +71,11 @@ namespace ImageRotater.Services
             return Path.Combine(_imagesRoot, gameId.ToString(), SubfolderFor(kind));
         }
 
-        // Where published copies live: a sibling of the candidate folder, never
-        // inside it.
+        // Releases before 1.6 published copies for themes into a sibling folder:
         //
-        //   Images\{gameId}\covers\            <- candidates
         //   Images\{gameId}\covers.published\  <- current.tile, current.mp4
         //
-        // This is a performance fix, not tidiness. GetImagePaths caches a
-        // folder's listing and validates it against the folder's write time.
-        // Publishing into that same folder bumps that write time, so every
-        // rotation invalidated its own cache and the next selection re-ran the
-        // full enumeration and content deduplication. Measured on the shipped
-        // assembly: a cache hit costs ~380 ticks, the listing right after a
-        // publish 13,000-25,000. Moving the write out keeps the cache valid
-        // across rotations.
-        //
-        // It also retires a subtler problem. A published file sitting among the
-        // candidates had to be filtered out by name, or a game's artwork could
-        // rotate onto a copy of itself - which worked only because ".tile" was
-        // not a listed extension, and had to be patched again the moment video
-        // began publishing as ".mp4".
-
-        // Lightweight startup index: which game/kind pairs actually have at least one
-        // usable ImageRotater candidate. Published placeholder folders are ignored.
-        // This deliberately avoids CandidateFolderFor so startup does not trigger the
-        // legacy-layout scan for every game in the Playnite database.
-        public HashSet<string> GetStartupArtworkIndex()
-        {
-            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            try
-            {
-                if (!Directory.Exists(_imagesRoot))
-                {
-                    return result;
-                }
-
-                foreach (string gameRoot in Directory.EnumerateDirectories(_imagesRoot))
-                {
-                    Guid gameId;
-                    if (!Guid.TryParse(Path.GetFileName(gameRoot), out gameId))
-                    {
-                        continue;
-                    }
-
-                    string backgrounds = Path.Combine(gameRoot, SubfolderFor(ArtworkKind.Background));
-                    if (HasStartupCandidate(backgrounds))
-                    {
-                        result.Add(StartupIndexKey(gameId, ArtworkKind.Background));
-                    }
-
-                    string covers = Path.Combine(gameRoot, SubfolderFor(ArtworkKind.Cover));
-                    if (HasStartupCandidate(covers))
-                    {
-                        result.Add(StartupIndexKey(gameId, ArtworkKind.Cover));
-                    }
-
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn(ex, "ImageRotater: could not build startup artwork index");
-            }
-
-            return result;
-        }
-
-        private static bool HasStartupCandidate(string folder)
-        {
-            if (!Directory.Exists(folder))
-            {
-                return false;
-            }
-
-            try
-            {
-                foreach (string file in Directory.EnumerateFiles(folder))
-                {
-                    if (SupportedExtensions.Contains(Path.GetExtension(file)) &&
-                        !IsPublishedCopy(file) &&
-                        !IsPreservedOriginal(file))
-                    {
-                        return true;
-                    }
-                }
-            }
-            catch
-            {
-                // Startup indexing is only an optimisation. If one folder is
-                // unreadable, normal per-game discovery can still handle it later.
-            }
-
-            return false;
-        }
-
-        public static string StartupIndexKey(Guid gameId, ArtworkKind kind)
-        {
-            return gameId.ToString("N") + "|" + (int)kind;
-        }
-
-        public string GetPublishedFolder(Guid gameId, ArtworkKind kind)
-        {
-            return Path.Combine(
-                _imagesRoot, gameId.ToString(), SubfolderFor(kind) + PublishedFolderSuffix);
-        }
-
+        // Nothing publishes any more; the name is kept to skip and tidy them.
         public const string PublishedFolderSuffix = ".published";
 
         private static string SubfolderFor(ArtworkKind kind)
@@ -358,51 +258,6 @@ namespace ImageRotater.Services
             {
                 Logger.Warn(ex, $"ImageRotater: could not check images for game {gameId}");
                 return false;
-            }
-        }
-
-        public void GetSeedCandidates(
-            Guid gameId,
-            ArtworkKind kind,
-            out string firstCandidate,
-            out string firstVideo)
-        {
-            firstCandidate = null;
-            firstVideo = null;
-
-            try
-            {
-                string folder = CandidateFolderFor(gameId, kind);
-                if (folder == null)
-                {
-                    return;
-                }
-
-                foreach (string file in Directory.EnumerateFiles(folder))
-                {
-                    if (!SupportedExtensions.Contains(Path.GetExtension(file)) ||
-                        IsPublishedCopy(file))
-                    {
-                        continue;
-                    }
-
-                    if (firstCandidate == null ||
-                        string.Compare(file, firstCandidate, StringComparison.OrdinalIgnoreCase) < 0)
-                    {
-                        firstCandidate = file;
-                    }
-
-                    if (PosterFrame.IsVideo(file) &&
-                        (firstVideo == null ||
-                         string.Compare(file, firstVideo, StringComparison.OrdinalIgnoreCase) < 0))
-                    {
-                        firstVideo = file;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn(ex, $"ImageRotater: could not seed-check images for game {gameId}");
             }
         }
 
@@ -884,15 +739,6 @@ namespace ImageRotater.Services
         // "current.mp4" is the one that plays on a stock Windows install.
         public const string PublishedVideoBaseName = "current";
 
-        public static string PublishedVideoNameFor(string sourcePath)
-        {
-            string ext = Path.GetExtension(sourcePath);
-
-            return string.IsNullOrEmpty(ext)
-                ? PublishedVideoBaseName
-                : PublishedVideoBaseName + ext.ToLowerInvariant();
-        }
-
         // Compatibility mode keeps the native Playnite artwork as original_*
         // so it survives Playnite reclaiming an unreferenced library file. The
         // rotation source treats that safety copy as the logical Original. Theme
@@ -947,57 +793,6 @@ namespace ImageRotater.Services
             return string.Equals(name, PublishedVideoBaseName, StringComparison.OrdinalIgnoreCase);
         }
 
-        // Drops any published video for this kind. A theme shows its video
-        // element when the file exists, so leaving one behind after rotating to
-        // a still would keep the tile playing the wrong artwork.
-        //
-        // Best effort: a MediaElement still holding the file makes the delete
-        // fail, and one stale video is a far better outcome than an exception
-        // out of a rotation.
-        private static void RemovePublishedVideos(string folder, string keep = null)
-        {
-            foreach (string ext in new[] { ".mp4", ".webm" })
-            {
-                try
-                {
-                    string name = PublishedVideoBaseName + ext;
-
-                    if (string.Equals(name, keep, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    string stale = Path.Combine(folder, name);
-
-                    if (File.Exists(stale))
-                    {
-                        File.Delete(stale);
-                    }
-                }
-                catch (Exception)
-                {
-                }
-            }
-        }
-
-        // A 1x1 fully transparent PNG.
-        //
-        // Themes must load published files with CacheOption=OnLoad so the
-        // plugin can republish them, and OnLoad THROWS on a missing file -
-        // inside Playnite's layout pass, which is fatal. A tile builds its path
-        // from its own game id and cannot ask whether the plugin has artwork,
-        // because a WPF trigger compares a binding to a literal and the tile's
-        // id is not one. So the file has to exist for every game in the
-        // library.
-        //
-        // It does not have to contain anything: 1x1 transparent renders as
-        // nothing and the theme's own artwork shows through. 70 bytes per game
-        // instead of a copy of its artwork.
-        private static readonly byte[] TransparentPixelPng = Convert.FromBase64String(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==");
-
-        // Makes sure the published file exists, without claiming the game has
-        // artwork. Does nothing when a real image is already published.
         // Removes published copies for games that no longer have any artwork to
         // publish from.
         //
@@ -1072,179 +867,6 @@ namespace ImageRotater.Services
         {
             try { return Directory.GetFiles(folder).Length; }
             catch (Exception) { return 0; }
-        }
-
-        // Whether a published tile is the placeholder this store writes, by
-        // length: no real artwork is 70 bytes.
-        private static bool IsPlaceholder(string path)
-        {
-            try
-            {
-                return new FileInfo(path).Length == TransparentPixelPng.Length;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-
-        public bool EnsurePublishedPlaceholder(Guid gameId, ArtworkKind kind)
-        {
-            try
-            {
-                string folder = GetPublishedFolder(gameId, kind);
-                string target = Path.Combine(folder, PublishedFileName);
-
-                if (File.Exists(target))
-                {
-                    return false;
-                }
-
-                Directory.CreateDirectory(folder);
-                File.WriteAllBytes(target, TransparentPixelPng);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn(ex, $"ImageRotater: could not create the {kind} placeholder for game {gameId}");
-                return false;
-            }
-        }
-
-        // Copies the chosen file to the fixed per-game name themes bind to.
-        //
-        // Written temp-then-move so a grid tile never reads a half-written
-        // file - tiles can load this at any moment, not just after a rotation.
-        // Overwriting is safe: WPF re-reads an overwritten path rather than
-        // serving its cached bitmap, and holds no lock on a file it has
-        // finished decoding (both verified against this exact flow).
-        public bool PublishCurrent(Guid gameId, string sourcePath, ArtworkKind kind)
-        {
-            if (string.IsNullOrEmpty(sourcePath) || !File.Exists(sourcePath))
-            {
-                return false;
-            }
-
-            try
-            {
-                // The published folder, NOT the candidate folder. Writing here
-                // used to bump the candidate folder's write time, which is what
-                // the listing cache validates against - so every rotation
-                // invalidated its own cache and the next selection paid for a
-                // full re-enumeration and re-deduplication.
-                string folder = GetPublishedFolder(gameId, kind);
-                Directory.CreateDirectory(folder);
-
-                // Video publishes under its own extension so MediaElement can
-                // pick a decoder; everything else keeps the single .tile name a
-                // theme binds for stills.
-                bool video = PosterFrame.IsVideo(sourcePath);
-
-                string target = Path.Combine(
-                    folder,
-                    video ? PublishedVideoNameFor(sourcePath) : PublishedFileName);
-
-                // A still pick REMOVES any published video, and a video pick
-                // replaces it.
-                //
-                // This used to keep the video across still picks, reasoning
-                // that a theme's MediaElement would otherwise go dark whenever
-                // rotation landed on a still. That was wrong in practice: the
-                // video is drawn ON TOP of the still tile, so keeping it meant
-                // the video simply never went away. A game with a video among
-                // its covers appeared frozen on that one clip no matter how
-                // many times rotation picked something else.
-                //
-                // Rotation that cannot be seen is not rotation. Clearing the
-                // video lets the still show, and the next pick that lands on
-                // the video brings it back.
-                if (!video)
-                {
-                    RemovePublishedVideos(folder);
-                }
-                else
-                {
-                    RemovePublishedVideos(folder, keep: Path.GetFileName(target));
-
-                    // A poster frame for the .tile a theme binds - but only
-                    // when that tile is still the 1x1 placeholder.
-                    //
-                    // Publishing only the video left that file on the
-                    // placeholder, which a theme stretches across the tile and
-                    // Playnite renders as SOLID BLACK - so a downloaded video
-                    // looked like broken artwork on every theme whose tile is
-                    // a plain Image rather than a MediaElement.
-                    //
-                    // A real still already there is left alone. Taking a
-                    // poster spawns ffmpeg and waits for it, half a second on
-                    // the UI thread - and the startup seed republishes every
-                    // video a still pick has displaced, so a library with a
-                    // handful of videos paid that on every launch, for a
-                    // poster no one could see under the video anyway.
-                    //
-                    // Needs ffmpeg. Without it the placeholder stays, which is
-                    // the pre-existing behaviour rather than a new failure.
-                    string tile = Path.Combine(folder, PublishedFileName);
-
-                    if (!File.Exists(tile) || IsPlaceholder(tile))
-                    {
-                        GifConverter.ExtractPoster(sourcePath, tile);
-                    }
-                }
-
-                // Already current - skip the copy. Session mode republishes the
-                // same pick on every selection, and a full file copy each time
-                // is waste that also bumps the folder's write time, needlessly
-                // invalidating the listing cache.
-                //
-                // Length plus source-not-newer is a heuristic: two DIFFERENT
-                // picks with identical byte counts would be wrongly skipped.
-                // Real artwork files virtually never collide on exact length,
-                // and the cost of a miss is one stale publish until the next
-                // rotation.
-                if (File.Exists(target))
-                {
-                    var sourceInfo = new FileInfo(sourcePath);
-                    var targetInfo = new FileInfo(target);
-
-                    if (targetInfo.Length == sourceInfo.Length &&
-                        targetInfo.LastWriteTimeUtc >= sourceInfo.LastWriteTimeUtc)
-                    {
-                        return true;
-                    }
-                }
-
-                string temp = target + ".tmp";
-
-                File.Copy(sourcePath, temp, true);
-
-                // Temp-then-swap so a tile never reads a half-written file.
-                //
-                // This only works because themes bind with CacheOption=OnLoad,
-                // which closes WPF's file handle at load. Under the default
-                // binding WPF holds that handle for the bitmap's lifetime and
-                // every write here fails with IOException - the file becomes
-                // permanently unwritable the first time a tile shows it. That
-                // is exactly what stopped covers from publishing while
-                // backgrounds, which no tile binds, kept working.
-                if (File.Exists(target))
-                {
-                    File.Replace(temp, target, null);
-                }
-                else
-                {
-                    File.Move(temp, target);
-                }
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                // The database write still happened, so every other view is
-                // correct - only theme-side tiles keep their previous image.
-                Logger.Warn(ex, $"ImageRotater: could not publish the current {kind} for game {gameId}");
-                return false;
-            }
         }
 
         // Drops files whose CONTENT duplicates an earlier candidate.
@@ -1417,6 +1039,79 @@ namespace ImageRotater.Services
             {
                 Logger.Warn(ex, $"ImageRotater: could not add image for game {gameId}");
                 return null;
+            }
+        }
+
+        // Replace one converted animation while retaining its manual order,
+        // Fixed selection and Excluded flag. A generated MP4 already exists
+        // before this method runs; failure never removes that MP4.
+        public bool ReplaceConvertedArtwork(Guid gameId, ArtworkKind kind, string originalPath, string convertedPath)
+        {
+            if (string.IsNullOrEmpty(originalPath) || string.IsNullOrEmpty(convertedPath) ||
+                IsPreservedOriginal(originalPath) || !File.Exists(originalPath) ||
+                !File.Exists(convertedPath) || !IsSupported(convertedPath))
+            {
+                return false;
+            }
+
+            try
+            {
+                string folder = Path.GetFullPath(GetGameFolder(gameId, kind));
+                if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(originalPath)), folder,
+                    StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(Path.GetDirectoryName(Path.GetFullPath(convertedPath)), folder,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                string oldName = Path.GetFileName(originalPath);
+                string newName = Path.GetFileName(convertedPath);
+                if (string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                // Read marker contents before changing anything. Marker files
+                // store filenames, not full paths.
+                string fixedMarker = Path.Combine(folder, FixedArtworkFileName);
+                string orderMarker = Path.Combine(folder, ArtworkOrderFileName);
+                string excludedMarker = Path.Combine(folder, ExcludedArtworkFileName);
+
+                bool wasFixed = File.Exists(fixedMarker) &&
+                    string.Equals((File.ReadAllText(fixedMarker) ?? string.Empty).Trim(),
+                        oldName, StringComparison.OrdinalIgnoreCase);
+                string[] order = File.Exists(orderMarker) ? File.ReadAllLines(orderMarker) : null;
+                string[] excluded = File.Exists(excludedMarker) ? File.ReadAllLines(excludedMarker) : null;
+
+                if (wasFixed)
+                {
+                    File.WriteAllText(fixedMarker, newName);
+                }
+                if (order != null)
+                {
+                    File.WriteAllLines(orderMarker, order.Select(name =>
+                        string.Equals((name ?? string.Empty).Trim(), oldName, StringComparison.OrdinalIgnoreCase)
+                            ? newName : name));
+                }
+                if (excluded != null)
+                {
+                    File.WriteAllLines(excludedMarker, excluded.Select(name =>
+                        string.Equals((name ?? string.Empty).Trim(), oldName, StringComparison.OrdinalIgnoreCase)
+                            ? newName : name));
+                }
+
+                // Only the original WebP is removed, and only after a complete
+                // MP4 exists. Keep both if deletion fails rather than lose data.
+                File.Delete(originalPath);
+                InvalidateListCache(gameId, kind);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                InvalidateListCache(gameId, kind);
+                Logger.Warn(ex, $"ImageRotater: could not finish artwork conversion for {gameId}");
+                return false;
             }
         }
 

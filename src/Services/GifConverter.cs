@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Text.RegularExpressions;
 using Playnite.SDK;
 
 namespace ImageRotater.Services
@@ -79,20 +80,60 @@ namespace ImageRotater.Services
             return false;
         }
 
-        // Whether a file actually moves.
-        //
-        // GDI+ reports frame counts for GIF and APNG-in-PNG. WebP and WebM it
-        // cannot open at all, and those are taken on trust: a still WebP
-        // converted to MP4 is a wasted step rather than a broken one, and a
-        // WebM is video by definition.
+        // The WebP header records whether animation is present. Checking its
+        // VP8X animation flag avoids converting ordinary static WebPs into MP4.
+        // This reads only the first 21 bytes, never decodes the artwork.
+        public static bool IsAnimatedWebp(string path)
+        {
+            if (string.IsNullOrEmpty(path) ||
+                !string.Equals(Path.GetExtension(path), ".webp", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            try
+            {
+                using (var stream = File.OpenRead(path))
+                {
+                    byte[] header = new byte[21];
+                    if (stream.Read(header, 0, header.Length) != header.Length)
+                    {
+                        return false;
+                    }
+
+                    // RIFF size WEBP VP8X chunk-size flags
+                    return header[0] == 'R' && header[1] == 'I' &&
+                        header[2] == 'F' && header[3] == 'F' &&
+                        header[8] == 'W' && header[9] == 'E' &&
+                        header[10] == 'B' && header[11] == 'P' &&
+                        header[12] == 'V' && header[13] == 'P' &&
+                        header[14] == '8' && header[15] == 'X' &&
+                        (header[20] & 0x02) != 0;
+                }
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        // Whether a file actually moves. WebM is video; GIF/APNG use frame
+        // counts and WebP uses the animation bit in its RIFF VP8X header.
         private static bool HasMultipleFrames(string path)
         {
             string ext = Path.GetExtension(path) ?? string.Empty;
 
-            if (ext.Equals(".webm", StringComparison.OrdinalIgnoreCase) ||
-                ext.Equals(".webp", StringComparison.OrdinalIgnoreCase))
+            if (ext.Equals(".webm", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
+            }
+            if (ext.Equals(".webp", StringComparison.OrdinalIgnoreCase))
+            {
+                return IsAnimatedWebp(path);
             }
 
             try
@@ -343,7 +384,7 @@ namespace ImageRotater.Services
                     // Drained rather than ignored: ffmpeg writes progress to
                     // stderr continuously, and a full pipe buffer deadlocks the
                     // process we are waiting on.
-                    process.StandardError.ReadToEnd();
+                    string conversionLog = process.StandardError.ReadToEnd();
                     process.StandardOutput.ReadToEnd();
 
                     process.WaitForExit();
@@ -354,6 +395,25 @@ namespace ImageRotater.Services
                             $"ImageRotater: ffmpeg exited {process.ExitCode} converting {Path.GetFileName(gifPath)}");
                         TryDelete(temp);
                         return null;
+                    }
+
+                    // Some older FFmpeg versions decode only the first WebP
+                    // frame and still exit successfully. Never replace an
+                    // animated source with a one-frame "video". FFmpeg prints
+                    // its output frame count in the final progress line.
+                    if (IsAnimatedWebp(gifPath))
+                    {
+                        MatchCollection frames = Regex.Matches(conversionLog ?? string.Empty,
+                            @"frame=\s*(\d+)");
+                        int encodedFrames;
+                        if (frames.Count == 0 ||
+                            !int.TryParse(frames[frames.Count - 1].Groups[1].Value, out encodedFrames) ||
+                            encodedFrames < 2)
+                        {
+                            Logger.Warn($"ImageRotater: FFmpeg did not encode an animated WebP: {Path.GetFileName(gifPath)}");
+                            TryDelete(temp);
+                            return null;
+                        }
                     }
                 }
 

@@ -25,26 +25,6 @@ namespace ImageRotater.Tests.Services
         private GameImageStore _store;
         private Game _game;
 
-        private class StubSource : IBackgroundImageSource
-        {
-            private readonly IReadOnlyList<string> _paths;
-            public StubSource(IReadOnlyList<string> paths) { _paths = paths; }
-            public IReadOnlyList<string> GetImagePaths(Game game) { return _paths; }
-        }
-
-        private class RecordingWriter : PlayniteBackgroundWriter
-        {
-            public readonly List<string> Written = new List<string>();
-
-            public RecordingWriter(string dir) : base(null, dir) { }
-
-            public override bool SetArtwork(Game game, string imagePath, ArtworkKind kind)
-            {
-                Written.Add(imagePath);
-                return true;
-            }
-        }
-
         [SetUp]
         public void SetUp()
         {
@@ -72,61 +52,6 @@ namespace ImageRotater.Tests.Services
             File.WriteAllBytes(path, new byte[] { 0, 0, 0, 24, 102, 116, 121, 112, (byte)(++_videoSeed) });
             _store.AddImage(_game.Id, path, kind);
             return path;
-        }
-
-        private string AddStill(string name, ArtworkKind kind = ArtworkKind.Background)
-        {
-            string path = Path.Combine(_root, name);
-            using (var bmp = new Bitmap(32, 24))
-            using (Graphics g = Graphics.FromImage(bmp))
-            {
-                g.Clear(Color.SeaGreen);
-                bmp.Save(path, ImageFormat.Jpeg);
-            }
-
-            _store.AddImage(_game.Id, path, kind);
-            return path;
-        }
-
-        private static ImageRotaterSettings Settings()
-        {
-            return new ImageRotaterSettings
-            {
-                EnableRotation = true,
-                RotateCovers = true,
-                SelectionMode = SelectionMode.Fixed,
-                CoverSelectionMode = SelectionMode.Fixed,
-                LetterboxBackgrounds = false
-            };
-        }
-
-        private RecordingWriter Rotate(ArtworkKind kind, ImageRotaterSettings settings = null)
-        {
-            IReadOnlyList<string> paths = _store.GetImagePaths(_game.Id, kind);
-            var writer = new RecordingWriter(_root);
-
-            var service = new BackgroundRotationService(
-                kind == ArtworkKind.Background ? new StubSource(paths) : new StubSource(new string[0]),
-                kind == ArtworkKind.Cover ? new StubSource(paths) : new StubSource(new string[0]),
-                new ImageSelector(new ImagePicker(), new SessionSelectionCache()),
-                writer, null, _store, () => settings ?? Settings(), null,
-                new ArtworkPublisher(_store));
-
-            service.ApplyTo(_game, kind);
-            return writer;
-        }
-
-        private string PublishedFolder(ArtworkKind kind)
-        {
-            return _store.GetPublishedFolder(_game.Id, kind);
-        }
-
-        // Video publishes under a real video extension rather than the .tile
-        // name stills use, because MediaElement picks its decoder by extension.
-        // See PublishedVideoNameTests.
-        private string PublishedVideoPath(ArtworkKind kind, string ext = ".mp4")
-        {
-            return Path.Combine(PublishedFolder(kind), GameImageStore.PublishedVideoBaseName + ext);
         }
 
         [Test]
@@ -168,83 +93,6 @@ namespace ImageRotater.Tests.Services
             IReadOnlyList<string> listed = _store.GetImagePaths(_game.Id, ArtworkKind.Background);
 
             Assert.AreEqual(2, listed.Count, "video must be offered to rotation like any other artwork");
-        }
-
-        // The core rule: Playnite's database decodes to one bitmap, so it must
-        // receive the still - never the video.
-        [Test]
-        public void VideoPickIsNeverWrittenToPlaynite()
-        {
-            AddVideo("aaa_clip.mp4");   // sorts first, so Fixed mode picks it
-            AddStill("zzz_still.jpg");
-
-            RecordingWriter writer = Rotate(ArtworkKind.Background);
-
-            foreach (string written in writer.Written)
-            {
-                Assert.IsFalse(PosterFrame.IsMotion(written),
-                    $"wrote {Path.GetFileName(written)} to Playnite, which decodes it to a "
-                    + "single bitmap and can only show a blank");
-            }
-        }
-
-        // ...but a theme still gets it, because a theme renders the file itself.
-        [Test]
-        public void VideoPickIsStillPublishedForThemes()
-        {
-            AddVideo("aaa_clip.mp4");
-            AddStill("zzz_still.jpg");
-
-            Rotate(ArtworkKind.Background);
-
-            string published = PublishedVideoPath(ArtworkKind.Background);
-            Assert.IsTrue(File.Exists(published), "the theme-facing file must exist");
-
-            // Published bytes are the video's, not the still's.
-            IReadOnlyList<string> listed = _store.GetImagePaths(_game.Id, ArtworkKind.Background);
-            string storedVideo = null;
-            foreach (string p in listed)
-            {
-                if (PosterFrame.IsVideo(p)) { storedVideo = p; }
-            }
-
-            Assert.IsNotNull(storedVideo);
-            CollectionAssert.AreEqual(
-                File.ReadAllBytes(storedVideo), File.ReadAllBytes(published),
-                "the theme renders this file itself, so it must be the video");
-        }
-
-        // A game whose ONLY artwork is a video must not silently rotate to
-        // nothing: there is no still to write, but the theme path still works.
-        [Test]
-        public void VideoOnlyGameStillPublishes()
-        {
-            AddVideo("only.mp4");
-
-            RecordingWriter writer = Rotate(ArtworkKind.Background);
-
-            Assert.IsEmpty(writer.Written,
-                "there is no still to write, so the database must be left alone");
-
-            Assert.IsTrue(File.Exists(PublishedVideoPath(ArtworkKind.Background)),
-                "the theme-facing file is the whole point for a video-only game - "
-                + "returning early without publishing would strand it");
-        }
-
-        [Test]
-        public void CoversFollowTheSameRule()
-        {
-            AddVideo("aaa_clip.webm", ArtworkKind.Cover);
-            AddStill("zzz_still.jpg", ArtworkKind.Cover);
-
-            RecordingWriter writer = Rotate(ArtworkKind.Cover);
-
-            foreach (string written in writer.Written)
-            {
-                Assert.IsFalse(PosterFrame.IsMotion(written), "covers decode to one bitmap too");
-            }
-
-            Assert.IsTrue(File.Exists(PublishedVideoPath(ArtworkKind.Cover, ".webm")));
         }
     }
 }

@@ -121,8 +121,20 @@ namespace ImageRotater.Tests.Services
 
             var result = new LibraryReset(new ThrowingWriter(), _store).Run();
 
-            Assert.IsNotNull(result.Error);
-            StringAssert.Contains("nothing was ", result.Error.ToLowerInvariant());
+            Assert.AreEqual(Loc.Format("LOCImageRotaterResetRestoreFailed", "restore failed"), result.Error);
+            StringAssert.Contains("nothing was deleted", EnglishText("LOCImageRotaterResetRestoreFailed"));
+        }
+
+        // The test host has no Playnite resources, so the user-facing wording is
+        // read from the shipped English dictionary.
+        private static string EnglishText(string key)
+        {
+            string dir = Path.GetDirectoryName(typeof(LibraryReset).Assembly.Location);
+            string xaml = File.ReadAllText(Path.Combine(dir, "Localization", "en_US.xaml"));
+            var match = System.Text.RegularExpressions.Regex.Match(
+                xaml, "x:Key=\"" + key + "\"[^>]*>([^<]*)<");
+            Assert.IsTrue(match.Success, key + " is missing from en_US.xaml");
+            return match.Groups[1].Value;
         }
 
         // A writer whose restore always fails.
@@ -133,6 +145,11 @@ namespace ImageRotater.Tests.Services
             }
 
             public override int RestoreAll()
+            {
+                throw new InvalidOperationException("restore failed");
+            }
+
+            public override int RestoreAll(Action<int, int> onProgress)
             {
                 throw new InvalidOperationException("restore failed");
             }

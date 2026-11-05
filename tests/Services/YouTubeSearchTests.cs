@@ -91,6 +91,9 @@ namespace ImageRotater.Tests.Services
                 new YouTubeVideo { DurationSeconds = seconds }.DurationText);
         }
 
+        // The decimal separator follows the user's culture; pin one so the
+        // expected text does not depend on the machine running the tests.
+        [SetCulture("en-US")]
         [TestCase(0, "")]
         [TestCase(842, "842 views")]
         [TestCase(15200, "15.2K views")]

@@ -58,18 +58,33 @@ namespace ImageRotater.Tests.Services
         // that never clears it keeps decoding frames after the pick changes -
         // the previous game's GIF plays on under the next game's artwork, and
         // an unloaded control animates forever off-screen.
-        [TestCase("BackgroundImageControl.xaml.cs")]
-        [TestCase("CoverImageControl.xaml.cs")]
-        public void ControlReleasesTheAnimationWhenThePickIsNotAnimated(string file)
+        [Test]
+        public void CoverControlReleasesTheAnimationWhenThePickIsNotAnimated()
         {
-            string source = ControlSource(file);
+            string source = ControlSource("CoverImageControl.xaml.cs");
 
             int clears = Regex.Matches(source, @"SetSourceUri\(\s*DisplayImage\s*,\s*null\s*\)").Count;
 
             Assert.GreaterOrEqual(clears, 2,
-                $"{file} clears the animation {clears} time(s). It must be released both "
+                $"the cover control clears the animation {clears} time(s). It must be released both "
                 + "when a static pick replaces an animated one and when the control "
                 + "unloads, or frames keep decoding under the next image");
+        }
+
+        // Backgrounds render into two alternating slots. ClearSlot releases a
+        // slot's animation; it runs on the outgoing slot after every swap and
+        // on both slots when the control unloads.
+        [Test]
+        public void BackgroundControlReleasesTheAnimationOfEverySlot()
+        {
+            string source = ControlSource("BackgroundImageControl.xaml.cs");
+
+            StringAssert.IsMatch(@"SetSourceUri\(\s*slot\.Image\s*,\s*null\s*\)", source,
+                "ClearSlot must release the slot's animation");
+            StringAssert.IsMatch(@"void OnUnloaded[\s\S]*?ClearSlot\(_slotA\);\s*ClearSlot\(_slotB\);", source,
+                "unloading must release both slots");
+            Assert.GreaterOrEqual(Regex.Matches(source, @"ClearSlot\(outgoing\)").Count, 1,
+                "a swap must release the slot it leaves");
         }
 
         // The predicate both controls branch on. Extension-based on purpose:

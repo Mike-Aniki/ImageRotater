@@ -107,6 +107,16 @@ namespace ImageRotater.Services
             string segment = ToUrlSegment(type);
             string url = BaseUrl + "/" + segment + "/game/" + gameId + DimensionFilterFor(type);
 
+            // SteamGridDB may otherwise return only static artwork. Request
+            // both types for covers and backgrounds, then let the existing
+            // Show Animated checkbox filter the received results locally.
+            // Logos remain unchanged because ImageRotater does not support
+            // animated logos in the Artwork Manager.
+            if (type != SteamGridDbArtworkType.Logo)
+            {
+                url += (url.IndexOf('?') >= 0 ? "&" : "?") + "types=static,animated";
+            }
+
             SteamGridDbResult<JObject> response = await GetJsonAsync(url).ConfigureAwait(false);
 
             if (!response.Success)

@@ -18,6 +18,13 @@ namespace ImageRotater.Services
         private readonly string _path;
         private readonly object _lock = new object();
 
+        // One file only. Past this size it is deleted and a fresh one starts.
+        internal const long MaxBytes = 10L * 1024L * 1024L;
+
+        // The size is checked every so many lines, not on every append.
+        private const int SizeCheckInterval = 200;
+        private int _linesSinceSizeCheck;
+
         // The logger owns the on/off decision, so callers never repeat it.
         //
         // Previously every call site carried its own
@@ -53,8 +60,8 @@ namespace ImageRotater.Services
         public string Path_ => _path;
 
         // Appends a new session to the existing debug log so a restart does
-        // not erase the previous investigation. The active file is rotated
-        // only when it grows beyond 10 MiB.
+        // not erase the previous investigation. The file is restarted only
+        // when it grows beyond 10 MiB.
         public void StartSession(string version, string mode, ImageRotaterSettings settings = null)
         {
             if (!IsEnabled)
@@ -66,7 +73,8 @@ namespace ImageRotater.Services
             {
                 lock (_lock)
                 {
-                    RotateIfNeeded();
+                    DeleteOldArchives();
+                    RestartIfTooLarge();
                     bool hasExisting = File.Exists(_path) && new FileInfo(_path).Length > 0;
                     string prefix = hasExisting ? Environment.NewLine : string.Empty;
                     File.AppendAllText(
@@ -98,23 +106,20 @@ namespace ImageRotater.Services
 
             Log($"ImagesRoot       = {settings.ImagesRoot}");
             Log($"RotateCovers     = {settings.RotateCovers}");
+            Log($"RotateLogos      = {settings.RotateLogos}");
+            Log($"LogoMode         = {settings.LogoSelectionMode}");
+            Log($"LogoOrder        = {settings.LogoSelectionOrder}");
+            Log($"ShowUnfocusedCovers = {settings.ShowUnfocusedCovers}");
+            Log($"AnimateUnfocusedCovers = {settings.AnimateUnfocusedCovers}");
+            Log($"CoverVideoStart  = {settings.CoverVideoStartMode}");
+            Log($"Transitions      = {settings.EnableTransitions} cover={settings.CoverTransition} background={settings.BackgroundTransition}");
             Log($"RotateBackgrounds = {settings.RotateBackgrounds}");
-            Log($"ThemeIntegration  = {settings.UseThemeIntegration}");
+            Log("Renderer         = NativeInjection");
             Log($"BackgroundMode    = {settings.SelectionMode}");
             Log($"BackgroundOrder   = {settings.BackgroundSelectionOrder}");
             Log($"CoverMode         = {settings.CoverSelectionMode}");
             Log($"CoverOrder        = {settings.CoverSelectionOrder}");
-            Log($"Letterbox         = {settings.LetterboxBackgrounds}");
-            Log($"Normalise         = {settings.NormaliseBackgroundSize}");
             Log($"EnableCoverImage = {settings.EnableCoverImage}");
-            if (settings.UseThemeIntegration)
-            {
-                Log("Theme elements: ImageRotater_Background / ImageRotater_Cover");
-            }
-            else
-            {
-                Log($"Compatibility theme bind: {{ImagesRoot}}\\{{game id}}\\covers{GameImageStore.PublishedFolderSuffix}\\{GameImageStore.PublishedFileName}");
-            }
             Log($"Log file: {_path}");
         }
 
@@ -129,6 +134,12 @@ namespace ImageRotater.Services
             {
                 lock (_lock)
                 {
+                    if (++_linesSinceSizeCheck >= SizeCheckInterval)
+                    {
+                        _linesSinceSizeCheck = 0;
+                        RestartIfTooLarge();
+                    }
+
                     File.AppendAllText(
                         _path,
                         $"{DateTime.Now:HH:mm:ss.fff}  {message}{Environment.NewLine}",
@@ -140,25 +151,43 @@ namespace ImageRotater.Services
             }
         }
 
-        private void RotateIfNeeded()
+        private void RestartIfTooLarge()
         {
-            const long MaxBytes = 10L * 1024L * 1024L;
             try
             {
-                if (!File.Exists(_path) || new FileInfo(_path).Length < MaxBytes)
+                if (File.Exists(_path) && new FileInfo(_path).Length >= MaxBytes)
+                {
+                    File.Delete(_path);
+                }
+            }
+            catch (Exception)
+            {
+                // Best-effort. Never sacrifice logging/plugin stability.
+            }
+        }
+
+        // Releases before 1.6 kept every full log as ImageRotater.<stamp>.log.
+        private void DeleteOldArchives()
+        {
+            try
+            {
+                string directory = Path.GetDirectoryName(_path);
+                if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory))
                 {
                     return;
                 }
 
-                string directory = Path.GetDirectoryName(_path) ?? string.Empty;
-                string archive = Path.Combine(
-                    directory,
-                    $"ImageRotater.{DateTime.Now:yyyyMMdd-HHmmss}.log");
-                File.Move(_path, archive);
+                foreach (string archive in Directory.GetFiles(directory, "ImageRotater.*.log"))
+                {
+                    if (!string.Equals(Path.GetFullPath(archive), Path.GetFullPath(_path), StringComparison.OrdinalIgnoreCase))
+                    {
+                        File.Delete(archive);
+                    }
+                }
             }
             catch (Exception)
             {
-                // Rotation is best-effort. Never sacrifice logging/plugin stability.
+                // Best-effort cleanup only.
             }
         }
     }

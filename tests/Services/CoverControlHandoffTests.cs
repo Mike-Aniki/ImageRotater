@@ -8,45 +8,35 @@ using ImageRotater.Services;
 
 namespace ImageRotater.Tests.Services
 {
-    // Covers are driven two ways at once, and both must stay active.
-    //
-    // Writing Game.CoverImage feeds details view, the Desktop grid and
-    // everything else. The cover control renders only where a theme places its
-    // element, which is one Fullscreen grid template - the one place the write
-    // cannot reach, because those tiles bind Playnite's native PART_ImageCover
-    // and hold its cached bitmap.
-    //
-    // Treating them as alternatives was a real regression: standing the write
-    // down whenever a theme hosted the control froze covers everywhere the
-    // control does not render. The control picking independently for its own
-    // tile is a second pick, not a conflicting one - nothing else draws from
-    // it, so the two cannot disagree on screen.
+    // Both kinds rotate through the shared selection service, and neither may
+    // switch the other off. Each pick is counted where it happens: the service
+    // reads its candidates exactly once per real selection.
     [TestFixture]
     public class CoverControlHandoffTests
     {
-        private class CountingWriter : PlayniteBackgroundWriter
+        private class CountingSource : IBackgroundImageSource
         {
-            public readonly List<ArtworkKind> Kinds = new List<ArtworkKind>();
+            private readonly GameImageStore _store;
+            private readonly ArtworkKind _kind;
+            private readonly List<ArtworkKind> _picks;
 
-            public CountingWriter(string dir) : base(null, dir) { }
-
-            public override bool SetArtwork(Game game, string imagePath, ArtworkKind kind)
+            public CountingSource(GameImageStore store, ArtworkKind kind, List<ArtworkKind> picks)
             {
-                Kinds.Add(kind);
-                return true;
+                _store = store;
+                _kind = kind;
+                _picks = picks;
             }
-        }
 
-        private class StubSource : IBackgroundImageSource
-        {
-            private readonly IReadOnlyList<string> _paths;
-            public StubSource(IReadOnlyList<string> paths) { _paths = paths; }
-            public IReadOnlyList<string> GetImagePaths(Game game) { return _paths; }
+            public IReadOnlyList<string> GetImagePaths(Game game)
+            {
+                _picks.Add(_kind);
+                return _store.GetImagePaths(game.Id, _kind);
+            }
         }
 
         private string _root;
         private GameImageStore _store;
-        private CountingWriter _writer;
+        private List<ArtworkKind> _picks;
         private Game _game;
 
         [SetUp]
@@ -56,7 +46,7 @@ namespace ImageRotater.Tests.Services
             Directory.CreateDirectory(_root);
 
             _store = new GameImageStore(_root);
-            _writer = new CountingWriter(_root);
+            _picks = new List<ArtworkKind>();
             _game = new Game { Id = Guid.NewGuid(), Name = "Game" };
 
             // Both kinds present, so a missing write is a real decision rather
@@ -77,13 +67,11 @@ namespace ImageRotater.Tests.Services
 
         private BackgroundRotationService Build(ImageRotaterSettings settings)
         {
-            var backgrounds = new StubSource(_store.GetImagePaths(_game.Id, ArtworkKind.Background));
-            var covers = new StubSource(_store.GetImagePaths(_game.Id, ArtworkKind.Cover));
-
             return new BackgroundRotationService(
-                backgrounds, covers,
+                new CountingSource(_store, ArtworkKind.Background, _picks),
+                new CountingSource(_store, ArtworkKind.Cover, _picks),
                 new ImageSelector(new ImagePicker(), new SessionSelectionCache()),
-                _writer, null, _store, () => settings);
+                _store, () => settings);
         }
 
         private static ImageRotaterSettings Settings(bool rotateCovers)
@@ -96,29 +84,21 @@ namespace ImageRotater.Tests.Services
             };
         }
 
-        // Covers are written whether or not a theme hosts the cover control.
-        //
-        // The two are not alternatives, and treating them as such was a real
-        // regression: Game.CoverImage feeds details view, the Desktop grid and
-        // everything else, while the control renders only where a theme places
-        // it. Standing the write down on the control's behalf froze covers
-        // everywhere the control does not reach.
         [Test]
-        public void CoversAreWrittenWhenRotating()
+        public void CoversArePickedWhenRotating()
         {
             Build(Settings(rotateCovers: true)).ApplyTo(_game);
 
-            CollectionAssert.Contains(_writer.Kinds, ArtworkKind.Cover,
-                "the control reaches only one grid template; every other view needs the write");
+            CollectionAssert.Contains(_picks, ArtworkKind.Cover);
         }
 
         [Test]
-        public void BackgroundsAreAlwaysWritten()
+        public void BackgroundsArePickedAlongsideCovers()
         {
             Build(Settings(rotateCovers: true)).ApplyTo(_game);
 
-            CollectionAssert.Contains(_writer.Kinds, ArtworkKind.Background,
-                "the cover control must not disable background rotation");
+            CollectionAssert.Contains(_picks, ArtworkKind.Background,
+                "cover rotation must not disable background rotation");
         }
 
         // The slideshow tick: the game has stayed selected and the timer says
@@ -140,7 +120,7 @@ namespace ImageRotater.Tests.Services
             var service = Build(settings);
 
             service.ApplyTo(_game);
-            int First() { return _writer.Kinds.FindAll(k => k == ArtworkKind.Background).Count; }
+            int First() { return _picks.FindAll(k => k == ArtworkKind.Background).Count; }
             int first = First();
 
             service.ApplyTo(_game);
@@ -156,70 +136,7 @@ namespace ImageRotater.Tests.Services
         {
             Build(Settings(rotateCovers: false)).ApplyTo(_game);
 
-            CollectionAssert.DoesNotContain(_writer.Kinds, ArtworkKind.Cover);
-        }
-
-        // Fullscreen grid tiles bind this path directly, so it must be set
-        // whenever a cover is chosen - that binding is the only thing making
-        // those tiles rotate.
-        [Test]
-        public void ChoosingACover_PublishesItsPath()
-        {
-            var settings = Settings(rotateCovers: true);
-            Build(settings).ApplyTo(_game);
-
-            Assert.IsNotEmpty(settings.CurrentCoverPath ?? string.Empty,
-                "the chosen cover path must be published for themes to bind");
-            StringAssert.Contains("covers", settings.CurrentCoverPath);
-        }
-
-        // The write is skipped when the pick has not changed. The path must
-        // still be published, or a theme would bind an empty string.
-        [Test]
-        public void UnchangedPick_StillPublishesThePath()
-        {
-            var settings = Settings(rotateCovers: true);
-            settings.SelectionMode = SelectionMode.Session;
-
-            var service = Build(settings);
-            service.ApplyTo(_game);
-            string first = settings.CurrentCoverPath;
-
-            settings.CurrentCoverPath = string.Empty;
-            service.Forget(_game.Id);
-            service.ApplyTo(_game);
-
-            Assert.AreEqual(first, settings.CurrentCoverPath,
-                "a skipped write must not leave the published path empty");
-        }
-
-        // Themes compare this against their own tile's game id to decide
-        // whether the published path applies to them. If the two ever went out
-        // of step, one game's cover would appear on another game's tile.
-        [Test]
-        public void PublishedPathAndGameId_AlwaysMatchTheSameGame()
-        {
-            var settings = Settings(rotateCovers: true);
-            Build(settings).ApplyTo(_game);
-
-            Assert.AreEqual(_game.Id.ToString(), settings.CurrentCoverGameId,
-                "the published id must name the game whose cover was published");
-            StringAssert.Contains(_game.Id.ToString("N"), settings.CurrentCoverPath.Replace("-", ""),
-                "the published path must belong to that same game's folder");
-        }
-
-        // The bug that started this round: selecting the theme-element display
-        // mode returned before any work, so backgrounds silently stopped
-        // rotating everywhere - including in themes that render nothing.
-        [Test]
-        public void ThemeElementDisplayMode_StillRotatesBackgrounds()
-        {
-            var settings = Settings(rotateCovers: true);
-
-            Build(settings).ApplyTo(_game);
-
-            CollectionAssert.Contains(_writer.Kinds, ArtworkKind.Background,
-                "DisplayMode must not be able to switch rotation off entirely");
+            CollectionAssert.DoesNotContain(_picks, ArtworkKind.Cover);
         }
 
         // EnableCoverImage is what themes bind to decide whether to collapse
@@ -228,9 +145,10 @@ namespace ImageRotater.Tests.Services
         // existed only to work around Fullscreen tiles holding a stale cover,
         // which Playnite 10.57 fixed.
         [Test]
-        public void EnableCoverImage_FollowsRotateCovers()
+        public void NativeInjectionKeepsLegacyThemeCoverHiddenAndConfigurationAvailable()
         {
-            Assert.IsTrue(Settings(true).EnableCoverImage);
+            Assert.IsFalse(Settings(true).EnableCoverImage);
+            Assert.IsTrue(Settings(true).CanConfigureCovers);
             Assert.IsFalse(Settings(false).EnableCoverImage,
                 "covers not rotating - the theme must keep its own cover");
         }

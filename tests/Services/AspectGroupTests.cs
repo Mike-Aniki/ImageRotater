@@ -6,6 +6,8 @@ using ImageRotater.Services;
 
 namespace ImageRotater.Tests.Services
 {
+    // Labels are compared through the same lookup the plugin uses: the test
+    // host has no Playnite resources, so the English text is not available.
     [TestFixture]
     public class AspectGroupTests
     {
@@ -58,16 +60,16 @@ namespace ImageRotater.Tests.Services
         [Test]
         public void Build_NamesKnownFormats()
         {
-            Assert.AreEqual("1:1 - Square",
+            Assert.AreEqual(Loc.Get("LOCImageRotaterAspectSquare"),
                 AspectGroup.Build(new[] { Art(1, 1024, 1024) }).Single().Label);
 
-            Assert.AreEqual("2:3 - Steam Vertical",
+            Assert.AreEqual(Loc.Get("LOCImageRotaterAspectSteamVertical"),
                 AspectGroup.Build(new[] { Art(2, 600, 900) }).Single().Label);
 
-            Assert.AreEqual("92:43 - Steam Horizontal",
+            Assert.AreEqual(Loc.Get("LOCImageRotaterAspectSteamHorizontal"),
                 AspectGroup.Build(new[] { Art(3, 920, 430) }).Single().Label);
 
-            Assert.AreEqual("96:31 - Steam Hero",
+            Assert.AreEqual(Loc.Get("LOCImageRotaterAspectSteamHero"),
                 AspectGroup.Build(new[] { Art(4, 1920, 620) }).Single().Label);
         }
 
@@ -110,7 +112,7 @@ namespace ImageRotater.Tests.Services
                 Art(4, 600, 900)
             };
 
-            Assert.AreEqual("2:3 - Steam Vertical", AspectGroup.Build(artwork)[0].Label);
+            Assert.AreEqual(Loc.Get("LOCImageRotaterAspectSteamVertical"), AspectGroup.Build(artwork)[0].Label);
         }
 
         [Test]

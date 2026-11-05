@@ -15,6 +15,7 @@ obj/
 package/
 pext/
 *.pext
+*.zip
 *.nupkg
 *.snupkg
 

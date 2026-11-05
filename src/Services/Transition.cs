@@ -47,6 +47,13 @@ namespace ImageRotater.Services
 
         public static bool Enabled { get; set; } = true;
 
+        // Keep the saved Pixelate preference intact when all-visible IR
+        // covers are off, but use the ordinary Crossfade until re-enabled.
+        // Background Pixelate has no such dependency.
+        internal static TransitionStyle CoverStyleForSettings(TransitionStyle chosen, bool showUnfocusedCovers) =>
+            chosen == TransitionStyle.Pixelate && !showUnfocusedCovers
+                ? TransitionStyle.Crossfade : chosen;
+
         public static TransitionStyle CoverStyle
         {
             get => Enabled ? coverStyle : TransitionStyle.Cut;
@@ -601,6 +608,7 @@ namespace ImageRotater.Services
 
                         var sweep = new DoubleAnimation(0.0, 1.0, new Duration(runDuration))
                         {
+                            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
                             FillBehavior = FillBehavior.Stop
                         };
                         sweep.Completed += (s2, e2) =>
@@ -1348,22 +1356,8 @@ namespace ImageRotater.Services
             protected override void OnRender(DrawingContext dc)
             {
                 Rect bounds = _fixedBounds ?? new Rect(AdornedElement.RenderSize);
-                double p = Math.Max(0.0, Math.Min(1.0, Progress));
-                double eased = p * p * (3.0 - (2.0 * p));
-                double feather = Math.Max(1.0, bounds.Width * 0.34);
-                double travel = bounds.Width + feather;
-                double startX = bounds.Right - (travel * eased);
-                double endX = startX + feather;
-
-                var revealMask = new LinearGradientBrush
-                {
-                    MappingMode = BrushMappingMode.Absolute,
-                    StartPoint = new Point(startX, bounds.Top),
-                    EndPoint = new Point(endX, bounds.Top),
-                    SpreadMethod = GradientSpreadMethod.Pad
-                };
-                revealMask.GradientStops.Add(new GradientStop(Colors.Transparent, 0.0));
-                revealMask.GradientStops.Add(new GradientStop(Colors.White, 1.0));
+                var revealMask = CoverRevealMask.Create(TransitionStyle.SideReveal,
+                    bounds, Progress, true);
                 revealMask.Freeze();
 
                 dc.PushClip(new RectangleGeometry(bounds));
@@ -1406,30 +1400,11 @@ namespace ImageRotater.Services
             protected override void OnRender(DrawingContext dc)
             {
                 Rect bounds = _fixedBounds ?? new Rect(AdornedElement.RenderSize);
-                double p = Math.Max(0.0, Math.Min(1.0, Progress));
-                double responsive = 1.0 - Math.Pow(1.0 - p, 2.2);
-                double eased = 0.055 + (1.095 * responsive);
-                double feather = Math.Max(1.0, Math.Max(bounds.Width, bounds.Height) * 0.40);
-                double travelX = bounds.Width + (feather * 1.18);
-                double travelY = bounds.Height + (feather * 1.18);
-                double sx = bounds.Right - (travelX * eased);
-                double sy = bounds.Top - feather + (travelY * eased);
-                double ex = sx + feather;
-                double ey = sy + feather;
-
-                dc.PushClip(new RectangleGeometry(bounds));
-
-                var revealMask = new LinearGradientBrush
-                {
-                    MappingMode = BrushMappingMode.Absolute,
-                    StartPoint = new Point(sx, sy),
-                    EndPoint = new Point(ex, ey),
-                    SpreadMethod = GradientSpreadMethod.Pad
-                };
-                revealMask.GradientStops.Add(new GradientStop(Colors.Transparent, 0.0));
-                revealMask.GradientStops.Add(new GradientStop(Colors.White, 1.0));
+                var revealMask = CoverRevealMask.Create(TransitionStyle.DiagonalReveal,
+                    bounds, Progress, true);
                 revealMask.Freeze();
 
+                dc.PushClip(new RectangleGeometry(bounds));
                 dc.DrawRectangle(_oldBrush, null, bounds);
                 dc.PushOpacityMask(revealMask);
                 dc.DrawRectangle(_newBrush, null, bounds);

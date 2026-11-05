@@ -13,41 +13,26 @@ namespace ImageRotater.Tests.Services
     // navigation. Rotation must happen once per game, not once per event.
     //
     // Without the guard, EverySelection re-picked on every repeat, and because
-    // the picker deliberately avoids the previous choice, each repeat wrote a
+    // the picker deliberately avoids the previous choice, each repeat showed a
     // different image. Playnite caches decoded bitmaps per grid entry, so
     // entries rendered at different moments kept different covers - five
     // distinct covers for one game inside 43 seconds in the reported log.
     [TestFixture]
     public class RotationRepeatGuardTests
     {
-        // Counts writes instead of touching Playnite. The base constructor only
-        // reads a backup file from the path it is given, so a temp directory is
-        // enough and the null API is never dereferenced.
-        private class CountingWriter : PlayniteBackgroundWriter
-        {
-            public int Writes;
-            public readonly List<string> Paths = new List<string>();
-
-            public CountingWriter(string dir) : base(null, dir) { }
-
-            public override bool SetArtwork(Game game, string imagePath, ArtworkKind kind)
-            {
-                Writes++;
-                Paths.Add(imagePath);
-                return true;
-            }
-        }
-
-        private class StubSource : IBackgroundImageSource
+        // The service reads candidates once per real pick and never when the
+        // guard suppresses a repeat, so counting reads counts rotations.
+        private class CountingSource : IBackgroundImageSource
         {
             private readonly IReadOnlyList<string> _paths;
-            public StubSource(IReadOnlyList<string> paths) { _paths = paths; }
-            public IReadOnlyList<string> GetImagePaths(Game game) { return _paths; }
+            public int Picks;
+            public CountingSource(IReadOnlyList<string> paths) { _paths = paths; }
+            public IReadOnlyList<string> GetImagePaths(Game game) { Picks++; return _paths; }
         }
 
         private string _root;
         private GameImageStore _store;
-        private CountingWriter _writer;
+        private CountingSource _source;
         private BackgroundRotationService _service;
         private Game _game;
         private Game _other;
@@ -59,7 +44,6 @@ namespace ImageRotater.Tests.Services
             Directory.CreateDirectory(_root);
 
             _store = new GameImageStore(_root);
-            _writer = new CountingWriter(_root);
 
             _game = new Game { Id = Guid.NewGuid(), Name = "Game" };
             _other = new Game { Id = Guid.NewGuid(), Name = "Other" };
@@ -80,11 +64,11 @@ namespace ImageRotater.Tests.Services
                 }
             }
 
-            var source = new StubSource(_store.GetImagePaths(_game.Id, ArtworkKind.Background));
+            _source = new CountingSource(_store.GetImagePaths(_game.Id, ArtworkKind.Background));
 
             _service = new BackgroundRotationService(
-                source, source, new ImageSelector(new ImagePicker(), new SessionSelectionCache()),
-                _writer, null, _store, () => EverySelection());
+                _source, _source, new ImageSelector(new ImagePicker(), new SessionSelectionCache()),
+                _store, () => EverySelection());
         }
 
         [TearDown]
@@ -106,14 +90,14 @@ namespace ImageRotater.Tests.Services
         }
 
         [Test]
-        public void RepeatedSelectionOfTheSameGame_WritesOnce()
+        public void RepeatedSelectionOfTheSameGame_PicksOnce()
         {
             for (int i = 0; i < 10; i++)
             {
                 _service.ApplyTo(_game);
             }
 
-            Assert.AreEqual(1, _writer.Writes,
+            Assert.AreEqual(1, _source.Picks,
                 "a repeated selection event re-rotated the game the user was already on");
         }
 
@@ -123,7 +107,7 @@ namespace ImageRotater.Tests.Services
             _service.ApplyTo(_game);
             _service.ApplyTo(_other);
 
-            Assert.AreEqual(2, _writer.Writes,
+            Assert.AreEqual(2, _source.Picks,
                 "the guard must not block a genuine change of game");
         }
 
@@ -137,7 +121,7 @@ namespace ImageRotater.Tests.Services
             _service.ApplyTo(_other);
             _service.ApplyTo(_game);
 
-            Assert.AreEqual(3, _writer.Writes,
+            Assert.AreEqual(3, _source.Picks,
                 "returning to a game should re-pick in EverySelection mode");
         }
 
@@ -148,7 +132,7 @@ namespace ImageRotater.Tests.Services
             _service.Forget(_game.Id);
             _service.ApplyTo(_game);
 
-            Assert.AreEqual(2, _writer.Writes,
+            Assert.AreEqual(2, _source.Picks,
                 "adding or removing images must let the current game rotate again");
         }
 
@@ -159,7 +143,7 @@ namespace ImageRotater.Tests.Services
             _service.ForgetAll();
             _service.ApplyTo(_game);
 
-            Assert.AreEqual(2, _writer.Writes,
+            Assert.AreEqual(2, _source.Picks,
                 "after a restore the current game must be able to rotate again");
         }
 
@@ -171,7 +155,7 @@ namespace ImageRotater.Tests.Services
             _service.Forget(_other.Id);
             _service.ApplyTo(_game);
 
-            Assert.AreEqual(1, _writer.Writes,
+            Assert.AreEqual(1, _source.Picks,
                 "forgetting an unrelated game released the wrong guard");
         }
     }
