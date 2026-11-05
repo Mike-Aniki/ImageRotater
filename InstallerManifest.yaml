@@ -110,3 +110,9 @@ Packages:
       - Lower memory use. Minimizing Playnite releases cached images and videos, and browsing games without ImageRotater artwork no longer fills the cache.
       - Lighter cover checks while scrolling, and the background search slows down on themes without a standard background.
       - The debug log is now a single file that restarts past 10 MB. Old log archives are removed.
+  - Version: 1.6.1
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-11-05
+    PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/v1.6.1/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_6_1.pext
+    Changelog:
+      - Fixed Backgrounds in desktop. Now respect Playnite’s “Use game background image as window background” setting.
