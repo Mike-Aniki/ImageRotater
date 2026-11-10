@@ -44,6 +44,11 @@ namespace ImageRotater.Tests.Services
 
                 return Task.FromResult(SteamGridDbResult<List<SteamGridDbArtwork>>.Ok(items));
             }
+
+            public Task<SteamGridDbResult<byte[]>> DownloadAsync(string url)
+            {
+                return Task.FromResult(SteamGridDbResult<byte[]>.Ok(new byte[0]));
+            }
         }
 
         [Test]
