@@ -8,6 +8,10 @@ All notable changes to ImageRotater. The format follows
 ### Added
 - Tools settings include download-page buttons for FFmpeg, yt-dlp and Deno, with FR/EN/ES labels.
 
+- The SteamGridDB search has a Load more button that fetches the next page of results, so games
+  with more than 50 grids, heroes or logos are no longer cut short. Already loaded results and your
+  ticked filters stay as they are.
+
 - Automatic native artwork injection is now the default. Rendering-mode and experimental toggles are removed from settings; per-kind rotation, transitions, media options and packs remain configurable. Old saved rendering-mode choices migrate automatically.
 - Automatic logo source injection for Extra Metadata Loader controls and direct per-game logo PNG images, with native source restoration and FR/EN/ES settings.
 - Native covers: adapts standard `PART_ImageCover` elements and direct `CoverImageObject` bindings without theme

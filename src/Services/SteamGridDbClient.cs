@@ -21,6 +21,10 @@ namespace ImageRotater.Services
 
         private const string BaseUrl = "https://www.steamgriddb.com/api/v2";
 
+        // SteamGridDB's documented maximum. Larger values are ignored by the
+        // API, so asking for more would only make the page size ambiguous.
+        public const int PageSize = 50;
+
         // One shared HttpClient. A new instance per request exhausts sockets
         // under repeated searching (each leaves a TIME_WAIT connection behind).
         private static readonly HttpClient Http = CreateHttpClient();
@@ -102,10 +106,16 @@ namespace ImageRotater.Services
         }
 
         public async Task<SteamGridDbResult<List<SteamGridDbArtwork>>> GetArtworkAsync(
-            int gameId, SteamGridDbArtworkType type)
+            int gameId, SteamGridDbArtworkType type, int page = 0)
         {
             string segment = ToUrlSegment(type);
             string url = BaseUrl + "/" + segment + "/game/" + gameId + DimensionFilterFor(type);
+
+            var query = new List<string> { "limit=" + PageSize };
+            if (page > 0)
+            {
+                query.Add("page=" + page);
+            }
 
             // SteamGridDB may otherwise return only static artwork. Request
             // both types for covers and backgrounds, then let the existing
@@ -114,8 +124,10 @@ namespace ImageRotater.Services
             // animated logos in the Artwork Manager.
             if (type != SteamGridDbArtworkType.Logo)
             {
-                url += (url.IndexOf('?') >= 0 ? "&" : "?") + "types=static,animated";
+                query.Add("types=static,animated");
             }
+
+            url += (url.IndexOf('?') >= 0 ? "&" : "?") + string.Join("&", query);
 
             SteamGridDbResult<JObject> response = await GetJsonAsync(url).ConfigureAwait(false);
 

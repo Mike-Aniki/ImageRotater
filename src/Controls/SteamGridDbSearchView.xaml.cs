@@ -944,6 +944,23 @@ namespace ImageRotater.Controls
             _model.NextPage();
         }
 
+        // The page load belongs to whichever search started it: a result that
+        // arrives after a new search or tab switch must be dropped.
+        private async void LoadMore_Click(object sender, RoutedEventArgs e)
+        {
+            int generation = _searchGeneration;
+
+            try
+            {
+                await _model.LoadMoreAsync(() => generation == _searchGeneration);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "ImageRotater: SteamGridDB page load failed");
+                _model.Status = Loc.Get("LOCImageRotaterSearchFailed");
+            }
+        }
+
         private void PreviousPage_Click(object sender, RoutedEventArgs e)
         {
             _model.PreviousPage();

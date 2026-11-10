@@ -1018,22 +1018,36 @@
             <StackPanel Grid.Column="1"
                         Orientation="Horizontal"
                         VerticalAlignment="Center"
-                        Margin="0,0,10,0"
-                        Visibility="{Binding HasMultiplePages, Converter={StaticResource BoolToVisibility}}">
-                <Button Content="&#x25C0;"
-                        Width="34"
-                        Padding="0"
-                        IsEnabled="{Binding CanGoBack}"
-                        Click="PreviousPage_Click"/>
-                <TextBlock Text="{Binding PageLabel}"
-                           VerticalAlignment="Center"
-                           Margin="10,0"
-                           FontSize="11"/>
-                <Button Content="&#x25B6;"
-                        Width="34"
-                        Padding="0"
-                        IsEnabled="{Binding CanGoForward}"
-                        Click="NextPage_Click"/>
+                        Margin="0,0,10,0">
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding HasMultiplePages, Converter={StaticResource BoolToVisibility}}">
+                    <Button Content="&#x25C0;"
+                            Width="34"
+                            Padding="0"
+                            IsEnabled="{Binding CanGoBack}"
+                            Click="PreviousPage_Click"/>
+                    <TextBlock Text="{Binding PageLabel}"
+                               VerticalAlignment="Center"
+                               Margin="10,0"
+                               FontSize="11"/>
+                    <Button Content="&#x25B6;"
+                            Width="34"
+                            Padding="0"
+                            IsEnabled="{Binding CanGoForward}"
+                            Click="NextPage_Click"/>
+                </StackPanel>
+
+                <!-- Fetches one more API page. Outside the pager panel on
+                     purpose: a filter can leave fewer visible results than a
+                     page while more pages are still unfetched. -->
+                <Button x:Name="LoadMoreButton"
+                        Content="{DynamicResource LOCImageRotaterLoadMore}"
+                        Margin="10,0,0,0"
+                        MinWidth="110"
+                        IsEnabled="{Binding HasMore}"
+                        Visibility="{Binding HasMore, Converter={StaticResource BoolToVisibility}}"
+                        Click="LoadMore_Click"/>
             </StackPanel>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal">

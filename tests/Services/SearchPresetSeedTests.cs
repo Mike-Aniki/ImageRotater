@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -27,7 +27,7 @@ namespace ImageRotater.Tests.Services
             }
 
             public Task<SteamGridDbResult<List<SteamGridDbArtwork>>> GetArtworkAsync(
-                int gameId, SteamGridDbArtworkType type)
+                int gameId, SteamGridDbArtworkType type, int page = 0)
             {
                 return Task.FromResult(SteamGridDbResult<List<SteamGridDbArtwork>>.Ok(
                     new List<SteamGridDbArtwork>

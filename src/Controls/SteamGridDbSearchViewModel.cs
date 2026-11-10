@@ -139,11 +139,35 @@ namespace ImageRotater.Controls
         // start.
         private List<SteamGridDbArtwork> _filtered = new List<SteamGridDbArtwork>();
 
+        // SteamGridDB paging. The first API page arrives with the search; the
+        // rest only when the user asks for them, because a game can have
+        // hundreds of entries and each page is another request. The bulk
+        // "download best" path stays on page one for the same reason.
+        private int? _pagedGameId;
+        private SteamGridDbArtworkType _pagedType;
+        private int _nextPage;
+        private bool _hasMore;
+
+        public bool HasMore
+        {
+            get { return _hasMore; }
+            private set
+            {
+                if (_hasMore == value)
+                {
+                    return;
+                }
+
+                _hasMore = value;
+                OnPropertyChanged();
+            }
+        }
+
         private int _page;
 
         // Enough to fill the window without scrolling far, few enough that a
         // page costs little to render.
-        private const int PageSize = 24;
+        private const int VisiblePageSize = 24;
 
         public int PageCount
         {
@@ -151,7 +175,7 @@ namespace ImageRotater.Controls
             {
                 return _filtered.Count == 0
                     ? 1
-                    : (_filtered.Count + PageSize - 1) / PageSize;
+                    : (_filtered.Count + VisiblePageSize - 1) / VisiblePageSize;
             }
         }
 
@@ -202,7 +226,7 @@ namespace ImageRotater.Controls
         {
             Results.Clear();
 
-            foreach (SteamGridDbArtwork item in _filtered.Skip(_page * PageSize).Take(PageSize))
+            foreach (SteamGridDbArtwork item in _filtered.Skip(_page * VisiblePageSize).Take(VisiblePageSize))
             {
                 Results.Add(item);
             }
@@ -495,6 +519,8 @@ namespace ImageRotater.Controls
                 return false;
             }
 
+            ResetPaging();
+
             IsBusy = true;
             try
             {
@@ -529,6 +555,7 @@ namespace ImageRotater.Controls
                 }
 
                 _allResults = artwork.Data ?? new List<SteamGridDbArtwork>();
+                SettlePaging(games.Data[0].Id, type, _allResults.Count);
                 RebuildFilterOptions();
                 ApplyFilter();
 
@@ -556,6 +583,83 @@ namespace ImageRotater.Controls
             {
                 if (RequestIsCurrent(isCurrent)) IsBusy = false;
             }
+        }
+
+        // Fetches the next API page and appends it.
+        //
+        // A failure leaves the results already on screen untouched and keeps
+        // the button, so a dropped request is a retry rather than a lost
+        // search. Nothing is un-filtered either: the ticked shapes and styles
+        // are reapplied to the larger set.
+        public async Task<bool> LoadMoreAsync(Func<bool> isCurrent = null)
+        {
+            if (!HasMore || IsBusy || _pagedGameId == null || _client == null)
+            {
+                return false;
+            }
+
+            IsBusy = true;
+            try
+            {
+                SteamGridDbResult<List<SteamGridDbArtwork>> page =
+                    await _client.GetArtworkAsync(_pagedGameId.Value, _pagedType, _nextPage)
+                        .ConfigureAwait(true);
+
+                if (!RequestIsCurrent(isCurrent)) return false;
+
+                if (!page.Success)
+                {
+                    Status = page.Error;
+                    return false;
+                }
+
+                List<SteamGridDbArtwork> received = page.Data ?? new List<SteamGridDbArtwork>();
+                _nextPage++;
+
+                // Same rule as the first page: an API page is always requested
+                // at SteamGridDbClient.PageSize, so a short page is the last.
+                HasMore = received.Count >= SteamGridDbClient.PageSize;
+
+                if (received.Count == 0)
+                {
+                    return false;
+                }
+
+                _allResults.AddRange(received);
+                RebuildFilterOptions();
+                ApplyFilter();
+
+                // Show what arrived. ApplyFilter returns to the first page, so
+                // a user who asked from the last one would land at the top of
+                // the list and see nothing new.
+                int firstNew = _filtered.IndexOf(received[0]);
+                if (firstNew > 0)
+                {
+                    _page = firstNew / VisiblePageSize;
+                    ShowCurrentPage();
+                }
+
+                return true;
+            }
+            finally
+            {
+                if (RequestIsCurrent(isCurrent)) IsBusy = false;
+            }
+        }
+
+        private void ResetPaging()
+        {
+            _pagedGameId = null;
+            _nextPage = 0;
+            HasMore = false;
+        }
+
+        private void SettlePaging(int gameId, SteamGridDbArtworkType type, int received)
+        {
+            _pagedGameId = gameId;
+            _pagedType = type;
+            _nextPage = 1;
+            HasMore = received >= SteamGridDbClient.PageSize;
         }
 
         // Seeds the ticks from a remembered preset. Call before the first
@@ -756,6 +860,7 @@ namespace ImageRotater.Controls
         public void Clear()
         {
             _allResults = new List<SteamGridDbArtwork>();
+            ResetPaging();
             RebuildFilterOptions();
             ApplyFilter();
         }

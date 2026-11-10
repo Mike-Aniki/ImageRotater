@@ -308,6 +308,7 @@ Los archivos se eliminarán.</sys:String>
     <sys:String x:Key="LOCImageRotaterDownloadedPartial" xml:space="preserve">Se descargaron {0} de {1}. Consulta el registro de Playnite para el resto.</sys:String>
     <sys:String x:Key="LOCImageRotaterDownloadTip" xml:space="preserve"> Consejo: añade al menos una más; la rotación y las transiciones necesitan dos o más imágenes.</sys:String>
     <sys:String x:Key="LOCImageRotaterPageOf" xml:space="preserve">Página {0} de {1}</sys:String>
+    <sys:String x:Key="LOCImageRotaterLoadMore" xml:space="preserve">Cargar más</sys:String>
     <sys:String x:Key="LOCImageRotaterYtDlpNotSetup" xml:space="preserve">yt-dlp no está configurado. Añádelo en la pestaña Herramientas de los ajustes.</sys:String>
     <sys:String x:Key="LOCImageRotaterFromYouTube" xml:space="preserve">{0} de YouTube.</sys:String>
     <sys:String x:Key="LOCImageRotaterDenoSearchMissing" xml:space="preserve">No hay resultados: deno no está configurado y yt-dlp lo necesita para leer YouTube. Añádelo en la pestaña Herramientas de los ajustes.</sys:String>
