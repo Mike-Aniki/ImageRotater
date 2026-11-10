@@ -140,6 +140,14 @@ if (Test-Path $runtimesDir) {
     Write-Host "  (included WebView2 native loaders)" -ForegroundColor Gray
 }
 
+# Playnite reads these from the extension folder at runtime; they are loose
+# files, not embedded in the DLL. Without them every label shows its raw key.
+$localizationDir = Join-Path $outputDir "Localization"
+if (Test-Path $localizationDir) {
+    Copy-Item $localizationDir -Destination $packageDir -Recurse -Force
+    Write-Host "  (included Localization files)" -ForegroundColor Gray
+}
+
 # extension.yaml and icon.png must sit at the package root
 Copy-Item $manifestPath -Destination $packageDir -Force
 $iconPath = Join-Path $projectRoot "icon.png"
@@ -186,6 +194,12 @@ foreach ($forbidden in $excludeDlls) {
 # The plugin assembly named by the manifest has to actually be there.
 if (-not (Test-Path (Join-Path $packageDir "$extensionName.dll"))) {
     $validationErrors += "$extensionName.dll is missing from the package root."
+}
+
+# Playnite only merges localization files that sit loose in Localization\.
+# Packaged into the DLL they do nothing, and every label renders as its key.
+if (-not (Test-Path (Join-Path $packageDir "Localization\en_US.xaml"))) {
+    $validationErrors += "Localization\en_US.xaml is missing - labels will show raw LOC keys."
 }
 
 if ($validationErrors.Count -gt 0) {
