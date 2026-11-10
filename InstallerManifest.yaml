@@ -116,3 +116,16 @@ Packages:
     PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/v1.6.1/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_6_1.pext
     Changelog:
       - Fixed Backgrounds in desktop. Now respect Playnite’s “Use game background image as window background” setting.
+  - Version: 1.6.4
+    RequiredApiVersion: 6.16.0
+    ReleaseDate: 2026-11-10
+    PackageUrl: https://github.com/Mike-Aniki/ImageRotater/releases/download/v1.6.4/ImageRotater.72b7d457-0621-429b-8368-665bc53ff896_1_6_4.pext
+    Changelog:
+      - Backgrounds now load faster when switching games, with the delay reduced from 500 ms to 350 ms.
+      - Renamed the Cut transition to clarify the difference between selecting Cut and disabling transitions. Cut keeps the transition system enabled and switches to the next image immediately, with no fade or motion.
+      - Animated PNGs (APNGs) are now detected on download and converted to MP4 when FFmpeg is available and conversion is enabled, so they play as animations.
+      - You can now exclude Playnite’s original cover or background from rotation in the Artwork Manager.
+      - SteamGridDB search now displays the first results and automatically loads the remaining pages in the background.
+      - Added tag filters to SteamGridDB search.
+      - Fixed a black flash at each loop of video covers in Desktop Details view on themes that apply a drop shadow to the cover.
+      - Added ZIP backup and restore under Settings, Library, Backup. Backups include ImageRotater images, videos, artwork packs, rotation order, and exclusions. If you rebuild your Playnite library from scratch, the internal game IDs may change. ImageRotater then tries to match games using their library source and external ID, such as a Steam App ID. Games it can’t match uniquely are skipped and listed in the import report.
