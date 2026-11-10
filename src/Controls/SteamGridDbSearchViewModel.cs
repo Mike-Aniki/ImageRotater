@@ -601,6 +601,8 @@ namespace ImageRotater.Controls
             IsBusy = true;
             try
             {
+                int previousPage = _page;
+
                 SteamGridDbResult<List<SteamGridDbArtwork>> page =
                     await _client.GetArtworkAsync(_pagedGameId.Value, _pagedType, _nextPage)
                         .ConfigureAwait(true);
@@ -631,13 +633,26 @@ namespace ImageRotater.Controls
 
                 // Show what arrived. ApplyFilter returns to the first page, so
                 // a user who asked from the last one would land at the top of
-                // the list and see nothing new.
-                int firstNew = _filtered.IndexOf(received[0]);
-                if (firstNew > 0)
+                // the list and see nothing new. The first new item is often
+                // hidden by the content filter, so find the first one that is
+                // actually on screen.
+                int firstNew = -1;
+                foreach (SteamGridDbArtwork item in received)
                 {
-                    _page = firstNew / VisiblePageSize;
-                    ShowCurrentPage();
+                    firstNew = _filtered.IndexOf(item);
+                    if (firstNew >= 0)
+                    {
+                        break;
+                    }
                 }
+
+                // Nothing new passes the filter: leave the user where they
+                // were rather than dumping them on page one.
+                _page = firstNew >= 0
+                    ? firstNew / VisiblePageSize
+                    : Math.Min(previousPage, PageCount - 1);
+
+                ShowCurrentPage();
 
                 return true;
             }

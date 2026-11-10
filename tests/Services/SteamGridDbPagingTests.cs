@@ -18,6 +18,13 @@ namespace ImageRotater.Tests.Services
         {
             public readonly List<int> PagesRequested = new List<int>();
 
+            private readonly bool _hideFirstNewItem;
+
+            public PagingClient(bool hideFirstNewItem = false)
+            {
+                _hideFirstNewItem = hideFirstNewItem;
+            }
+
             public bool IsConfigured { get { return true; } }
 
             public Task<SteamGridDbResult<List<SteamGridDbGame>>> SearchGamesAsync(string name)
@@ -38,7 +45,10 @@ namespace ImageRotater.Tests.Services
                         Id = page * SteamGridDbClient.PageSize + i,
                         Width = 600,
                         Height = 900,
-                        Style = "alternate"
+                        Style = "alternate",
+
+                        // Hidden by the default content filter.
+                        Nsfw = _hideFirstNewItem && page == 1 && i == 0
                     })
                     .ToList();
 
@@ -72,6 +82,21 @@ namespace ImageRotater.Tests.Services
             // A short page ended the list, so asking again is a no-op.
             Assert.That(await model.LoadMoreAsync(), Is.False);
             CollectionAssert.AreEqual(new[] { 0, 1 }, client.PagesRequested);
+        }
+
+        [Test]
+        public async Task LoadMoreSkipsHiddenNewItemsWhenChoosingThePage()
+        {
+            var client = new PagingClient(hideFirstNewItem: true);
+            var model = new SteamGridDbSearchViewModel(client);
+
+            Assert.That(await model.SearchAsync("Game", SteamGridDbArtworkType.Grid), Is.True);
+            Assert.That(await model.LoadMoreAsync(), Is.True);
+
+            // 52 visible results; the first new one that survives the content
+            // filter is what the dialog should show, not page one.
+            Assert.That(model.PageCount, Is.EqualTo(3));
+            Assert.That(model.CurrentPage, Is.EqualTo(3));
         }
     }
 }
