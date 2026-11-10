@@ -81,6 +81,24 @@
              file. Manual keeps the media alive across the cycle; the Loaded
              handler restarts playback afterwards. Same shape BackgroundChanger
              uses to survive the same recycle. -->
+        <!-- Loop standby for the Details cover (see CoverImageControl.VideoLoop).
+             Sits directly BELOW DisplayVideo in the same cell with the same
+             Stretch, so it covers exactly the same pixels. The two players
+             take turns from one loop to the next: the hidden one is started
+             shortly before the loop point and shown only once it is already
+             presenting frames. -->
+        <MediaElement x:Name="LoopStandbyVideo"
+                      Visibility="Collapsed"
+                      Stretch="{Binding Stretch, ElementName=DisplayVideo}"
+                      LoadedBehavior="Manual"
+                      UnloadedBehavior="Manual"
+                      IsMuted="True"
+                      IsHitTestVisible="False"
+                      ScrubbingEnabled="True"
+                      MediaOpened="LoopStandbyVideo_MediaOpened"
+                      MediaEnded="LoopStandbyVideo_MediaEnded"
+                      MediaFailed="LoopStandbyVideo_MediaFailed"/>
+
         <MediaElement x:Name="DisplayVideo"
                       Visibility="Collapsed"
                       Stretch="UniformToFill"

@@ -81,6 +81,30 @@ namespace ImageRotater.Tests.Services
             renderer.SetValue(key, true);
         }
 
+        [Test]
+        public void DetailsThemeVisibilityCannotRevealNativeWhileIrOwnsCover()
+        {
+            var theme = new TextBlock { Tag = Visibility.Visible };
+            var native = new Image { Source = Bitmap(200, 200) };
+            var parent = new Grid();
+            parent.Children.Add(native);
+            var binding = new Binding(nameof(TextBlock.Tag)) { Source = theme };
+            BindingOperations.SetBinding(native, UIElement.VisibilityProperty, binding);
+            var renderer = Renderer(new ImageRotaterSettings { RotateCovers = true });
+
+            using (var attachment = NativeCoverHost.Attachment.TryCreate(
+                native, renderer, new Game { Id = Guid.NewGuid() }, () => { }, details: true))
+            {
+                Ready(renderer);
+                theme.Tag = Visibility.Collapsed;
+                theme.Tag = Visibility.Visible;
+                Assert.That(native.Visibility, Is.EqualTo(Visibility.Hidden));
+            }
+
+            Assert.That(BindingOperations.GetBindingBase(native, UIElement.VisibilityProperty), Is.SameAs(binding));
+            Assert.That(native.Visibility, Is.EqualTo(Visibility.Visible));
+        }
+
         [TestCase(BitmapScalingMode.Fant)]
         [TestCase(BitmapScalingMode.Linear)]
         [TestCase(BitmapScalingMode.NearestNeighbor)]

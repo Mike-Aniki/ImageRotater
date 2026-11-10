@@ -675,6 +675,9 @@
                                 <Run Text="{Binding ApiKeyStatus.Glyph, Mode=OneWay}"/> <Run Text="{Binding ApiKeyStatus.Message, Mode=OneWay}"/>
                             </TextBlock>
                             <TextBlock Style="{StaticResource IrHintFlush}" Margin="0,0,0,0" Text="{DynamicResource LOCImageRotaterApiKeyStorage}"/>
+                            <CheckBox Style="{StaticResource IrToggle}" Margin="0,10,0,0"
+                                      Content="{DynamicResource LOCImageRotaterShowAdultFilter}"
+                                      IsChecked="{Binding Settings.ShowSteamGridDbAdultFilter}"/>
                         </StackPanel>
                     </Border>
 
@@ -927,6 +930,30 @@
                                     <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterResetLibraryHint}"/>
                                     <Button Style="{StaticResource IrButtonDanger}" Content="{DynamicResource LOCImageRotaterResetLibraryButton}"
                                             Command="{Binding ResetLibrary}" CommandParameter="{Binding RelativeSource={RelativeSource Self}}"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="{DynamicResource LOCImageRotaterBackup}">
+                    <ScrollViewer Style="{StaticResource IrPage}">
+                        <StackPanel MaxWidth="820" HorizontalAlignment="Stretch" Margin="0,16,0,0">
+                            <TextBlock Text="{DynamicResource LOCImageRotaterBackup}" Style="{StaticResource IrPageTitle}"/>
+                            <TextBlock Text="{DynamicResource LOCImageRotaterBackupIntro}" Style="{StaticResource IrPageSubtitle}"/>
+                            <Border Style="{StaticResource IrCard}">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource LOCImageRotaterBackupExport}" Style="{StaticResource IrCardTitle}"/>
+                                    <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterBackupExport}"
+                                            Command="{Binding ExportArtworkBackup}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource IrCard}">
+                                <StackPanel>
+                                    <TextBlock Text="{DynamicResource LOCImageRotaterBackupImport}" Style="{StaticResource IrCardTitle}"/>
+                                    <TextBlock Style="{StaticResource IrHintFlush}" Text="{DynamicResource LOCImageRotaterBackupImportHint}"/>
+                                    <Button Style="{StaticResource IrButton}" Content="{DynamicResource LOCImageRotaterBackupImport}"
+                                            Command="{Binding ImportArtworkBackup}"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>

@@ -269,7 +269,7 @@ namespace ImageRotater.Controls
                     _items.Add(new ArtworkManagerItem(
                         nativePath,
                         isFixed: virtualOriginalIsFixed,
-                        isExcluded: false,
+                        isExcluded: _store.IsNativeArtworkExcluded(_game.Id, _kind),
                         orderIndex: ++artworkIndex,
                         artworkKind: _kind,
                         forceNativeOriginal: true,
@@ -728,7 +728,7 @@ namespace ImageRotater.Controls
 
             if (ToggleExcludeMenuItem != null)
             {
-                ToggleExcludeMenuItem.IsEnabled = canModify || item?.IsExtraMetadataOriginal == true;
+                ToggleExcludeMenuItem.IsEnabled = CanToggleExclusion(item);
             }
 
             if (MoveUpMenuItem != null) MoveUpMenuItem.IsEnabled = canModify;
@@ -747,14 +747,28 @@ namespace ImageRotater.Controls
             SetFixedArtworkButton_Click(sender, e);
         }
 
+        private bool CanToggleExclusion(ArtworkManagerItem item)
+        {
+            if (item == null) return false;
+            if (!item.IsVirtualOriginal || item.IsExtraMetadataOriginal) return true;
+            return _store.GetImagePaths(_game.Id, _kind).Any(path =>
+                !GameImageStore.IsPreservedOriginal(path) &&
+                !string.Equals(path, item.Path, StringComparison.OrdinalIgnoreCase) &&
+                File.Exists(path));
+        }
+
         private void ContextToggleExclude_Click(object sender, RoutedEventArgs e)
         {
             ArtworkManagerItem item = SelectedArtwork();
-            if (item == null || (item.IsVirtualOriginal && !item.IsExtraMetadataOriginal)) return;
+            if (!CanToggleExclusion(item)) return;
 
-            bool changed = item.IsExtraMetadataOriginal
-                ? _extraMetadataLogos.SetExcluded(_store, _game.Id, !item.IsExcluded)
-                : _store.SetArtworkExcluded(_game.Id, _kind, item.Path, !item.IsExcluded);
+            bool changed;
+            if (item.IsExtraMetadataOriginal)
+                changed = _extraMetadataLogos.SetExcluded(_store, _game.Id, !item.IsExcluded);
+            else if (item.IsVirtualOriginal)
+                changed = _store.SetNativeArtworkExcluded(_game.Id, _kind, !item.IsExcluded);
+            else
+                changed = _store.SetArtworkExcluded(_game.Id, _kind, item.Path, !item.IsExcluded);
             if (changed)
             {
                 NotifyImagesChanged();

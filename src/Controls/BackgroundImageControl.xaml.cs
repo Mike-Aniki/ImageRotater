@@ -137,7 +137,7 @@ namespace ImageRotater.Controls
         // Wait for the selection to remain stable before beginning the
         // background transition. This prevents slides from starting while the
         // user is still scrolling through the game list.
-        private static readonly TimeSpan RapidSelectionSettle = TimeSpan.FromMilliseconds(500);
+        private static readonly TimeSpan RapidSelectionSettle = TimeSpan.FromMilliseconds(350);
         private readonly DispatcherTimer _rapidSelectionTimer;
         private readonly DispatcherTimer _initialLayoutTimer;
         private bool _initialLayoutReady;

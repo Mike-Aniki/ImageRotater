@@ -733,6 +733,8 @@ namespace ImageRotater
         internal bool ShouldAnimateCover(bool selected) => selected ||
             (ShowUnfocusedCovers && AnimateUnfocusedCovers);
 
+        public bool ShowSteamGridDbAdultFilter { get; set; }
+
         // Personal SteamGridDB API key, pasted by the user. Stored as plain
         // text in Playnite's settings file: the token is read-only artwork
         // scope, free, and user-revocable, so encrypting it at rest would cost
@@ -1100,6 +1102,22 @@ namespace ImageRotater
         //
         // The command parameter is the button, which is how the restart prompt
         // below finds the settings window.
+        public RelayCommand<object> ExportArtworkBackup => new RelayCommand<object>(a => plugin?.ExportArtworkBackup());
+        public RelayCommand<object> ImportArtworkBackup => new RelayCommand<object>(a => plugin?.ImportArtworkBackup());
+
+        internal void SaveImportedArtworkPacks(Dictionary<Guid, ArtworkPackConfiguration> packs)
+        {
+            var persisted = editingClone ?? Settings;
+            if (persisted.ArtworkPacks == null)
+                persisted.ArtworkPacks = new Dictionary<Guid, ArtworkPackConfiguration>();
+            foreach (var entry in packs) persisted.ArtworkPacks[entry.Key] = entry.Value;
+            plugin.SavePluginSettings(persisted);
+
+            if (Settings.ArtworkPacks == null)
+                Settings.ArtworkPacks = new Dictionary<Guid, ArtworkPackConfiguration>();
+            foreach (var entry in packs) Settings.ArtworkPacks[entry.Key] = entry.Value;
+        }
+
         public RelayCommand<object> ImportBackgroundChanger => new RelayCommand<object>(a =>
         {
             plugin?.ImportFromBackgroundChanger();

@@ -28,6 +28,8 @@ namespace ImageRotater.Services
         public List<string> Styles { get; set; } = new List<string>();
 
         public bool ShowAnimated { get; set; } = true;
+        public bool AnimatedOnly { get; set; }
+        public bool ShowUntagged { get; set; } = true;
         public bool ShowNsfw { get; set; }
         public bool ShowHumor { get; set; }
         public bool ShowEpilepsy { get; set; }

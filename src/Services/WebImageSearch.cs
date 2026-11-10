@@ -46,7 +46,7 @@ namespace ImageRotater.Services
 
         // Artwork matching a free-text query, newest-first as the page returns
         // them. Never throws and never returns null.
-        public IReadOnlyList<SteamGridDbArtwork> Search(string query, int maxResults = 60, bool safeSearch = true)
+        public IReadOnlyList<SteamGridDbArtwork> Search(string query, int? maxResults = null, bool safeSearch = true)
         {
             var found = new List<SteamGridDbArtwork>();
 
@@ -101,7 +101,7 @@ namespace ImageRotater.Services
 
         // Public and static so it can be tested against captured page source
         // without standing up a browser. Pure: no state, no I/O.
-        public static IReadOnlyList<SteamGridDbArtwork> Parse(string pageSource, int maxResults = 60)
+        public static IReadOnlyList<SteamGridDbArtwork> Parse(string pageSource, int? maxResults = null)
         {
             var found = new List<SteamGridDbArtwork>();
 
@@ -168,10 +168,8 @@ namespace ImageRotater.Services
             // artwork the largest usable image is nearly always the one wanted.
             // Sorting by total pixels rather than width keeps tall box art
             // ranked sensibly against wide banners.
-            return found
-                .OrderByDescending(a => (long)a.Width * a.Height)
-                .Take(maxResults)
-                .ToList();
+            var ranked = found.OrderByDescending(a => (long)a.Width * a.Height);
+            return (maxResults.HasValue ? ranked.Take(maxResults.Value) : ranked).ToList();
         }
 
         private static int ToInt(object value)

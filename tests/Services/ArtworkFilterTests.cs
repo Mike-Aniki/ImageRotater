@@ -166,6 +166,17 @@ namespace ImageRotater.Tests.Services
             Assert.AreEqual(1, ArtworkFilter.Apply(artwork, filter).Count);
         }
 
+        [TestCase(false, new[] { 2 })]
+        [TestCase(true, new[] { 1, 2 })]
+        public void Apply_UntaggedCanBeToggledIndependently(bool showUntagged, int[] expected)
+        {
+            var artwork = new[] { Art(1), Art(2, humor: true), Art(3, nsfw: true),
+                Art(4, nsfw: true, humor: true) };
+            var filter = new ArtworkFilterState { ShowUntagged = showUntagged, ShowHumor = true };
+
+            Assert.That(ArtworkFilter.Apply(artwork, filter).Select(item => item.Id), Is.EqualTo(expected));
+        }
+
         // Animated results are SHOWN by default. They render and preview
         // correctly now, and animated artwork is the reason most people open
         // this dialog - hiding it meant the best results were invisible unless
@@ -202,6 +213,14 @@ namespace ImageRotater.Tests.Services
 
             Assert.AreEqual(1, hidden.Count);
             Assert.AreEqual(1, hidden[0].Id);
+
+            var animatedOnly = ArtworkFilter.Apply(
+                artwork, new ArtworkFilterState { AnimatedOnly = true });
+            CollectionAssert.AreEquivalent(new[] { artwork[1], artwork[2] }, animatedOnly);
+
+            var staticOnly = ArtworkFilter.Apply(
+                artwork, new ArtworkFilterState { ShowAnimated = false, AnimatedOnly = true });
+            CollectionAssert.AreEqual(new[] { artwork[0] }, staticOnly);
         }
 
         // The other half of that rule: a STILL WebP must survive the default

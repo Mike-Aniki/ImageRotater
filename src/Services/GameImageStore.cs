@@ -36,6 +36,31 @@ namespace ImageRotater.Services
         private const string FixedArtworkFileName = ".imagerotater-fixed";
         private const string ArtworkOrderFileName = ".imagerotater-order";
         private const string ExcludedArtworkFileName = ".imagerotater-excluded";
+        private const string ExcludedNativeArtworkFileName = ".imagerotater-native-excluded";
+
+        internal bool IsNativeArtworkExcluded(Guid gameId, ArtworkKind kind) =>
+            File.Exists(Path.Combine(GetGameFolder(gameId, kind), ExcludedNativeArtworkFileName));
+
+        internal bool SetNativeArtworkExcluded(Guid gameId, ArtworkKind kind, bool excluded)
+        {
+            string folder = GetGameFolder(gameId, kind);
+            string marker = Path.Combine(folder, ExcludedNativeArtworkFileName);
+            try
+            {
+                if (excluded)
+                {
+                    Directory.CreateDirectory(folder);
+                    File.WriteAllText(marker, string.Empty);
+                }
+                else
+                {
+                    File.Delete(marker);
+                }
+                return true;
+            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
 
         // Whether a file would be listed at all, by extension. For callers
         // that copy files in from elsewhere and want to skip what would only

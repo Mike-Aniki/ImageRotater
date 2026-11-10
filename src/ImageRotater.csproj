@@ -43,6 +43,7 @@
          ships with the runtime but still needs an explicit reference. -->
     <ItemGroup>
         <Reference Include="System.Net.Http" />
+        <Reference Include="System.IO.Compression" />
     </ItemGroup>
 
     <ItemGroup>

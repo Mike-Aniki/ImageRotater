@@ -153,6 +153,7 @@ namespace ImageRotater.Controls
                     "Needs ffmpeg on your PATH. Without it, GIFs download as GIFs.";
             }
 
+            ShowNsfwBox.Visibility = _settings.ShowSteamGridDbAdultFilter ? Visibility.Visible : Visibility.Collapsed;
             RestorePreset();
             if (_kind == ArtworkKind.Logo)
             {
@@ -188,6 +189,7 @@ namespace ImageRotater.Controls
             // gone cannot reach a dead window.
             Unloaded += (s, e) =>
             {
+                ++_searchGeneration;
                 if (ReferenceEquals(_open, this))
                 {
                     _open = null;
@@ -236,11 +238,19 @@ namespace ImageRotater.Controls
             // Both the box and the filter flag: the box's Checked handler is
             // guarded by IsLoaded and does not fire this early.
             ShowAnimatedBox.IsChecked = preset.ShowAnimated;
-            ShowNsfwBox.IsChecked = preset.ShowNsfw;
+            AnimatedOnlyBox.IsChecked = preset.AnimatedOnly;
+            // An empty saved tag selection should reopen with the default.
+            bool showNsfw = _settings.ShowSteamGridDbAdultFilter && preset.ShowNsfw;
+            bool showUntagged = preset.ShowUntagged ||
+                !(showNsfw || preset.ShowHumor || preset.ShowEpilepsy);
+            ShowUntaggedBox.IsChecked = showUntagged;
+            ShowNsfwBox.IsChecked = showNsfw;
             ShowHumorBox.IsChecked = preset.ShowHumor;
             ShowEpilepsyBox.IsChecked = preset.ShowEpilepsy;
             _model.Filter.ShowAnimated = preset.ShowAnimated;
-            _model.Filter.ShowNsfw = preset.ShowNsfw;
+            _model.Filter.AnimatedOnly = preset.AnimatedOnly;
+            _model.Filter.ShowUntagged = showUntagged;
+            _model.Filter.ShowNsfw = showNsfw;
             _model.Filter.ShowHumor = preset.ShowHumor;
             _model.Filter.ShowEpilepsy = preset.ShowEpilepsy;
 
@@ -283,6 +293,8 @@ namespace ImageRotater.Controls
             _model.SnapshotTicks(preset);
 
             preset.ShowAnimated = ShowAnimatedBox.IsChecked == true;
+            preset.AnimatedOnly = AnimatedOnlyBox.IsChecked == true;
+            preset.ShowUntagged = ShowUntaggedBox.IsChecked == true;
             preset.ShowNsfw = ShowNsfwBox.IsChecked == true;
             preset.ShowHumor = ShowHumorBox.IsChecked == true;
             preset.ShowEpilepsy = ShowEpilepsyBox.IsChecked == true;
@@ -360,6 +372,7 @@ namespace ImageRotater.Controls
             _thumbnailCancellation = new CancellationTokenSource();
             _thumbnailsInProgress.Clear();
             int generation = ++_searchGeneration;
+            _model.ResetSteamGridDbPagination();
             Func<bool> isCurrent = () => generation == _searchGeneration;
 
             SearchButton.IsEnabled = false;
@@ -390,7 +403,10 @@ namespace ImageRotater.Controls
                         ? SteamGridDbArtworkType.Logo
                         : SteamGridDbArtworkType.Hero;
 
-                await _model.SearchAsync(SearchBox.Text, type, isCurrent);
+                if (await _model.SearchAsync(SearchBox.Text, type, isCurrent) && isCurrent())
+                {
+                    await _model.LoadMoreAsync(isCurrent);
+                }
             }
             catch (Exception ex)
             {
@@ -939,6 +955,21 @@ namespace ImageRotater.Controls
             PreviewImage.Source = null;
         }
 
+        private async void LoadMore_Click(object sender, RoutedEventArgs e)
+        {
+            int generation = _searchGeneration;
+            try
+            {
+                await _model.LoadMoreAsync(() => generation == _searchGeneration);
+            }
+            catch (Exception ex)
+            {
+                if (generation != _searchGeneration) return;
+                Logger.Error(ex, "ImageRotater: could not load more SteamGridDB artwork");
+                _model.Status = Loc.Get("LOCImageRotaterSearchFailed");
+            }
+        }
+
         private void NextPage_Click(object sender, RoutedEventArgs e)
         {
             _model.NextPage();
@@ -995,11 +1026,15 @@ namespace ImageRotater.Controls
             }
 
             ShowAnimatedBox.IsChecked = _kind != ArtworkKind.Logo;
+            AnimatedOnlyBox.IsChecked = false;
+            ShowUntaggedBox.IsChecked = true;
             ShowNsfwBox.IsChecked = false;
             ShowHumorBox.IsChecked = false;
             ShowEpilepsyBox.IsChecked = false;
 
             _model.Filter.ShowAnimated = _kind != ArtworkKind.Logo;
+            _model.Filter.AnimatedOnly = false;
+            _model.Filter.ShowUntagged = true;
             _model.Filter.ShowNsfw = false;
             _model.Filter.ShowHumor = false;
             _model.Filter.ShowEpilepsy = false;
@@ -1044,7 +1079,9 @@ namespace ImageRotater.Controls
             }
 
             _model.Filter.ShowAnimated = _kind != ArtworkKind.Logo && ShowAnimatedBox.IsChecked == true;
-            _model.Filter.ShowNsfw = ShowNsfwBox.IsChecked == true;
+            _model.Filter.AnimatedOnly = AnimatedOnlyBox.IsChecked == true;
+            _model.Filter.ShowUntagged = ShowUntaggedBox.IsChecked == true;
+            _model.Filter.ShowNsfw = _settings.ShowSteamGridDbAdultFilter && ShowNsfwBox.IsChecked == true;
             _model.Filter.ShowHumor = ShowHumorBox.IsChecked == true;
             _model.Filter.ShowEpilepsy = ShowEpilepsyBox.IsChecked == true;
 

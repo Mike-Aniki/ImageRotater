@@ -74,7 +74,7 @@
     <sys:String x:Key="LOCImageRotaterPixelate" xml:space="preserve">Pixelisation</sys:String>
     <sys:String x:Key="LOCImageRotaterZoom" xml:space="preserve">Zoom arrière</sys:String>
     <sys:String x:Key="LOCImageRotaterFocus" xml:space="preserve">Mise au point</sys:String>
-    <sys:String x:Key="LOCImageRotaterCut" xml:space="preserve">Coupe directe (sans animation)</sys:String>
+    <sys:String x:Key="LOCImageRotaterCut" xml:space="preserve">Cut (changement instantané)</sys:String>
     <sys:String x:Key="LOCImageRotaterCrossfadeHint" xml:space="preserve">Mélange progressivement l’ancienne image avec la nouvelle.</sys:String>
     <sys:String x:Key="LOCImageRotaterFadeBlackHint" xml:space="preserve">Fait disparaître l’ancienne image dans le noir avant d’afficher la suivante.</sys:String>
     <sys:String x:Key="LOCImageRotaterFadeWhiteHint" xml:space="preserve">Fait disparaître l’ancienne image dans le blanc avant d’afficher la suivante.</sys:String>
@@ -147,7 +147,8 @@
     <sys:String x:Key="LOCImageRotaterShapeAndSize" xml:space="preserve">Format et taille</sys:String>
     <sys:String x:Key="LOCImageRotaterStyle" xml:space="preserve">Style</sys:String>
     <sys:String x:Key="LOCImageRotaterGifConvertHint" xml:space="preserve">Convertit les GIF et WebP animés en MP4 pour une lecture fluide dans Playnite.</sys:String>
-    <sys:String x:Key="LOCImageRotaterAlsoShow" xml:space="preserve">Afficher aussi</sys:String>
+    <sys:String x:Key="LOCImageRotaterSearchTags" xml:space="preserve">Tags</sys:String>
+    <sys:String x:Key="LOCImageRotaterSearchUntagged" xml:space="preserve">Sans tag</sys:String>
     <sys:String x:Key="LOCImageRotaterAnimatedBadge" xml:space="preserve">ANIMÉ</sys:String>
     <sys:String x:Key="LOCImageRotaterPreview" xml:space="preserve">Aperçu</sys:String>
     <sys:String x:Key="LOCImageRotaterSearch" xml:space="preserve">Rechercher</sys:String>
@@ -519,4 +520,27 @@ Les fichiers seront supprimés.</sys:String>
     <sys:String x:Key="LOCImageRotaterOpenToolLinkFailed">Impossible d’ouvrir le lien dans votre navigateur.</sys:String>
     <sys:String x:Key="LOCImageRotaterFfmpegDownloadHint">Dans « release builds », téléchargez ffmpeg-release-essentials.zip. Extrayez l’archive, puis sélectionnez bin\ffmpeg.exe ci-dessous.</sys:String>
     <sys:String x:Key="LOCImageRotaterDenoDownloadHint">Dans « Assets » sur GitHub, téléchargez l’archive Windows correspondant à votre système. Extrayez deno.exe, puis sélectionnez-le ci-dessous.</sys:String>
+    <sys:String x:Key="LOCImageRotaterLoadMoreArtwork">Réessayer de charger le reste</sys:String>
+    <sys:String x:Key="LOCImageRotaterAnimatedOnly">Animés uniquement</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackup" xml:space="preserve">Sauvegarde</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupIntro" xml:space="preserve">Enregistrez vos images, vidéos, packs, ordre de rotation et exclusions ImageRotater dans une archive ZIP.</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupExport" xml:space="preserve">Exporter une sauvegarde</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupImport" xml:space="preserve">Importer une sauvegarde</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupImportHint" xml:space="preserve">Restaurez les médias dans la bibliothèque Playnite actuelle. Les jeux avec des données ImageRotater existantes, sans correspondance ou ambigus sont ignorés.</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupZip" xml:space="preserve">Sauvegarde ImageRotater</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupExported" xml:space="preserve">Jeux sauvegardés : {0}.&#10;{1}</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupCancelled" xml:space="preserve">Opération annulée.</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupError" xml:space="preserve">Échec de l’opération de sauvegarde. {0}</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupPreview" xml:space="preserve">Jeux prêts à restaurer : {0}. Jeux ignorés : {1}. Lancer l’import ?</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupResult" xml:space="preserve">Jeux restaurés : {0}. Jeux non restaurés : {1}.</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupLine" xml:space="preserve">{0} — {1}</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupRestored" xml:space="preserve">Restauré</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupAmbiguous" xml:space="preserve">Correspondance ambiguë</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupUnmatched" xml:space="preserve">Jeu introuvable</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupExisting" xml:space="preserve">Données ImageRotater existantes</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupFailed" xml:space="preserve">Échec de l’import</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupNotApplied" xml:space="preserve">Non importé</sys:String>
+    <sys:String x:Key="LOCImageRotaterBackupReport" xml:space="preserve">Rapport de sauvegarde</sys:String>
+    <sys:String x:Key="LOCImageRotaterNoResultsLoadedPages" xml:space="preserve">Aucun résultat dans les pages chargées</sys:String>
+    <sys:String x:Key="LOCImageRotaterShowAdultFilter" xml:space="preserve">Afficher le filtre « Contenu adulte » dans SteamGridDB</sys:String>
 </ResourceDictionary>

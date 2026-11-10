@@ -567,6 +567,13 @@
                                               Checked="ContentFilter_Changed"
                                               Unchecked="ContentFilter_Changed"
                                               Margin="0,2"/>
+                                    <CheckBox x:Name="AnimatedOnlyBox"
+                                              Style="{StaticResource FilterCheckBoxStyle}"
+                                              Content="{DynamicResource LOCImageRotaterAnimatedOnly}"
+                                              IsEnabled="{Binding IsChecked, ElementName=ShowAnimatedBox}"
+                                              Checked="ContentFilter_Changed"
+                                              Unchecked="ContentFilter_Changed"
+                                              Margin="0,2"/>
                                     <CheckBox x:Name="ConvertGifsBox"
                                               Style="{StaticResource FilterCheckBoxStyle}"
                                               Content="{DynamicResource LOCImageRotaterConvertGifsOnDownload}"
@@ -582,10 +589,12 @@
                             </Expander>
 
                             <Expander x:Name="ContentFilterSection"
-                                      Header="{DynamicResource LOCImageRotaterAlsoShow}"
+                                      Header="{DynamicResource LOCImageRotaterSearchTags}"
                                       Style="{StaticResource SearchFilterExpander}"
                                       IsExpanded="False">
                                 <StackPanel Margin="0,6,0,0">
+                                    <CheckBox x:Name="ShowUntaggedBox" Style="{StaticResource FilterCheckBoxStyle}" Content="{DynamicResource LOCImageRotaterSearchUntagged}" Margin="0,2"
+                                              IsChecked="True" Checked="ContentFilter_Changed" Unchecked="ContentFilter_Changed"/>
                                     <CheckBox x:Name="ShowNsfwBox" Style="{StaticResource FilterCheckBoxStyle}" Content="{DynamicResource LOCImageRotaterAdultContent}" Margin="0,2"
                                               Checked="ContentFilter_Changed" Unchecked="ContentFilter_Changed"/>
                                     <CheckBox x:Name="ShowHumorBox" Style="{StaticResource FilterCheckBoxStyle}" Content="{DynamicResource LOCImageRotaterHumour}" Margin="0,2"
@@ -871,11 +880,23 @@
                         </Style>
                     </Border.Style>
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="430">
-                        <TextBlock Text="{DynamicResource LOCImageRotaterNoResultsTitle}"
-                                   FontSize="20"
+                        <TextBlock FontSize="20"
                                    FontWeight="SemiBold"
                                    HorizontalAlignment="Center"
-                                   Margin="0,0,0,8"/>
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,8">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="{DynamicResource LOCImageRotaterNoResultsTitle}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding CanLoadMore}" Value="True">
+                                            <Setter Property="Text" Value="{DynamicResource LOCImageRotaterNoResultsLoadedPages}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                         <TextBlock Text="{Binding Status}"
                                    Foreground="#95A5AE"
                                    TextAlignment="Center"
@@ -1037,6 +1058,10 @@
             </StackPanel>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <Button Content="{DynamicResource LOCImageRotaterLoadMoreArtwork}"
+                        Margin="0,0,8,0"
+                        Visibility="{Binding CanLoadMore, Converter={StaticResource BoolToVisibility}}"
+                        Click="LoadMore_Click"/>
                 <Button x:Name="DownloadButton"
                         Content="{DynamicResource LOCImageRotaterDownloadSelected}"
                         MinWidth="150"

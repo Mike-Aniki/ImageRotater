@@ -71,6 +71,17 @@ namespace ImageRotater.Tests.Services
                 + "otherwise every still cover would be sent through ffmpeg");
         }
 
+        [TestCase("animated.png")]
+        [TestCase("animated.apng")]
+        public void TwoFrameApngIsConvertible(string name)
+        {
+            string path = Path.Combine(_dir, name);
+            File.WriteAllBytes(path, Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACGFjVEwAAAACAAAAAPONk3AAAAAaZmNUTAAAAAAAAAABAAAAAQAAAAAAAAAAAAEAAgAAVGxhaAAAAA1JREFUeJxj+M/A8B8ABQAB/4mZPR0AAAAaZmNUTAAAAAEAAAABAAAAAQAAAAAAAAAAAAEAAgAAzx+LvAAAABFmZEFUAAAAAnicY2D4z/AfAAQBAf9i5+mcAAAAAElFTkSuQmCC"));
+
+            Assert.IsTrue(GifConverter.IsConvertible(path));
+        }
+
         [Test]
         public void JpegIsNeverConvertible()
         {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
@@ -230,6 +230,7 @@ namespace ImageRotater.Controls
             _selector = selector;
             _settings = settings;
             _nativeInjected = nativeInjected;
+            _desktopCoverLoop = playniteApi?.ApplicationInfo?.Mode == ApplicationMode.Desktop;
             _fileLogger = fileLogger;
             if (_nativeInjected) DisplayImage.ImageFailed += OnNativeImageFailed;
             _playniteConfigPath = playniteApi?.Paths?.ConfigurationPath == null
@@ -1321,6 +1322,7 @@ namespace ImageRotater.Controls
             var fade = new System.Windows.Media.Animation.DoubleAnimation(
                 1.0, 0.0, new Duration(TimeSpan.FromMilliseconds(250)));
             fade.Completed += (s, e) => complete();
+            HideLoopStandby();
             DisplayVideo.BeginAnimation(OpacityProperty, fade);
 
             _unfocusedFadeWatchdog?.Stop();
@@ -1982,6 +1984,7 @@ namespace ImageRotater.Controls
                 return;
             }
 
+            HideLoopStandby();
             DisplayVideo.BeginAnimation(OpacityProperty, null);
             DisplayVideo.Opacity = 1.0;
             DisplayVideo.RenderTransform = System.Windows.Media.Transform.Identity;
@@ -2577,7 +2580,9 @@ namespace ImageRotater.Controls
                 return;
             }
 
-            // Keep the still visible while the video layer fades out.
+            // Keep the still visible while the video layer fades out. The
+            // loop standby must not show through the fading video.
+            HideLoopStandby();
             DisplayImage.BeginAnimation(OpacityProperty, null);
             DisplayImage.Opacity = 1.0;
             DisplayImage.Visibility = Visibility.Visible;
@@ -2807,6 +2812,7 @@ namespace ImageRotater.Controls
             int generation = ++_videoGeneration;
             _videoHandoffStartedGeneration = -1;
 
+            StopCoverVideoLoop();
             DisplayVideo.BeginAnimation(OpacityProperty, null);
             DisplayVideo.OpacityMask = null;
             DisplayVideo.Opacity = 0.0;
@@ -2920,6 +2926,7 @@ namespace ImageRotater.Controls
         {
             ++_videoFadeRevision;
             StopCoverVideoLoop();
+            ReleaseLoopStandby();
             _nativeVideoOpenWatch = null;
             int generation = ++_videoGeneration;
             _videoPath = null;
@@ -3078,6 +3085,7 @@ namespace ImageRotater.Controls
 
             try
             {
+                TraceCoverVideoLoop("media-ended");
                 DisplayVideo.Position = TimeSpan.Zero;
                 DisplayVideo.Play();
                 _videoPlaying = true;

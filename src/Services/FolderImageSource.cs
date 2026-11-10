@@ -128,6 +128,11 @@ namespace ImageRotater.Services
                 return pluginArtwork;
             }
 
+            if (_store.IsNativeArtworkExcluded(game.Id, _kind))
+            {
+                return pluginArtwork;
+            }
+
             // Native artwork is never copied. Resolve the live Playnite image
             // and insert it as the virtual Original candidate.
             // If the current id is a leftover Compatibility write, the preserver

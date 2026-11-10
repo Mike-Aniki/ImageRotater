@@ -102,10 +102,19 @@ namespace ImageRotater.Services
         }
 
         public async Task<SteamGridDbResult<List<SteamGridDbArtwork>>> GetArtworkAsync(
-            int gameId, SteamGridDbArtworkType type)
+            int gameId, SteamGridDbArtworkType type, bool squareOnly = false, int page = 0, bool includeTagged = false)
         {
             string segment = ToUrlSegment(type);
-            string url = BaseUrl + "/" + segment + "/game/" + gameId + DimensionFilterFor(type);
+            string url = BaseUrl + "/" + segment + "/game/" + gameId;
+            if (squareOnly && type == SteamGridDbArtworkType.Grid)
+            {
+                url += "?dimensions=512x512,1024x1024";
+            }
+
+            if (page > 0)
+            {
+                url += (url.IndexOf('?') >= 0 ? "&" : "?") + "page=" + page;
+            }
 
             // SteamGridDB may otherwise return only static artwork. Request
             // both types for covers and backgrounds, then let the existing
@@ -115,6 +124,11 @@ namespace ImageRotater.Services
             if (type != SteamGridDbArtworkType.Logo)
             {
                 url += (url.IndexOf('?') >= 0 ? "&" : "?") + "types=static,animated";
+            }
+
+            if (includeTagged)
+            {
+                url += (url.IndexOf('?') >= 0 ? "&" : "?") + "nsfw=any&humor=any&epilepsy=any";
             }
 
             SteamGridDbResult<JObject> response = await GetJsonAsync(url).ConfigureAwait(false);
@@ -142,13 +156,8 @@ namespace ImageRotater.Services
                             Height = (int?)entry["height"] ?? 0,
                             Style = (string)entry["style"],
                             Mime = (string)entry["mime"],
-                            // These are not boolean fields on the result. The
-                            // API returns them as entries in a tags array, so
-                            // reading entry["nsfw"] silently yielded false for
-                            // everything and made the client-side content
-                            // filter inert. The API also defaults to excluding
-                            // tagged art server-side, so the safe outcome was
-                            // happening for the wrong reason.
+                            // Read the API's content flags and accept the tags
+                            // array representation as well.
                             Nsfw = HasTag(entry, "nsfw"),
                             Humor = HasTag(entry, "humor"),
                             Epilepsy = HasTag(entry, "epilepsy")
@@ -275,6 +284,9 @@ namespace ImageRotater.Services
         // boolean fields on the result object.
         private static bool HasTag(JToken entry, string tag)
         {
+            JToken flag = entry[tag];
+            if (flag?.Type == JTokenType.Boolean && flag.Value<bool>()) return true;
+
             try
             {
                 JToken tags = entry["tags"];
@@ -308,11 +320,6 @@ namespace ImageRotater.Services
         // Every shape is fetched instead, and the browse dialog groups them by
         // aspect ratio so the user chooses. Automatic download still picks by
         // fit to the configured grid cell shape.
-        private static string DimensionFilterFor(SteamGridDbArtworkType type)
-        {
-            return string.Empty;
-        }
-
         private static string ToUrlSegment(SteamGridDbArtworkType type)
         {
             switch (type)

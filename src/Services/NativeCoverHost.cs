@@ -1080,7 +1080,16 @@ namespace ImageRotater.Services
                 nativeTemporarilyHidden = true;
                 // Hidden retains layout and the live native source. Never
                 // restart its async binding when the selected game changes.
-                image.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Hidden);
+                if (detailsRegion)
+                {
+                    // A theme binding can overwrite SetCurrentValue while IR
+                    // owns the details cover. Restore the saved binding on release.
+                    image.SetValue(UIElement.VisibilityProperty, Visibility.Hidden);
+                }
+                else
+                {
+                    image.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Hidden);
+                }
             }
 
             private void RestoreNativeVisibility()

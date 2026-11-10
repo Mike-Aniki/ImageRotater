@@ -111,6 +111,85 @@ namespace ImageRotater.Controls
     public class SteamGridDbSearchViewModel : ObservableObject
     {
         private readonly ISteamGridDbClient _client;
+        private const int SteamGridDbPageSize = 50;
+        private int _steamGridDbGameId;
+        private SteamGridDbArtworkType _steamGridDbType;
+        private int _nextSteamGridDbPage;
+        private bool _hasMoreArtwork;
+        private bool _hasMoreSquares;
+
+        public bool CanLoadMore => !IsBusy && (_hasMoreArtwork || _hasMoreSquares);
+
+        internal void ResetSteamGridDbPagination()
+        {
+            _hasMoreArtwork = false;
+            _hasMoreSquares = false;
+            OnPropertyChanged(nameof(CanLoadMore));
+        }
+
+        internal async Task LoadMoreAsync(Func<bool> isCurrent)
+        {
+            if (!CanLoadMore) return;
+
+            var results = _allResults;
+            int initialCount = results.Count;
+            string error = null;
+            IsBusy = true;
+            try
+            {
+                while ((_hasMoreArtwork || _hasMoreSquares) &&
+                    RequestIsCurrent(isCurrent) && ReferenceEquals(results, _allResults))
+                {
+                    int page = _nextSteamGridDbPage;
+                    var artworkRequest = _hasMoreArtwork
+                        ? _client.GetArtworkAsync(_steamGridDbGameId, _steamGridDbType, page: page, includeTagged: true)
+                        : null;
+                    var squareRequest = _hasMoreSquares
+                        ? _client.GetArtworkAsync(_steamGridDbGameId, _steamGridDbType, squareOnly: true, page: page, includeTagged: true)
+                        : null;
+                    var artwork = artworkRequest == null ? null : await artworkRequest.ConfigureAwait(true);
+                    var squares = squareRequest == null ? null : await squareRequest.ConfigureAwait(true);
+
+                    if (!RequestIsCurrent(isCurrent) || !ReferenceEquals(results, _allResults)) return;
+
+                    if (artwork?.Success == false || squares?.Success == false)
+                    {
+                        error = artwork?.Success == false ? artwork.Error : squares.Error;
+                        break;
+                    }
+
+                    MergeArtwork(artwork?.Data, squareOnly: false);
+                    MergeArtwork(squares?.Data, squareOnly: true);
+                    _hasMoreArtwork = artwork?.Data?.Count >= SteamGridDbPageSize;
+                    _hasMoreSquares = squares?.Data?.Count >= SteamGridDbPageSize;
+                    _nextSteamGridDbPage++;
+                }
+            }
+            finally
+            {
+                if (RequestIsCurrent(isCurrent))
+                {
+                    IsBusy = false;
+                    if (ReferenceEquals(results, _allResults))
+                    {
+                        if (results.Count != initialCount)
+                        {
+                            RebuildFilterOptions();
+                            ApplyFilter(resetPage: false);
+                        }
+                        if (error != null) Status = error;
+                    }
+                }
+            }
+        }
+
+        private void MergeArtwork(IEnumerable<SteamGridDbArtwork> items, bool squareOnly)
+        {
+            if (items == null) return;
+            var ids = new HashSet<int>(_allResults.Select(item => item.Id));
+            _allResults.AddRange(items.Where(item =>
+                (!squareOnly || (item.Width > 0 && item.Width == item.Height)) && ids.Add(item.Id)));
+        }
 
         private List<SteamGridDbArtwork> _allResults = new List<SteamGridDbArtwork>();
 
@@ -254,7 +333,12 @@ namespace ImageRotater.Controls
         public bool IsBusy
         {
             get => _isBusy;
-            set { _isBusy = value; OnPropertyChanged(); }
+            set
+            {
+                _isBusy = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(CanLoadMore));
+            }
         }
 
         public SteamGridDbSearchViewModel(ISteamGridDbClient client)
@@ -464,7 +548,7 @@ namespace ImageRotater.Controls
                 // dispatcher - running the whole method off-thread threw
                 // NotSupportedException from RebuildFilterOptions.
                 List<SteamGridDbArtwork> found =
-                    await Task.Run(() => search.Search(query, 60, safeSearch).ToList()).ConfigureAwait(true);
+                    await Task.Run(() => search.Search(query, safeSearch: safeSearch).ToList()).ConfigureAwait(true);
 
                 if (!RequestIsCurrent(isCurrent)) return false;
 
@@ -489,6 +573,7 @@ namespace ImageRotater.Controls
 
         public async Task<bool> SearchAsync(string gameName, SteamGridDbArtworkType type, Func<bool> isCurrent = null)
         {
+            ResetSteamGridDbPagination();
             if (_client == null || !_client.IsConfigured)
             {
                 Status = Loc.Get("LOCImageRotaterNoSgdbKey");
@@ -517,8 +602,13 @@ namespace ImageRotater.Controls
 
                 // First match: the autocomplete endpoint returns the closest
                 // name match first, which is right for a per-game action.
-                SteamGridDbResult<List<SteamGridDbArtwork>> artwork =
-                    await _client.GetArtworkAsync(games.Data[0].Id, type).ConfigureAwait(true);
+                int gameId = games.Data[0].Id;
+                var artworkRequest = _client.GetArtworkAsync(gameId, type, includeTagged: true);
+                var squareRequest = type == SteamGridDbArtworkType.Grid
+                    ? _client.GetArtworkAsync(gameId, type, squareOnly: true, includeTagged: true)
+                    : null;
+                var artwork = await artworkRequest.ConfigureAwait(true);
+                var squares = squareRequest == null ? null : await squareRequest.ConfigureAwait(true);
 
                 if (!RequestIsCurrent(isCurrent)) return false;
 
@@ -528,7 +618,13 @@ namespace ImageRotater.Controls
                     return false;
                 }
 
-                _allResults = artwork.Data ?? new List<SteamGridDbArtwork>();
+                _steamGridDbGameId = gameId;
+                _steamGridDbType = type;
+                _nextSteamGridDbPage = 1;
+                _hasMoreArtwork = artwork.Data?.Count >= SteamGridDbPageSize;
+                _hasMoreSquares = squares?.Success == true && squares.Data?.Count >= SteamGridDbPageSize;
+                _allResults = artwork.Data?.ToList() ?? new List<SteamGridDbArtwork>();
+                if (squares?.Success == true) MergeArtwork(squares.Data, squareOnly: true);
                 RebuildFilterOptions();
                 ApplyFilter();
 
@@ -755,12 +851,15 @@ namespace ImageRotater.Controls
         // fewer results than the old one.
         public void Clear()
         {
+            ResetSteamGridDbPagination();
             _allResults = new List<SteamGridDbArtwork>();
             RebuildFilterOptions();
             ApplyFilter();
         }
 
-        public void ApplyFilter()
+        public void ApplyFilter() => ApplyFilter(resetPage: true);
+
+        private void ApplyFilter(bool resetPage)
         {
             Filter.Dimensions.Clear();
             foreach (FilterOption option in DimensionOptions.Where(o => o.IsChecked))
@@ -779,7 +878,7 @@ namespace ImageRotater.Controls
             // Back to page one whenever the filter changes: staying on page 4
             // of a result set that just shrank to two pages shows an empty grid
             // and looks like the filter found nothing.
-            _page = 0;
+            _page = resetPage ? 0 : Math.Min(_page, Math.Max(0, PageCount - 1));
 
             ShowCurrentPage();
 

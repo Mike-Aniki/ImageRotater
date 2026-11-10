@@ -154,6 +154,23 @@ namespace ImageRotater.Tests.Services
             Assert.AreEqual(5, WebImageSearch.Parse(string.Join(",", entries), 5).Count);
         }
 
+        [Test]
+        public void DefaultSearchKeepsSmallSquaresAfterSixtyLargerImages()
+        {
+            var entries = new List<string>();
+            for (int i = 0; i < 60; i++)
+            {
+                entries.Add(Entry("https://encrypted-tbn0.example.invalid/t" + i,
+                    "https://example.invalid/" + i + ".jpg", 1080, 1920));
+            }
+            entries.Add(Entry("https://encrypted-tbn0.example.invalid/square",
+                "https://example.invalid/square.jpg", 512, 512));
+
+            var found = Parse(string.Join(",", entries));
+            Assert.AreEqual(61, found.Count);
+            Assert.AreEqual("https://example.invalid/square.jpg", found[60].Url);
+        }
+
         // Largest first: the page orders by its own relevance, which scatters a
         // 4K image among thumbnails.
         [Test]

@@ -16,7 +16,7 @@ using ImageRotater.Services;
 
 namespace ImageRotater
 {
-    public class ImageRotater : GenericPlugin
+    public partial class ImageRotater : GenericPlugin
     {
         private static readonly ILogger Logger = LogManager.GetLogger();
         private Window _navigationWindow;

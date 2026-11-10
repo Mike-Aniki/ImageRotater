@@ -189,7 +189,8 @@ namespace ImageRotater.Services
                 // The GIF is only deleted once the MP4 exists. A failed
                 // conversion leaves the download exactly as it was rather than
                 // losing the artwork the user just chose.
-                if (ConvertGifsToMp4 && GifConverter.IsConvertible(target))
+                bool animatedPng = GifConverter.IsAnimatedPng(target);
+                if (ConvertGifsToMp4 && (animatedPng || GifConverter.IsConvertible(target)))
                 {
                     string converted = GifConverter.Convert(target);
 
@@ -220,6 +221,7 @@ namespace ImageRotater.Services
                 if (settings?.ResizeDownloadedBackgrounds == true
                     && kind == ArtworkKind.Background
                     && !artwork.IsAnimated
+                    && !animatedPng
                     && IsResizableStill(target))
                 {
                     onProgress?.Invoke(new ArtworkDownloadProgress
@@ -256,6 +258,7 @@ namespace ImageRotater.Services
                 if (kind != ArtworkKind.Logo
                     && settings?.OptimiseDownloadedImages == true
                     && !artwork.IsAnimated
+                    && !animatedPng
                     && IsOptimisableStill(target))
                 {
                     onProgress?.Invoke(new ArtworkDownloadProgress

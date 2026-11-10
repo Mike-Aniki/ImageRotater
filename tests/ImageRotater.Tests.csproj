@@ -16,5 +16,6 @@
 
     <ItemGroup>
         <ProjectReference Include="..\src\ImageRotater.csproj" />
+        <Reference Include="System.IO.Compression" />
     </ItemGroup>
 </Project>

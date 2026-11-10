@@ -28,7 +28,7 @@ namespace ImageRotater.Tests.Services
             }
 
             public Task<SteamGridDbResult<List<SteamGridDbArtwork>>> GetArtworkAsync(
-                int gameId, SteamGridDbArtworkType type)
+                int gameId, SteamGridDbArtworkType type, bool squareOnly = false, int page = 0, bool includeTagged = false)
             {
                 return Task.FromResult(SteamGridDbResult<List<SteamGridDbArtwork>>.Ok(
                     new List<SteamGridDbArtwork>()));

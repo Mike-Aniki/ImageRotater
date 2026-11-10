@@ -18,6 +18,8 @@ namespace ImageRotater.Tests.Services
     {
         private class StubClient : ISteamGridDbClient
         {
+            public bool SquaresOnlyInSupplement { get; set; }
+            public bool HasNextPage { get; set; }
             public bool IsConfigured { get { return true; } }
 
             public Task<SteamGridDbResult<List<SteamGridDbGame>>> SearchGamesAsync(string name)
@@ -27,8 +29,26 @@ namespace ImageRotater.Tests.Services
             }
 
             public Task<SteamGridDbResult<List<SteamGridDbArtwork>>> GetArtworkAsync(
-                int gameId, SteamGridDbArtworkType type)
+                int gameId, SteamGridDbArtworkType type, bool squareOnly = false, int page = 0, bool includeTagged = false)
             {
+                if (HasNextPage)
+                {
+                    var results = new List<SteamGridDbArtwork>();
+                    if (!squareOnly && page < 2)
+                        results.AddRange(Enumerable.Range(page * 50 + 1, 50).Select(id =>
+                            new SteamGridDbArtwork { Id = id, Width = 600, Height = 900 }));
+                    else if (!squareOnly && page == 2)
+                        results.Add(new SteamGridDbArtwork { Id = 101, Width = 512, Height = 512 });
+                    return Task.FromResult(SteamGridDbResult<List<SteamGridDbArtwork>>.Ok(results));
+                }
+
+                if (SquaresOnlyInSupplement && !squareOnly)
+                    return Task.FromResult(SteamGridDbResult<List<SteamGridDbArtwork>>.Ok(
+                        new List<SteamGridDbArtwork>
+                        {
+                            new SteamGridDbArtwork { Id = 3, Width = 600, Height = 900 }
+                        }));
+
                 return Task.FromResult(SteamGridDbResult<List<SteamGridDbArtwork>>.Ok(
                     new List<SteamGridDbArtwork>
                     {
@@ -47,6 +67,33 @@ namespace ImageRotater.Tests.Services
         private static AspectGroupOption Group(SteamGridDbSearchViewModel vm, string label)
         {
             return vm.AspectGroups.Single(g => g.Label == label);
+        }
+
+        [Test]
+        public async Task SquareFilterFindsCoversMissingFromTheGeneralResponse()
+        {
+            var vm = new SteamGridDbSearchViewModel(new StubClient { SquaresOnlyInSupplement = true });
+            Assert.IsTrue(await vm.SearchAsync("Warframe", SteamGridDbArtworkType.Grid));
+
+            Group(vm, Loc.Get("LOCImageRotaterAspectSquare")).IsChecked = true;
+
+            CollectionAssert.AreEquivalent(new[] { 1, 2 }, vm.Results.Select(item => item.Id));
+        }
+
+        [Test]
+        public async Task LoadingAllPagesAddsNewFilterOptionsAndPreservesSelection()
+        {
+            var vm = new SteamGridDbSearchViewModel(new StubClient { HasNextPage = true });
+            Assert.IsTrue(await vm.SearchAsync("Warframe", SteamGridDbArtworkType.Grid));
+            vm.Results[0].IsSelected = true;
+            Assert.IsTrue(vm.CanLoadMore);
+
+            await vm.LoadMoreAsync(() => true);
+
+            Assert.IsFalse(vm.CanLoadMore);
+            Assert.AreEqual(1, vm.SelectedArtwork().Single().Id);
+            Group(vm, Loc.Get("LOCImageRotaterAspectSquare")).IsChecked = true;
+            Assert.AreEqual(101, vm.Results.Single().Id);
         }
 
         [Test]

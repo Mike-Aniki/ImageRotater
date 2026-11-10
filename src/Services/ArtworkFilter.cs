@@ -13,6 +13,7 @@ namespace ImageRotater.Services
         public HashSet<string> Dimensions { get; set; }
         public HashSet<string> Styles { get; set; }
 
+        public bool ShowUntagged { get; set; } = true;
         public bool ShowNsfw { get; set; }
         public bool ShowHumor { get; set; }
         public bool ShowEpilepsy { get; set; }
@@ -22,6 +23,7 @@ namespace ImageRotater.Services
         // open the dialog - hiding it meant the best results were invisible
         // unless the user knew to go looking for the checkbox.
         public bool ShowAnimated { get; set; } = true;
+        public bool AnimatedOnly { get; set; }
 
         public ArtworkFilterState()
         {
@@ -108,7 +110,13 @@ namespace ImageRotater.Services
                     continue;
                 }
 
-                // Content flags are opt-in: hidden unless explicitly enabled.
+                if (!item.Nsfw && !item.Humor && !item.Epilepsy && !filter.ShowUntagged)
+                {
+                    continue;
+                }
+
+                // Each warning still requires explicit opt-in, even on an
+                // artwork that also matches another selected tag.
                 if (item.Nsfw && !filter.ShowNsfw)
                 {
                     continue;
@@ -124,7 +132,7 @@ namespace ImageRotater.Services
                     continue;
                 }
 
-                if (item.IsAnimated && !filter.ShowAnimated)
+                if (item.IsAnimated ? !filter.ShowAnimated : filter.ShowAnimated && filter.AnimatedOnly)
                 {
                     continue;
                 }

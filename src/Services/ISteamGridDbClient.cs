@@ -18,7 +18,7 @@ namespace ImageRotater.Services
 
         // Fetches artwork for a resolved game id.
         Task<SteamGridDbResult<List<SteamGridDbArtwork>>> GetArtworkAsync(
-            int gameId, SteamGridDbArtworkType type);
+            int gameId, SteamGridDbArtworkType type, bool squareOnly = false, int page = 0, bool includeTagged = false);
 
         // Downloads one artwork's full image to a local path.
         Task<SteamGridDbResult<byte[]>> DownloadAsync(string url);

@@ -121,8 +121,41 @@ namespace ImageRotater.Services
             }
         }
 
-        // Whether a file actually moves. WebM is video; GIF/APNG use frame
-        // counts and WebP uses the animation bit in its RIFF VP8X header.
+        internal static bool IsAnimatedPng(string path)
+        {
+            string extension = Path.GetExtension(path);
+            if (!string.Equals(extension, ".png", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(extension, ".apng", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            try
+            {
+                using (var reader = new BinaryReader(File.OpenRead(path)))
+                {
+                    if (reader.ReadUInt64() != 0x0A1A0A0D474E5089UL) return false;
+                    var stream = reader.BaseStream;
+                    while (stream.Length - stream.Position >= 12)
+                    {
+                        uint length = ReadPngUInt32(reader);
+                        uint type = reader.ReadUInt32();
+                        if (length > stream.Length - stream.Position - 4) return false;
+                        // acTL must precede the first IDAT chunk.
+                        if (type == 0x4C546361) return length == 8 && ReadPngUInt32(reader) > 1;
+                        if (type == 0x54414449 || type == 0x444E4549) return false;
+                        stream.Seek(length + 4L, SeekOrigin.Current);
+                    }
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            return false;
+        }
+
+        private static uint ReadPngUInt32(BinaryReader reader) =>
+            ((uint)reader.ReadByte() << 24) | ((uint)reader.ReadByte() << 16) |
+            ((uint)reader.ReadByte() << 8) | reader.ReadByte();
+
+        // GDI+ counts GIF frames but only sees the default image of an APNG.
         private static bool HasMultipleFrames(string path)
         {
             string ext = Path.GetExtension(path) ?? string.Empty;
@@ -134,6 +167,11 @@ namespace ImageRotater.Services
             if (ext.Equals(".webp", StringComparison.OrdinalIgnoreCase))
             {
                 return IsAnimatedWebp(path);
+            }
+            if (ext.Equals(".png", StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".apng", StringComparison.OrdinalIgnoreCase))
+            {
+                return IsAnimatedPng(path);
             }
 
             try
